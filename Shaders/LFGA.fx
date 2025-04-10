@@ -10,9 +10,13 @@ uniform float a <
 	ui_max = 1.0;
 > = 1.0;
 
+#ifndef TEMPORAL_RANDOMNESS
+#define TEMPORAL_RANDOMNESS 64
+#endif
+
 #define NOISE_TEX_SIZE 512
 
-uniform int random_value < source = "random"; min = 0; max = NOISE_TEX_SIZE; >;
+uniform int random_value < source = "random"; min = 0; max = TEMPORAL_RANDOMNESS; >;
 
 texture2D noise < source = "LFGANoise.png"; >
 {
@@ -38,7 +42,7 @@ float3 FsrLfga(float4 pos : SV_Position, float2 texcoord : TEXCOORD0) : SV_Targe
 {
 	// Sample noise.
 	float2 tiles = float2(BUFFER_WIDTH, BUFFER_HEIGHT) / float(NOISE_TEX_SIZE);
-	float t = tex2D(samplerNoise, texcoord * tiles + float(random_value) / float(NOISE_TEX_SIZE));
+	float t = tex2D(samplerNoise, texcoord * tiles + float(random_value) / float(TEMPORAL_RANDOMNESS));
 	
 	// Scale noise in range -0.5 to 0.5.
 	t -= 0.5;
