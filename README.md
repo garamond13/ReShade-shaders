@@ -9,5 +9,6 @@ An accurate port of AMD FFX RCAS.
 Ported from: https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK/blob/54fbaafdc34716811751bea5032700e78f5a0f33/sdk/include/FidelityFX/gpu/fsr1/ffx_fsr1.h
 
 **AMD FidelityFX Linear Film Grain Aplicator**  
-An acucurate port of AMD FFX LFGA using white noise as the grain source.  
+An acucurate port of AMD FFX LFGA using blue noise as the grain source.  
+Note: The required blue noise texture (LFGANoise.png) is in the Texures folder.  
 Ported from: https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK/blob/54fbaafdc34716811751bea5032700e78f5a0f33/sdk/include/FidelityFX/gpu/fsr1/ffx_fsr1.h

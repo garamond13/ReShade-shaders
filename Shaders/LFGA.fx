@@ -10,8 +10,23 @@ uniform float a <
 	ui_max = 1.0;
 > = 1.0;
 
-// Reshade uses C rand for random, max cannot be larger than 2^15-1.
-uniform int random_value < source = "random"; min = 0; max = 32767; >;
+#define NOISE_TEX_SIZE 512
+
+uniform int random_value < source = "random"; min = 0; max = NOISE_TEX_SIZE; >;
+
+texture2D noise < source = "LFGANoise.png"; >
+{
+	Width = NOISE_TEX_SIZE;
+	Height = NOISE_TEX_SIZE;
+	Format = R8;
+};
+
+sampler2D samplerNoise
+{
+	Texture = noise;
+	AddressU = WRAP;
+	AddressV = WRAP;
+};
 
 sampler2D samplerColor
 {
@@ -21,12 +36,14 @@ sampler2D samplerColor
 
 float3 FsrLfga(float4 pos : SV_Position, float2 texcoord : TEXCOORD0) : SV_Target
 {
+	// Sample noise.
+	float2 tiles = float2(BUFFER_WIDTH, BUFFER_HEIGHT) / float(NOISE_TEX_SIZE);
+	float t = tex2D(samplerNoise, texcoord * tiles + float(random_value) / float(NOISE_TEX_SIZE));
+	
+	// Scale noise in range -0.5 to 0.5.
+	t -= 0.5;
 	
 	float3 c = tex2D(samplerColor, texcoord).rgb;
-	
-	// Generate white noise in range -0.5 to 0.5.
-	float t = frac(sin(dot(texcoord * (random_value / 32767.0 + 1.0), float2(12.9898, 78.233))) * 43758.5453) - 0.5;
-	
 	return c + (t * a) * min(1.0 - c, c);
 }
 
