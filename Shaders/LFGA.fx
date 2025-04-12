@@ -10,6 +10,13 @@ uniform float a <
 	ui_max = 1.0;
 > = 1.0;
 
+uniform float size <
+	ui_type = "drag";
+	ui_label = "Size";
+	ui_min = 0.001;
+	ui_max = 3.0;
+> = 1.0;
+
 #ifndef TEMPORAL_RANDOMNESS
 #define TEMPORAL_RANDOMNESS 64
 #endif
@@ -41,7 +48,7 @@ sampler2D samplerColor
 float3 FsrLfga(float4 pos : SV_Position, float2 texcoord : TEXCOORD0) : SV_Target
 {
 	// Sample noise.
-	float2 tiles = float2(BUFFER_WIDTH, BUFFER_HEIGHT) / float(NOISE_TEX_SIZE);
+	float2 tiles = float2(BUFFER_WIDTH, BUFFER_HEIGHT) / (float(NOISE_TEX_SIZE) * size);
 	float t = tex2D(samplerNoise, texcoord * tiles + float(random_value) / float(TEMPORAL_RANDOMNESS));
 	
 	// Scale noise in range -0.5 to 0.5.
