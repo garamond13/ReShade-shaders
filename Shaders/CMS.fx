@@ -1,3 +1,5 @@
+ // Color Management System
+ 
  #include "ReShade.fxh"
 
 #ifndef LUT_SIZE
