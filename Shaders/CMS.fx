@@ -1,6 +1,7 @@
  // Color Management System
  
  #include "ReShade.fxh"
+ #include "TriDither.fxh"
 
 #ifndef LUT_SIZE
 #define LUT_SIZE 65
@@ -8,6 +9,10 @@
 
 #ifndef TETRAHEDRAL_INTERPOLATION
 #define TETRAHEDRAL_INTERPOLATION 0
+#endif
+
+#ifndef DITHERING
+#define DITHERING 1
 #endif
 
 texture3D LUTTex < source = "CMSLUT.dds"; >
@@ -25,15 +30,21 @@ sampler3D smpLUT
 
 float3 trilinear_interpolation(float4 pos : SV_Position, float2 texcoord : TEXCOORD0) : SV_Target
 {
-	const float3 color = saturate(tex2D(ReShade::BackBuffer, texcoord).rgb);
+	float3 color = saturate(tex2D(ReShade::BackBuffer, texcoord).rgb);
 	const float scale = float(LUT_SIZE - 1) / float(LUT_SIZE);
 	const float offset = 1.0 / float(LUT_SIZE * 2);
-	return tex3D(smpLUT, color * scale + offset).rgb;
+	color = tex3D(smpLUT, color * scale + offset).rgb;
+
+	#if DITHERING
+	return color + TriDither(color, texcoord, BUFFER_COLOR_BIT_DEPTH);
+	#else
+	return color;
+	#endif
 }
 
 float3 tetrahedral_interpolation(float4 pos : SV_Position, float2 texcoord : TEXCOORD0) : SV_Target
 {
-	const float3 color = tex2D(ReShade::BackBuffer, texcoord).rgb;
+	float3 color = tex2D(ReShade::BackBuffer, texcoord).rgb;
 	const float3 index = saturate(color) * float(LUT_SIZE - 1);
 	
 	// Get barycentric weights.
@@ -53,7 +64,7 @@ float3 tetrahedral_interpolation(float4 pos : SV_Position, float2 texcoord : TEX
 	float3 vert2 = 0.0;
 	float3 vert3 = 1.0;
 
-#define order(x,y,z) \
+	#define order(x,y,z) \
 	cond = c_ ## x ## y && c_ ## y ## z; \
 	s = cond ? r.x ## y ## z : s; \
 	vert2.x = cond ? 1.0 : vert2.x; \
@@ -69,7 +80,13 @@ float3 tetrahedral_interpolation(float4 pos : SV_Position, float2 texcoord : TEX
 	//
 	
 	const float3 base = floor(index) + 0.5;
-	return float3(tex3D(smpLUT, base / float(LUT_SIZE)).rgb * (1.0 - s.x) + tex3D(smpLUT, (base + 1.0) / float(LUT_SIZE)).rgb * s.z + tex3D(smpLUT, (base + vert2) / float(LUT_SIZE)).rgb * (s.x - s.y) + tex3D(smpLUT, (base + vert3) / float(LUT_SIZE)).rgb * (s.y - s.z));
+	color = tex3D(smpLUT, base / float(LUT_SIZE)).rgb * (1.0 - s.x) + tex3D(smpLUT, (base + 1.0) / float(LUT_SIZE)).rgb * s.z + tex3D(smpLUT, (base + vert2) / float(LUT_SIZE)).rgb * (s.x - s.y) + tex3D(smpLUT, (base + vert3) / float(LUT_SIZE)).rgb * (s.y - s.z);
+	
+	#if DITHERING
+	return color + TriDither(color, texcoord, BUFFER_COLOR_BIT_DEPTH);
+	#else
+	return color;
+	#endif
 }
 
 technique CMS < ui_label = "Color Management System"; >
