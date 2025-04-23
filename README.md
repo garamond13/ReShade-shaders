@@ -18,5 +18,5 @@ Color management system provided trough generated 3D LUT using a fast trilinear 
 Note: To generate required 3D LUT for your game and display use provided CMSLUTGenerator.
 
 **UpgradeSwapEffect addon**  
-Upgrades DXGI swapchain swap effect to DXGI_SWAP_EFFECT_FLIP_DISCARD.  
-Note: Use only with DX10 or DX11 games.
+Upgrades DXGI swapchain to flip model.  
+Notes: Use only with DX10 or DX11 games. It disabeles vsync.
