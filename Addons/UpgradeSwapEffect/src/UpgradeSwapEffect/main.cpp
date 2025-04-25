@@ -31,6 +31,15 @@ static bool on_create_swapchain(reshade::api::swapchain_desc& desc, void* hwnd)
 	}
 	desc.present_mode = DXGI_SWAP_EFFECT_FLIP_DISCARD;
 	desc.present_flags |= DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
+	bool force_10bit_format;
+	if (reshade::get_config_value(nullptr, "APP", "Force10BitFormat", force_10bit_format)) {
+		if (force_10bit_format) {
+			desc.back_buffer.texture.format = reshade::api::format::r10g10b10a2_unorm;
+		}
+	}
+	else {
+		reshade::set_config_value(nullptr, "APP", "Force10BitFormat", "0");
+	}
 	return true;
 }
 
@@ -72,20 +81,16 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)
 {
 	switch (fdwReason) {
 		case DLL_PROCESS_ATTACH:
-		{
 			if (!reshade::register_addon(hModule) || MH_Initialize() != MH_OK) {
 				return FALSE;
 			}
 			reshade::register_event<reshade::addon_event::create_swapchain>(on_create_swapchain);
 			reshade::register_event<reshade::addon_event::init_swapchain>(on_init_swapchain);
 			break;
-		}
 		case DLL_PROCESS_DETACH:
-		{
 			reshade::unregister_addon(hModule);
 			MH_Uninitialize();
 			break;
-		}
 	}
 	return TRUE;
 }

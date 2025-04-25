@@ -1,7 +1,10 @@
 ## Usage
 
-Install like any other addon.  
-No extra configuration needed.
+Install like any other addon.
+
+On the first run it will create a config option in the ReShade.ini if it's not already there.  
+`[APP]`  
+`Force10BitFormat=0`
 
 ## Compilation
 
