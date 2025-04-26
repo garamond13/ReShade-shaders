@@ -10,13 +10,12 @@ uniform float sharpness <
 	ui_max = 1.0;
 > = 1.0;
 
-sampler2D samplerColor
-{
-	Texture = ReShade::BackBufferTex;
-	SRGBTexture = true;
-};
-
 float min3(float x, float y, float z)
+{
+	return min(x, min(y, z));
+}
+
+float3 min3(float3 x, float3 y, float3 z)
 {
 	return min(x, min(y, z));
 }
@@ -26,14 +25,29 @@ float max3(float x, float y, float z)
 	return max(x, max(y, z));
 }
 
-float3 min3(float3 x, float3 y, float3 z)
-{
-	return min(x, min(y, z));
-}
-
 float3 max3(float3 x, float3 y, float3 z)
 {
 	return max(x, max(y, z));
+}
+
+float linearize(float x)
+{
+	return x < 0.04045 ? x / 12.92 : pow((x + 0.055) / 1.055, 2.4);
+}
+
+float3 linearize(float3 rgb)
+{
+	return float3(linearize(rgb.r), linearize(rgb.g), linearize(rgb.b));
+}
+
+float delinearize(float x)
+{
+	return x < 0.0031308 ? x * 12.92 : pow(x, 1.0 / 2.4) * 1.055 - 0.055;
+}
+
+float3 delinearize(float3 rgb)
+{
+	return float3(delinearize(rgb.r), delinearize(rgb.g), delinearize(rgb.b));
 }
 
 // This is set at the limit of providing unnatural results for sharpening.
@@ -49,11 +63,11 @@ float3 FsrRcas(float4 pos : SV_Position, float2 texcoord : TEXCOORD0) : SV_Targe
 	//    b
 	//  d e f
 	//    h
-	float3 b = tex2D(samplerColor, texcoord, int2(0, -1)).rgb;
-	float3 d = tex2D(samplerColor, texcoord, int2(-1, 0)).rgb;
-	float3 e = tex2D(samplerColor, texcoord).rgb;
-	float3 f = tex2D(samplerColor, texcoord, int2(1, 0)).rgb;
-	float3 h = tex2D(samplerColor, texcoord, int2(0, 1)).rgb;
+	float3 b = linearize(tex2D(ReShade::BackBuffer, texcoord, int2(0, -1)).rgb);
+	float3 d = linearize(tex2D(ReShade::BackBuffer, texcoord, int2(-1, 0)).rgb);
+	float3 e = linearize(tex2D(ReShade::BackBuffer, texcoord).rgb);
+	float3 f = linearize(tex2D(ReShade::BackBuffer, texcoord, int2(1, 0)).rgb);
+	float3 h = linearize(tex2D(ReShade::BackBuffer, texcoord, int2(0, 1)).rgb);
 
 	// Luma times 2.
 	float bL = b.b * 0.5 + (b.r * 0.5 + b.g);
@@ -87,7 +101,7 @@ float3 FsrRcas(float4 pos : SV_Position, float2 texcoord : TEXCOORD0) : SV_Targe
 
 	// Resolve, which needs the medium precision rcp approximation to avoid visible tonality changes.
 	float rcpL = rcp(4.0 * lobe + 1.0);
-	return (lobe * b + lobe * d + lobe * h + lobe * f + e) * rcpL;
+	return delinearize((lobe * b + lobe * d + lobe * h + lobe * f + e) * rcpL);
 }
 
 technique RCAS < ui_label = "AMD FidelityFX Robust Contrast Adaptive Sharpening"; >
@@ -96,6 +110,5 @@ technique RCAS < ui_label = "AMD FidelityFX Robust Contrast Adaptive Sharpening"
 	{
 		VertexShader = PostProcessVS;
 		PixelShader = FsrRcas;
-		SRGBWriteEnable = true;
 	}
 }

@@ -10,12 +10,6 @@ uniform float sharpness <
 	ui_max = 1.0;
 > = 1.0;
 
-sampler2D samplerColor
-{
-	Texture = ReShade::BackBufferTex;
-	SRGBTexture = true;
-};
-
 float3 min3(float3 x, float3 y, float3 z)
 {
 	return min(x, min(y, z));
@@ -26,21 +20,41 @@ float3 max3(float3 x, float3 y, float3 z)
 	return max(x, max(y, z));
 }
 
+float linearize(float x)
+{
+	return x < 0.04045 ? x / 12.92 : pow((x + 0.055) / 1.055, 2.4);
+}
+
+float3 linearize(float3 rgb)
+{
+	return float3(linearize(rgb.r), linearize(rgb.g), linearize(rgb.b));
+}
+
+float delinearize(float x)
+{
+	return x < 0.0031308 ? x * 12.92 : pow(x, 1.0 / 2.4) * 1.055 - 0.055;
+}
+
+float3 delinearize(float3 rgb)
+{
+	return float3(delinearize(rgb.r), delinearize(rgb.g), delinearize(rgb.b));
+}
+
 float3 casFilterNoScaling(float4 pos : SV_Position, float2 texcoord : TEXCOORD0) : SV_Target
 {
 	// Load a collection of samples in a 3x3 neighorhood, where e is the current pixel.
 	// a b c
 	// d e f
 	// g h i
-	float3 sampleA = tex2D(samplerColor, texcoord, int2(-1, -1)).rgb;
-	float3 sampleB = tex2D(samplerColor, texcoord, int2(0, -1)).rgb;
-	float3 sampleC = tex2D(samplerColor, texcoord, int2(1, -1)).rgb;
-	float3 sampleD = tex2D(samplerColor, texcoord, int2(-1, 0)).rgb;
-	float3 sampleE = tex2D(samplerColor, texcoord).rgb;
-	float3 sampleF = tex2D(samplerColor, texcoord, int2(1, 0)).rgb;
-	float3 sampleG = tex2D(samplerColor, texcoord, int2(-1, 1)).rgb; 
-	float3 sampleH = tex2D(samplerColor, texcoord, int2(0, 1)).rgb;
-	float3 sampleI = tex2D(samplerColor, texcoord, int2(1, 1)).rgb;
+	float3 sampleA = linearize(tex2D(ReShade::BackBuffer, texcoord, int2(-1, -1)).rgb);
+	float3 sampleB = linearize(tex2D(ReShade::BackBuffer, texcoord, int2(0, -1)).rgb);
+	float3 sampleC = linearize(tex2D(ReShade::BackBuffer, texcoord, int2(1, -1)).rgb);
+	float3 sampleD = linearize(tex2D(ReShade::BackBuffer, texcoord, int2(-1, 0)).rgb);
+	float3 sampleE = linearize(tex2D(ReShade::BackBuffer, texcoord).rgb);
+	float3 sampleF = linearize(tex2D(ReShade::BackBuffer, texcoord, int2(1, 0)).rgb);
+	float3 sampleG = linearize(tex2D(ReShade::BackBuffer, texcoord, int2(-1, 1)).rgb); 
+	float3 sampleH = linearize(tex2D(ReShade::BackBuffer, texcoord, int2(0, 1)).rgb);
+	float3 sampleI = linearize(tex2D(ReShade::BackBuffer, texcoord, int2(1, 1)).rgb);
 
 	// Soft min and max.
 	//  a b c             b
@@ -71,7 +85,7 @@ float3 casFilterNoScaling(float4 pos : SV_Position, float2 texcoord : TEXCOORD0)
 	// Filter using green coef only, depending on dead code removal to strip out the extra overhead.
 	float reciprocalWeight = rcp(1.0 + 4.0 * weight.g);
 
-	return saturate((sampleB * weight.g + sampleD * weight.g + sampleF * weight.g + sampleH * weight.g + sampleE) * reciprocalWeight);
+	return delinearize(saturate((sampleB * weight.g + sampleD * weight.g + sampleF * weight.g + sampleH * weight.g + sampleE) * reciprocalWeight));
 }
 
 technique CAS < ui_label = "AMD FidelityFX Contrast Adaptive Sharpening"; >
@@ -80,6 +94,5 @@ technique CAS < ui_label = "AMD FidelityFX Contrast Adaptive Sharpening"; >
 	{
 		VertexShader = PostProcessVS;
 		PixelShader = casFilterNoScaling;
-		SRGBWriteEnable = true;
 	}
 }
