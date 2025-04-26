@@ -10,6 +10,19 @@ uniform float sharpness <
 	ui_max = 1.0;
 > = 1.0;
 
+#ifndef FAST_LINEARIZATION
+#define FAST_LINEARIZATION 1
+#endif
+
+sampler2D smpColor
+ {
+ 	Texture = ReShade::BackBufferTex;
+
+	#if FAST_LINEARIZATION
+ 	SRGBTexture = true;
+	#endif
+ };
+
 float3 min3(float3 x, float3 y, float3 z)
 {
 	return min(x, min(y, z));
@@ -20,25 +33,33 @@ float3 max3(float3 x, float3 y, float3 z)
 	return max(x, max(y, z));
 }
 
-float linearize(float x)
+float _linearize(float x)
 {
 	return x < 0.04045 ? x / 12.92 : pow((x + 0.055) / 1.055, 2.4);
 }
 
-float3 linearize(float3 rgb)
+float3 _linearize(float3 rgb)
 {
-	return float3(linearize(rgb.r), linearize(rgb.g), linearize(rgb.b));
+	return float3(_linearize(rgb.r), _linearize(rgb.g), _linearize(rgb.b));
 }
 
-float delinearize(float x)
+float _delinearize(float x)
 {
 	return x < 0.0031308 ? x * 12.92 : pow(x, 1.0 / 2.4) * 1.055 - 0.055;
 }
 
-float3 delinearize(float3 rgb)
+float3 _delinearize(float3 rgb)
 {
-	return float3(delinearize(rgb.r), delinearize(rgb.g), delinearize(rgb.b));
+	return float3(_delinearize(rgb.r), _delinearize(rgb.g), _delinearize(rgb.b));
 }
+
+#if FAST_LINEARIZATION
+#define linearize(x) (x)
+#define delinearize(x) (x)
+#else
+#define linearize(x) (_linearize(x))
+#define delinearize(x) (_delinearize(x))
+#endif
 
 float3 casFilterNoScaling(float4 pos : SV_Position, float2 texcoord : TEXCOORD0) : SV_Target
 {
@@ -46,15 +67,15 @@ float3 casFilterNoScaling(float4 pos : SV_Position, float2 texcoord : TEXCOORD0)
 	// a b c
 	// d e f
 	// g h i
-	float3 sampleA = linearize(tex2D(ReShade::BackBuffer, texcoord, int2(-1, -1)).rgb);
-	float3 sampleB = linearize(tex2D(ReShade::BackBuffer, texcoord, int2(0, -1)).rgb);
-	float3 sampleC = linearize(tex2D(ReShade::BackBuffer, texcoord, int2(1, -1)).rgb);
-	float3 sampleD = linearize(tex2D(ReShade::BackBuffer, texcoord, int2(-1, 0)).rgb);
-	float3 sampleE = linearize(tex2D(ReShade::BackBuffer, texcoord).rgb);
-	float3 sampleF = linearize(tex2D(ReShade::BackBuffer, texcoord, int2(1, 0)).rgb);
-	float3 sampleG = linearize(tex2D(ReShade::BackBuffer, texcoord, int2(-1, 1)).rgb); 
-	float3 sampleH = linearize(tex2D(ReShade::BackBuffer, texcoord, int2(0, 1)).rgb);
-	float3 sampleI = linearize(tex2D(ReShade::BackBuffer, texcoord, int2(1, 1)).rgb);
+	float3 sampleA = linearize(tex2D(smpColor, texcoord, int2(-1, -1)).rgb);
+	float3 sampleB = linearize(tex2D(smpColor, texcoord, int2(0, -1)).rgb);
+	float3 sampleC = linearize(tex2D(smpColor, texcoord, int2(1, -1)).rgb);
+	float3 sampleD = linearize(tex2D(smpColor, texcoord, int2(-1, 0)).rgb);
+	float3 sampleE = linearize(tex2D(smpColor, texcoord).rgb);
+	float3 sampleF = linearize(tex2D(smpColor, texcoord, int2(1, 0)).rgb);
+	float3 sampleG = linearize(tex2D(smpColor, texcoord, int2(-1, 1)).rgb); 
+	float3 sampleH = linearize(tex2D(smpColor, texcoord, int2(0, 1)).rgb);
+	float3 sampleI = linearize(tex2D(smpColor, texcoord, int2(1, 1)).rgb);
 
 	// Soft min and max.
 	//  a b c             b
@@ -94,5 +115,9 @@ technique CAS < ui_label = "AMD FidelityFX Contrast Adaptive Sharpening"; >
 	{
 		VertexShader = PostProcessVS;
 		PixelShader = casFilterNoScaling;
+
+		#if FAST_LINEARIZATION
+		SRGBWriteEnable = true;
+		#endif
 	}
 }
