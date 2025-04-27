@@ -10,15 +10,11 @@ uniform float sharpness <
 	ui_max = 1.0;
 > = 1.0;
 
-#ifndef FAST_LINEARIZATION
-#define FAST_LINEARIZATION 1
-#endif
-
 sampler2D smpColor
  {
  	Texture = ReShade::BackBufferTex;
 
-	#if FAST_LINEARIZATION
+	#if BUFFER_COLOR_BIT_DEPTH == 8
  	SRGBTexture = true;
 	#endif
  };
@@ -53,7 +49,7 @@ float3 _delinearize(float3 rgb)
 	return float3(_delinearize(rgb.r), _delinearize(rgb.g), _delinearize(rgb.b));
 }
 
-#if FAST_LINEARIZATION
+#if BUFFER_COLOR_BIT_DEPTH == 8
 #define linearize(x) (x)
 #define delinearize(x) (x)
 #else
@@ -116,7 +112,7 @@ technique CAS < ui_label = "AMD FidelityFX Contrast Adaptive Sharpening"; >
 		VertexShader = PostProcessVS;
 		PixelShader = casFilterNoScaling;
 
-		#if FAST_LINEARIZATION
+		#if BUFFER_COLOR_BIT_DEPTH == 8
 		SRGBWriteEnable = true;
 		#endif
 	}
