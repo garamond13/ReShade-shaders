@@ -18,6 +18,7 @@
 #include <vector>
 #include <functional>
 #include <iostream>
+#include <fstream>
 
 struct Config
 {
@@ -76,48 +77,128 @@ static cmsHPROFILE get_custom_dst_profile()
 	return cmsOpenProfileFromFile(g_config.custom_dst_profile.c_str(), "r");
 }
 
-static void fill_lut(std::vector<uint8_t>& lut)
+template<typename T, int byte_depth = sizeof(T)>
+static void fill_lut(std::vector<T>& lut)
 {
+	// We only expect uint8_t and uint16_t.
+	assert(byte_depth == 1 || byte_depth == 2);
+	
+	size_t max;
+	if (byte_depth == 1) {
+		max = 255;
+	}
+	else {
+		max = 65535;
+	}
 	size_t i = 0;
 	for (size_t b = 0; b < g_config.lut_size; ++b) {
 		for (size_t g = 0; g < g_config.lut_size; ++g) {
 			for (size_t r = 0; r < g_config.lut_size; ++r) {
-				lut[i++] = r * 255 / (g_config.lut_size - 1);
-				lut[i++] = g * 255 / (g_config.lut_size - 1);
-				lut[i++] = b * 255 / (g_config.lut_size - 1);
-				i++; // Iterate over alpha.
+				lut[i++] = r * max / (g_config.lut_size - 1);
+				lut[i++] = g * max / (g_config.lut_size - 1);
+				lut[i++] = b * max / (g_config.lut_size - 1);
+				lut[i++] = max; // Alpha.
 			}
 		}
 	}
 }
 
-static bool transform_lut(std::vector<uint8_t>& lut)
+static bool transform_luts(std::vector<uint8_t>& lut8, std::vector<uint16_t>& lut16)
 {
-	// Create the transform from src and dst profiles.
 	cmsUInt32Number flags = cmsFLAGS_NOCACHE | cmsFLAGS_HIGHRESPRECALC | cmsFLAGS_NOOPTIMIZE;
 	if (g_config.bpc) {
 		flags |= cmsFLAGS_BLACKPOINTCOMPENSATION;
 	}
+
+	// Open profiles.
 	auto src_profile = g_config.src_profile();
 	auto dst_profile = g_config.dst_profile();
 	if (!src_profile || !dst_profile) {
 		return false;
 	}
-	auto transform = cmsCreateTransform(src_profile, TYPE_RGBA_8, dst_profile, TYPE_BGRA_8, g_config.intent, flags);
+
+	auto transform8 = cmsCreateTransform(src_profile, TYPE_RGBA_8, dst_profile, TYPE_BGRA_8, g_config.intent, flags);
+	auto transform16 = cmsCreateTransform(src_profile, TYPE_RGBA_16, dst_profile, TYPE_RGBA_16, g_config.intent, flags);
 
 	// At this point we don't need profiles anymore.
 	cmsCloseProfile(src_profile);
 	cmsCloseProfile(dst_profile);
 
-	// Create the LUT.
-	if (!transform) {
+	if (!transform8 || !transform16) {
 		return false;
 	}
-	fill_lut(lut);
-	cmsDoTransform(transform, lut.data(), lut.data(), cube(g_config.lut_size));
-	cmsDeleteTransform(transform);
+
+	// Create LUTs.
+	fill_lut(lut8);
+	fill_lut(lut16);
+	cmsDoTransform(transform8, lut8.data(), lut8.data(), cube(g_config.lut_size));
+	cmsDoTransform(transform16, lut16.data(), lut16.data(), cube(g_config.lut_size));
+	
+	// Clean up.
+	cmsDeleteTransform(transform8);
+	cmsDeleteTransform(transform16);
 
 	return true;
+}
+
+static void write_lut_to_cube_file(const std::vector<uint16_t>& lut)
+{
+    std::ofstream file("CMSLUT.cube");
+	if (!file.is_open()) {
+        std::cerr << "ERROR: Faild to save CUBE LUT.\n";
+        return;
+    }
+
+	// Write the metadata header.
+	file << "# Created by CMSLUTGenerator\n";
+	file << "LUT_3D_SIZE " << g_config.lut_size << "\n";
+	file << "DOMAIN_MIN 0.0 0.0 0.0\n";
+	file << "DOMAIN_MAX 1.0 1.0 1.0\n";
+	file << "\n";
+
+	// Write the normalized RGB table.
+	size_t i = 0;
+	while (i < cube(g_config.lut_size) * 4) {
+		file
+			<< lut[i++] / 65535.0 << " "
+			<< lut[i++] / 65535.0 << " "
+			<< lut[i++] / 65535.0 << "\n";
+		i++; // Iterate over alpha.
+	}
+
+    file.close();
+	std::cout << "Successfully saved CUBE LUT.\n";
+}
+
+static void write_lut_to_dds_file(std::vector<uint8_t>& lut)
+{
+	// We need to manualy create an array of 2D slices from the LUT data.
+	std::vector<DirectX::Image> images(g_config.lut_size);
+	const size_t row_pitch = g_config.lut_size * 4; // width * n channels * bytes per channel
+	const size_t slice_pitch = row_pitch * g_config.lut_size; // row pitch * height
+	for (size_t i = 0; i < g_config.lut_size; ++i) {
+		images[i].width = g_config.lut_size;
+		images[i].height = g_config.lut_size;
+		images[i].format = DXGI_FORMAT_R8G8B8A8_UNORM;
+		images[i].rowPitch = row_pitch;
+		images[i].slicePitch = slice_pitch;
+		images[i].pixels = lut.data() + i * slice_pitch;
+	}
+
+	// Create the final 3D volume image.
+	DirectX::ScratchImage scratch_image;
+	auto hr = scratch_image.Initialize3DFromImages(images.data(), images.size());
+	if (FAILED(hr)) {
+		std::cerr << "ERROR: Faild to save DDS LUT.\n";
+		return;
+	}
+
+	hr = DirectX::SaveToDDSFile(scratch_image.GetImages(), scratch_image.GetImageCount(), scratch_image.GetMetadata(), DirectX::DDS_FLAGS_NONE, L"CMSLUT.dds");
+	if (FAILED(hr)) {
+		std::cerr << "ERROR: Faild to save DDS LUT.\n";
+		return;
+	}
+	std::cout << "Successfully saved DDS LUT.\n";
 }
 
 int main(int argc, char** argv)
@@ -149,36 +230,29 @@ int main(int argc, char** argv)
 
 	// Setup g_config.
 	switch (result["src-profile"].as<int>()) {
-	case 0: {
-		g_config.src_profile = cmsCreate_sRGBProfile;
-		break;
-	}
-	case 1: {
-		g_config.src_profile = cms_create_profile_srgb;
-		break;
-	}
-	case 2: {
-		g_config.src_profile = get_custom_src_profile;
-		break;
-	}
-	default: {
-		return 1;
-	}
+		case 0:
+			g_config.src_profile = cmsCreate_sRGBProfile;
+			break;
+		case 1:
+			g_config.src_profile = cms_create_profile_srgb;
+			break;
+		case 2:
+			g_config.src_profile = get_custom_src_profile;
+			break;
+		default:
+			return 1;
 	}
 	g_config.gamma = result["gamma"].as<float>();
 	g_config.custom_src_profile = result["src-icc-path"].as<std::string>();
 	switch (result["dst-profile"].as<int>()) {
-	case 0: {
-		g_config.dst_profile = get_display_profile;
-		break;
-	}
-	case 1: {
-		g_config.dst_profile = get_custom_dst_profile;
-		break;
-	}
-	default: {
-		return 1;
-	}
+		case 0:
+			g_config.dst_profile = get_display_profile;
+			break;
+		case 1:
+			g_config.dst_profile = get_custom_dst_profile;
+			break;
+		default:
+			return 1;
 	}
 	g_config.custom_dst_profile = result["dst-icc-path"].as<std::string>();
 	g_config.lut_size = result["lut-size"].as<size_t>();
@@ -187,45 +261,17 @@ int main(int argc, char** argv)
 
 	//
 
-	// Tranform LUT.
-	std::vector<uint8_t> lut(cube(g_config.lut_size) * 4);
-	if (!transform_lut(lut)) {
-		std::cerr << "ERROR: Faild to create the LUT.\n";
+	// Create and tranform LUTs.
+	std::vector<uint8_t> lut8(cube(g_config.lut_size) * 4);
+	std::vector<uint16_t> lut16(cube(g_config.lut_size) * 4);
+	if (!transform_luts(lut8, lut16)) {
+		std::cerr << "ERROR: Faild to create LUTs.\n";
 		return 1;
 	}
 
-	// Save the LUT as DDS 3D volume texture.
-	//
-
-	// We need to manualy create an array of 2D slices from the LUT data.
-	std::vector<DirectX::Image> images(g_config.lut_size);
-	const size_t row_pitch = g_config.lut_size * 4; // width * n channels * bytes per channel
-	const size_t slice_pitch = row_pitch * g_config.lut_size; // row pitch * height
-	uint8_t* lut_data = reinterpret_cast<uint8_t*>(lut.data());
-	for (size_t i = 0; i < g_config.lut_size; ++i) {
-		images[i].width = g_config.lut_size;
-		images[i].height = g_config.lut_size;
-		images[i].format = DXGI_FORMAT_R8G8B8A8_UNORM;
-		images[i].rowPitch = row_pitch;
-		images[i].slicePitch = slice_pitch;
-		images[i].pixels = lut_data + i * slice_pitch;
-	}
-
-	// Create the final 3D volume image.
-	DirectX::ScratchImage scratchImage;
-	auto hr = scratchImage.Initialize3DFromImages(images.data(), images.size());
-	if (FAILED(hr)) {
-		std::cerr << "ERROR: Faild to save the LUT.\n";
-		return 1;
-	}
-
-	hr = DirectX::SaveToDDSFile(scratchImage.GetImages(), scratchImage.GetImageCount(), scratchImage.GetMetadata(), DirectX::DDS_FLAGS_NONE, L"CMSLUT.dds");
-	if (FAILED(hr)) {
-		std::cerr << "ERROR: Faild to save the LUT.\n";
-		return 1;
-	}
-
-	//
+	// Save LUTs.
+	write_lut_to_cube_file(lut16);
+	write_lut_to_dds_file(lut8);
 
 	return 0;
 }

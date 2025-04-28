@@ -15,12 +15,24 @@
 #define DITHERING 1
 #endif
 
-texture3D LUTTex < source = "CMSLUT.dds"; >
+#ifndef CUBE_LUT
+#define CUBE_LUT 0
+#endif
+
+#if CUBE_LUT
+#define TEX_SOURCE "CMSLUT.cube"
+#define TEX_FORMAT RGBA32F
+#else
+#define TEX_SOURCE "CMSLUT.dds"
+#define TEX_FORMAT RGBA8
+#endif
+
+texture3D LUTTex < source = TEX_SOURCE; >
 {
 	Width = LUT_SIZE;
 	Height = LUT_SIZE;
 	Depth = LUT_SIZE;
-	Format = RGBA8;
+	Format = TEX_FORMAT;
 };
 
 sampler3D smpLUT
