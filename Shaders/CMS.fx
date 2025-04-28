@@ -1,7 +1,7 @@
- // Color Management System
- 
- #include "ReShade.fxh"
- #include "TriDither.fxh"
+// Color Management System
+
+#include "ReShade.fxh"
+#include "TriDither.fxh"
 
 #ifndef LUT_SIZE
 #define LUT_SIZE 65

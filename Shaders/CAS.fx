@@ -11,13 +11,13 @@ uniform float sharpness <
 > = 1.0;
 
 sampler2D smpColor
- {
- 	Texture = ReShade::BackBufferTex;
+{
+	Texture = ReShade::BackBufferTex;
 
 	#if BUFFER_COLOR_BIT_DEPTH == 8
- 	SRGBTexture = true;
+	SRGBTexture = true;
 	#endif
- };
+};
 
 float3 min3(float3 x, float3 y, float3 z)
 {

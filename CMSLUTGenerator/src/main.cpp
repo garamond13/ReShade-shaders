@@ -143,11 +143,11 @@ static bool transform_luts(std::vector<uint8_t>& lut8, std::vector<uint16_t>& lu
 
 static void write_lut_to_cube_file(const std::vector<uint16_t>& lut)
 {
-    std::ofstream file("CMSLUT.cube");
+	std::ofstream file("CMSLUT.cube");
 	if (!file.is_open()) {
-        std::cerr << "ERROR: Faild to save CUBE LUT.\n";
-        return;
-    }
+		std::cerr << "ERROR: Faild to save CUBE LUT.\n";
+		return;
+	}
 
 	// Write the metadata header.
 	file << "# Created by CMSLUTGenerator\n";
@@ -166,7 +166,7 @@ static void write_lut_to_cube_file(const std::vector<uint16_t>& lut)
 		i++; // Iterate over alpha.
 	}
 
-    file.close();
+	file.close();
 	std::cout << "Successfully saved CUBE LUT.\n";
 }
 
