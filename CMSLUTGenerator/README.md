@@ -1,6 +1,6 @@
 ## Usage
 
-You can double click CMSLUTGenerator.exe to generate CMSLUT.dds file in the same folder using the default options.  
+You can double click CMSLUTGenerator.exe to generate both CMSLUT.dds and CMSLUT.cube files in the same folder using the default options.  
 Or you can use it via command line (cmd.exe). Use `CMSLUTGenerator.exe -h` to print help and show the default options.
 
 ## Compilation
