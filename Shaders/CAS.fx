@@ -29,24 +29,14 @@ float3 max3(float3 x, float3 y, float3 z)
 	return max(x, max(y, z));
 }
 
-float _linearize(float x)
-{
-	return x < 0.04045 ? x / 12.92 : pow((x + 0.055) / 1.055, 2.4);
-}
-
 float3 _linearize(float3 rgb)
 {
-	return float3(_linearize(rgb.r), _linearize(rgb.g), _linearize(rgb.b));
-}
-
-float _delinearize(float x)
-{
-	return x < 0.0031308 ? x * 12.92 : pow(x, 1.0 / 2.4) * 1.055 - 0.055;
+	return rgb < 0.04045 ? rgb / 12.92 : pow((rgb + 0.055) / 1.055, 2.4);
 }
 
 float3 _delinearize(float3 rgb)
 {
-	return float3(_delinearize(rgb.r), _delinearize(rgb.g), _delinearize(rgb.b));
+	return rgb < 0.0031308 ? rgb * 12.92 : pow(rgb, 1.0 / 2.4) * 1.055 - 0.055;
 }
 
 #if BUFFER_COLOR_BIT_DEPTH == 8
