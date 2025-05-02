@@ -148,7 +148,6 @@ static void write_lut_to_cube_file(const std::vector<uint16_t>& lut)
 		std::cerr << "ERROR: Faild to save CUBE LUT.\n";
 		return;
 	}
-	std::setprecision(2);
 
 	// Write the metadata header.
 	file << "# Created by CMSLUTGenerator\n";
