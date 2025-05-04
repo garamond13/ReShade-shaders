@@ -236,7 +236,7 @@ int main(int argc, char** argv)
 		("dst-icc-path", "Set path to custom destination ICC profile if dst-profile=1", cxxopts::value<std::string>()->default_value(""))
 		("lut-size", "LUT size. The final size will be lut-size^3", cxxopts::value<size_t>()->default_value("65"))
 		("intent", "Rendering intent. 0 - perceptual, 1 - relative colorimetric, 2 - saturation, 3 - absolute colorimetric", cxxopts::value<int>()->default_value("0"))
-		("bpc", "Enable Black Point Compensation. 0 - disable, 1 - enable", cxxopts::value<bool>()->default_value("1"))
+		("bpc", "Black Point Compensation. 0 - disable, 1 - enable", cxxopts::value<int>()->default_value("0"))
 		;
 
 	auto result = options.parse(argc, argv);
@@ -276,7 +276,7 @@ int main(int argc, char** argv)
 	g_config.custom_dst_profile = result["dst-icc-path"].as<std::string>();
 	g_config.lut_size = result["lut-size"].as<size_t>();
 	g_config.intent = result["intent"].as<int>();
-	g_config.bpc = result["bpc"].as<bool>();
+	g_config.bpc = result["bpc"].as<int>();
 
 	//
 
