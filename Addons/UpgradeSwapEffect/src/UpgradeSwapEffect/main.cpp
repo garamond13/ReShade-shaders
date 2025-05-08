@@ -12,14 +12,12 @@ static Present1 present1 = nullptr;
 
 static HRESULT __stdcall detour_present(IDXGISwapChain* swapchain, UINT sync_interval, UINT flags)
 {
-	sync_interval = 0; // Have to be 0 for DXGI_PRESENT_ALLOW_TEARING flag.
 	flags |= DXGI_PRESENT_ALLOW_TEARING;
 	return present(swapchain, sync_interval, flags);
 }
 
 static HRESULT __stdcall detour_present1(IDXGISwapChain1* swapchain, UINT sync_interval, UINT present_flags, const DXGI_PRESENT_PARAMETERS* present_params)
 {
-	sync_interval = 0; // Have to be 0 for DXGI_PRESENT_ALLOW_TEARING flag.
 	present_flags |= DXGI_PRESENT_ALLOW_TEARING;
 	return present1(swapchain, sync_interval, present_flags, present_params);
 }
@@ -31,16 +29,38 @@ static bool on_create_swapchain(reshade::api::swapchain_desc& desc, void* hwnd)
 	}
 	desc.present_mode = DXGI_SWAP_EFFECT_FLIP_DISCARD;
 	desc.present_flags |= DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
-	bool force_10bit_format;
-	if (reshade::get_config_value(nullptr, "APP", "Force10BitFormat", force_10bit_format)) {
-		if (force_10bit_format) {
-			desc.back_buffer.texture.format = reshade::api::format::r10g10b10a2_unorm;
-		}
-	}
-	else {
+
+	// Required for DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING flag.
+	desc.sync_interval = 0;
+	desc.fullscreen_state = false;
+
+	bool force_10bit_format = false;
+	if (!reshade::get_config_value(nullptr, "APP", "Force10BitFormat", force_10bit_format)) {
 		reshade::set_config_value(nullptr, "APP", "Force10BitFormat", "0");
 	}
+	if (force_10bit_format) {
+		desc.back_buffer.texture.format = reshade::api::format::r10g10b10a2_unorm;
+	}
+
+	// _srgb formats are not supported when using flip swap effects.
+	else if (desc.back_buffer.texture.format == reshade::api::format::r8g8b8a8_unorm_srgb) {
+		desc.back_buffer.texture.format = reshade::api::format::r8g8b8a8_unorm;
+	}
+	else if (desc.back_buffer.texture.format == reshade::api::format::b8g8r8a8_unorm_srgb) {
+		desc.back_buffer.texture.format = reshade::api::format::b8g8r8a8_unorm;
+	}
+
 	return true;
+}
+
+// Prevent entering fullscreen mode.
+// Required for DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING flag.
+static bool on_set_fullscreen_state(reshade::api::swapchain* swapchain, bool fullscreen, void* hmonitor)
+{
+	if (fullscreen) {
+		return true;
+	}
+	return false;
 }
 
 static void on_init_swapchain(reshade::api::swapchain* swapchain, bool resize)
@@ -85,6 +105,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)
 				return FALSE;
 			}
 			reshade::register_event<reshade::addon_event::create_swapchain>(on_create_swapchain);
+			reshade::register_event<reshade::addon_event::set_fullscreen_state>(on_set_fullscreen_state);
 			reshade::register_event<reshade::addon_event::init_swapchain>(on_init_swapchain);
 			break;
 		case DLL_PROCESS_DETACH:
