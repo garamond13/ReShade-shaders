@@ -22,7 +22,7 @@ static HRESULT __stdcall detour_present1(IDXGISwapChain1* swapchain, UINT sync_i
 	return present1(swapchain, sync_interval, present_flags, present_params);
 }
 
-static bool on_create_swapchain(reshade::api::swapchain_desc& desc, void* hwnd)
+static bool on_create_swapchain(reshade::api::device_api api, reshade::api::swapchain_desc& desc, void* hwnd)
 {
 	if (desc.back_buffer_count < 2) {
 		desc.back_buffer_count = 2;
