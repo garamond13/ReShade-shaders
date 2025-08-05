@@ -23,3 +23,6 @@ Notes: Use only with DX10 or DX11 games. It disabeles vsync and fullscreen exclu
 
 **UpgradeRenderTargets addon**  
 Upgrades render targets to higher precision formats.
+
+**AccurateFPSLimiter**
+An accurate FPS limiter.
