@@ -19,7 +19,7 @@ Note: To generate required 3D LUT for your game and display use provided CMSLUTG
 
 **UpgradeSwapEffect addon**  
 Upgrades DXGI swapchain to flip model.  
-Notes: Use only with DX10 or DX11 games. It disabeles vsync.
+Notes: Use only with DX10 or DX11 games. It disabeles vsync and fullscreen exclusive mode.
 
 **UpgradeRenderTargets addon**  
 Upgrades render targets to higher precision formats.

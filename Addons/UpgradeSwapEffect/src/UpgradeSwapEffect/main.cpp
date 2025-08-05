@@ -28,11 +28,17 @@ static bool on_create_swapchain(reshade::api::device_api api, reshade::api::swap
 		desc.back_buffer_count = 2;
 	}
 	desc.present_mode = DXGI_SWAP_EFFECT_FLIP_DISCARD;
-	desc.present_flags |= DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
 
-	// Required for DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING flag.
-	desc.sync_interval = 0;
+	// Disable vsync in windowed mode.
+	// Also present have to be called with DXGI_PRESENT_ALLOW_TEARING flag.
+	desc.present_flags |= DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
+	
 	desc.fullscreen_state = false;
+
+	// Force max screen refresh rate.
+	desc.fullscreen_refresh_rate = 0.0f;
+
+	desc.sync_interval = 0;
 
 	bool force_10bit_format = false;
 	if (!reshade::get_config_value(nullptr, "APP", "Force10BitFormat", force_10bit_format)) {
@@ -54,7 +60,6 @@ static bool on_create_swapchain(reshade::api::device_api api, reshade::api::swap
 }
 
 // Prevent entering fullscreen mode.
-// Required for DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING flag.
 static bool on_set_fullscreen_state(reshade::api::swapchain* swapchain, bool fullscreen, void* hmonitor)
 {
 	if (fullscreen) {
