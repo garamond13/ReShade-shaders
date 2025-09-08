@@ -40,47 +40,46 @@ sampler3D smpLUT
 	Texture = LUTTex;
 };
 
-float3 trilinear_interpolation(float4 pos : SV_Position, float2 texcoord : TEXCOORD0) : SV_Target
+float4 sample_trilinear(float4 pos : SV_Position, float2 texcoord : TEXCOORD0) : SV_Target
 {
-	float3 color = saturate(tex2D(ReShade::BackBuffer, texcoord).rgb);
+	float4 color = tex2D(ReShade::BackBuffer, texcoord);
 	const float scale = float(LUT_SIZE - 1) / float(LUT_SIZE);
 	const float offset = 1.0 / float(LUT_SIZE * 2);
-	color = tex3D(smpLUT, color * scale + offset).rgb;
+	color.rgb = tex3D(smpLUT, saturate(color.rgb) * scale + offset).rgb;
 
 	#if DITHERING
-	return color + TriDither(color, texcoord, BUFFER_COLOR_BIT_DEPTH);
-	#else
-	return color;
+	color.rgb = color.rgb + TriDither(color.rgb, texcoord, BUFFER_COLOR_BIT_DEPTH);
 	#endif
+
+	return float4(color.rgb, color.a);
 }
 
-float3 tetrahedral_interpolation(float4 pos : SV_Position, float2 texcoord : TEXCOORD0) : SV_Target
+float4 sample_tetrahedral(float4 pos : SV_Position, float2 texcoord : TEXCOORD0) : SV_Target
 {
-	float3 color = tex2D(ReShade::BackBuffer, texcoord).rgb;
-	const float3 index = saturate(color) * float(LUT_SIZE - 1);
+	float4 color = tex2D(ReShade::BackBuffer, texcoord);
+	const float3 coord = saturate(color.rgb) * float(LUT_SIZE - 1);
 	
-	// Get barycentric weights.
 	// See https://doi.org/10.2312/egp.20211031
 	//
 	
-	const float3 r = frac(index);
+	const float3 r = frac(coord);
+	bool cond;
+	float3 s = 0.0;
+	int3 vert2 = 0;
+	int3 vert3 = 1;
 	const bool3 c = r.xyz >= r.yzx;
 	const bool c_xy = c.x;
 	const bool c_yz = c.y;
 	const bool c_zx = c.z;
-	const bool c_yx =!c.x;
-	const bool c_zy =!c.y;
-	const bool c_xz =!c.z;
-	bool cond;
-	float3 s = 0.0;
-	float3 vert2 = 0.0;
-	float3 vert3 = 1.0;
+	const bool c_yx = !c.x;
+	const bool c_zy = !c.y;
+	const bool c_xz = !c.z;
 
 	#define order(x,y,z) \
 	cond = c_ ## x ## y && c_ ## y ## z; \
 	s = cond ? r.x ## y ## z : s; \
-	vert2.x = cond ? 1.0 : vert2.x; \
-	vert3.z = cond ? 0.0 : vert3.z;
+	vert2.x = cond ? 1 : vert2.x; \
+	vert3.z = cond ? 0 : vert3.z;
 	
 	order(x, y, z)
 	order(x, z, y)
@@ -88,17 +87,23 @@ float3 tetrahedral_interpolation(float4 pos : SV_Position, float2 texcoord : TEX
 	order(z, y, x)
 	order(y, z, x)
 	order(y, x, z)
+
+	const float4 bary = float4(1.0 - s.x, s.z, s.x - s.y, s.y - s.z);
 	
 	//
 	
-	const float3 base = floor(index) + 0.5;
-	color = tex3D(smpLUT, base / float(LUT_SIZE)).rgb * (1.0 - s.x) + tex3D(smpLUT, (base + 1.0) / float(LUT_SIZE)).rgb * s.z + tex3D(smpLUT, (base + vert2) / float(LUT_SIZE)).rgb * (s.x - s.y) + tex3D(smpLUT, (base + vert3) / float(LUT_SIZE)).rgb * (s.y - s.z);
+	const int3 base = floor(coord);
+	const float3 v0 = tex3Dfetch(smpLUT, base, 0).rgb * bary.x;
+	const float3 v1 = tex3Dfetch(smpLUT, base + 1, 0).rgb * bary.y;
+	const float3 v2 = tex3Dfetch(smpLUT, base + vert2, 0).rgb * bary.z;
+	const float3 v3 = tex3Dfetch(smpLUT, base + vert3, 0).rgb * bary.w;
+	color.rgb = v0 + v1 + v2 + v3;
 	
 	#if DITHERING
-	return color + TriDither(color, texcoord, BUFFER_COLOR_BIT_DEPTH);
-	#else
-	return color;
+	color.rgb = color.rgb + TriDither(color.rgb, texcoord, BUFFER_COLOR_BIT_DEPTH);
 	#endif
+
+	return float4(color.rgb, color.a);
 }
 
 technique CMS < ui_label = "Color Management System"; >
@@ -108,9 +113,9 @@ technique CMS < ui_label = "Color Management System"; >
 		VertexShader = PostProcessVS;
 
 		#if TETRAHEDRAL_INTERPOLATION
-		PixelShader = tetrahedral_interpolation;
+		PixelShader = sample_tetrahedral;
 		#else
-		PixelShader = trilinear_interpolation;
+		PixelShader = sample_trilinear;
 		#endif
 	}
 }
