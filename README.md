@@ -27,8 +27,8 @@ Draw an image overlay. Most usefull for crosshairs.
 Note: Required overlay.png texture should be of the same size as a game resolution (back buffer size). The texture background should be transparent.
 
 **UpgradeSwapEffect addon**  
-Upgrades DXGI swapchain to flip model.  
-Notes: Use only with DX10 or DX11 games. It disabeles vsync and fullscreen exclusive mode.
+Upgrades DXGI swapchain to flip model and enable tearing (modern borderless window).  
+Notes: Use only on DX10+ games.
 
 **UpgradeRenderTargets addon**  
 Upgrades render targets to higher precision formats.
