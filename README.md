@@ -35,3 +35,6 @@ Upgrades render targets to higher precision formats.
 
 **AccurateFPSLimiter addon**  
 An accurate FPS limiter.
+
+**BioshockGraphicalUpgrade**  
+Graphical upgrade for Bioshock (see Addons/BioshockGraphicalUpgrade for details).
