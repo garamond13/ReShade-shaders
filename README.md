@@ -37,4 +37,7 @@ Upgrades render targets to higher precision formats.
 An accurate FPS limiter.
 
 **BioshockGraphicalUpgrade**  
-Graphical upgrade for Bioshock (see Addons/BioshockGraphicalUpgrade for details).
+Graphical upgrade for Bioshock. See Addons/BioshockGraphicalUpgrade for details.
+
+**FarCry2GraphicalUpgrade**  
+Graphical upgrade for Bioshock. See Addons/FarCry2GraphicalUpgrade for details.
