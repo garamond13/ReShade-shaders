@@ -14,6 +14,10 @@
 - Install ReShade 6.6.0+ with full add-on support.
 - Copy **FarCry2GraphicalUpgrade.addon32** and **GraphicalUpgrade** folder in the games folder where **farcry2.exe** is (ReShade should be installed in the same folder).
 - If you wanna apply LUT, only 3D CUBE LUTs are supported. Put your **LUT.CUBE** (has to be named **LUT.CUBE**) file inside the **GraphicalUpgrade** folder, LUT will be auto detected and applied.
+- Note that it works (should be used) with DirectX 10 only.
+
+## Known issues
+- Save game image may apear black or wrong in other ways. This does not corupt the save file in any other way, the save file should still work perfectly fine.
 
 ## Compilation
 - You can clone [ReShade](https://github.com/crosire/reshade) and add FarCry2GraphicalUpgrade project to Examples solution, then build the project.
