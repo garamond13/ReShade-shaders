@@ -11,10 +11,6 @@ public:
 		: ptr(nullptr)
 	{}
 
-	Com_ptr(std::nullptr_t) noexcept
-		: ptr(nullptr)
-	{}
-
 	Com_ptr(T* const other) noexcept
 		: ptr(other)
 	{
@@ -45,15 +41,6 @@ public:
 	}
 
 public:
-
-	Com_ptr<T>& operator=(std::nullptr_t) noexcept
-	{
-		if (ptr) {
-			ptr->Release();
-			ptr = nullptr;
-		}
-		return *this;
-	}
 
 	Com_ptr<T>& operator=(T* const other) noexcept
 	{
@@ -148,7 +135,7 @@ public:
 		return &ptr;
 	}
 
-	void attach(T* other) noexcept
+	void attach(T* const other) noexcept
 	{
 		if (ptr) {
 			ptr->Release();

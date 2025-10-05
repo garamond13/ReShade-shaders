@@ -151,7 +151,13 @@ static void create_vertex_shader(ID3D10Device* device, ID3D10VertexShader** vs, 
 	Com_ptr<ID3D10Blob> error;
 	auto hr = D3DCompileFromFile(path.c_str(), shader_macros, D3D_COMPILE_STANDARD_FILE_INCLUDE, entry_point, "vs_4_1", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &code, &error);
 	if (FAILED(hr)) {
-		MessageBoxA(nullptr, (LPCSTR)error->GetBufferPointer(), "ERROR: D3DCompileFromFile", MB_OK);
+		if (error) {
+			MessageBoxA(nullptr, (LPCSTR)error->GetBufferPointer(), "ERROR: D3DCompileFromFile", MB_OK);
+		}
+		else {
+			const auto text = "HRESULT: " + std::format("{:08X}", hr);
+			MessageBoxA(nullptr, text.c_str(), "ERROR: D3DCompileFromFile", MB_OK);
+		}
 	}
 	ensure(device->CreateVertexShader(code->GetBufferPointer(), code->GetBufferSize(), vs), >= 0);
 }
@@ -164,7 +170,13 @@ static void create_pixel_shader(ID3D10Device* device, ID3D10PixelShader** ps, co
 	Com_ptr<ID3D10Blob> error;
 	auto hr = D3DCompileFromFile(path.c_str(), shader_macros, D3D_COMPILE_STANDARD_FILE_INCLUDE, entry_point, "ps_4_1", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &code, &error);
 	if (FAILED(hr)) {
-		MessageBoxA(nullptr, (LPCSTR)error->GetBufferPointer(), "ERROR: D3DCompileFromFile", MB_OK);
+		if (error) {
+			MessageBoxA(nullptr, (LPCSTR)error->GetBufferPointer(), "ERROR: D3DCompileFromFile", MB_OK);
+		}
+		else {
+			const auto text = "HRESULT: " + std::format("{:08X}", hr);
+			MessageBoxA(nullptr, text.c_str(), "ERROR: D3DCompileFromFile", MB_OK);
+		}
 	}
 	ensure(device->CreatePixelShader(code->GetBufferPointer(), code->GetBufferSize(), ps), >= 0);
 }
@@ -770,7 +782,7 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 }
 
 extern "C" __declspec(dllexport) const char *NAME = "BioshockGrapicalUpgrade";
-extern "C" __declspec(dllexport) const char *DESCRIPTION = "BioshockGrapicalUpgrade v1.0.0";
+extern "C" __declspec(dllexport) const char *DESCRIPTION = "BioshockGrapicalUpgrade v1.0.1";
 extern "C" __declspec(dllexport) const char *WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/BioshockGraphicalUpgrade";
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)
