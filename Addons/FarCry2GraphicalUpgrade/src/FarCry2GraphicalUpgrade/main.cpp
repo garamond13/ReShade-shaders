@@ -24,7 +24,7 @@ static Com_ptr<ID3D10PixelShader> g_ps_srgb_to_linear;
 
 // AMD FFX CAS
 static Com_ptr<ID3D10PixelShader> g_ps_amd_ffx_cas;
-static float g_amd_ffx_cas_sharpness = 0.4;
+static float g_amd_ffx_cas_sharpness = 0.4f;
 
 // LUT
 static size_t g_lut_size;
@@ -78,7 +78,13 @@ static bool replace_shader_code(reshade::api::shader_desc* desc)
 	Com_ptr<ID3D10Blob> error;
 	auto hr = D3DCompileFromFile(path.c_str(), nullptr, nullptr, "main", "ps_4_1", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &g_shader_code.back(), &error);
 	if (FAILED(hr)) {
-		MessageBoxA(nullptr, (LPCSTR)error->GetBufferPointer(), "ERROR: D3DCompileFromFile", MB_OK);
+		if (error) {
+			MessageBoxA(nullptr, (LPCSTR)error->GetBufferPointer(), "ERROR: D3DCompileFromFile", MB_OK);
+		}
+		else {
+			const auto text = "HRESULT: " + std::format("{:08X}", hr);
+			MessageBoxA(nullptr, text.c_str(), "ERROR: D3DCompileFromFile", MB_OK);
+		}
 		return false;
 	}
 
@@ -174,9 +180,15 @@ static void create_vertex_shader(ID3D10Device* device, ID3D10VertexShader** vs, 
 	path /= file;
 	Com_ptr<ID3D10Blob> code;
 	Com_ptr<ID3D10Blob> error;
-	auto hr = D3DCompileFromFile(path.c_str(), shader_macros, D3D_COMPILE_STANDARD_FILE_INCLUDE, "main", "vs_4_1", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &code, &error);
+	auto hr = D3DCompileFromFile(path.c_str(), shader_macros, D3D_COMPILE_STANDARD_FILE_INCLUDE, entry_point, "vs_4_1", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &code, &error);
 	if (FAILED(hr)) {
-		MessageBoxA(nullptr, (LPCSTR)error->GetBufferPointer(), "ERROR: D3DCompileFromFile", MB_OK);
+		if (error) {
+			MessageBoxA(nullptr, (LPCSTR)error->GetBufferPointer(), "ERROR: D3DCompileFromFile", MB_OK);
+		}
+		else {
+			const auto text = "HRESULT: " + std::format("{:08X}", hr);
+			MessageBoxA(nullptr, text.c_str(), "ERROR: D3DCompileFromFile", MB_OK);
+		}
 	}
 	ensure(device->CreateVertexShader(code->GetBufferPointer(), code->GetBufferSize(), vs), >= 0);
 }
@@ -187,9 +199,15 @@ static void create_pixel_shader(ID3D10Device* device, ID3D10PixelShader** ps, co
 	path /= file;
 	Com_ptr<ID3D10Blob> code;
 	Com_ptr<ID3D10Blob> error;
-	auto hr = D3DCompileFromFile(path.c_str(), shader_macros, D3D_COMPILE_STANDARD_FILE_INCLUDE, "main", "ps_4_1", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &code, &error);
+	auto hr = D3DCompileFromFile(path.c_str(), shader_macros, D3D_COMPILE_STANDARD_FILE_INCLUDE, entry_point, "ps_4_1", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &code, &error);
 	if (FAILED(hr)) {
-		MessageBoxA(nullptr, (LPCSTR)error->GetBufferPointer(), "ERROR: D3DCompileFromFile", MB_OK);
+		if (error) {
+			MessageBoxA(nullptr, (LPCSTR)error->GetBufferPointer(), "ERROR: D3DCompileFromFile", MB_OK);
+		}
+		else {
+			const auto text = "HRESULT: " + std::format("{:08X}", hr);
+			MessageBoxA(nullptr, text.c_str(), "ERROR: D3DCompileFromFile", MB_OK);
+		}
 	}
 	ensure(device->CreatePixelShader(code->GetBufferPointer(), code->GetBufferSize(), ps), >= 0);
 }
@@ -200,8 +218,9 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 	auto device = (ID3D10Device*)cmd_list->get_native();
 	Com_ptr<ID3D10PixelShader> ps;
 	device->PSGetShader(&ps);
+	const auto hash = (uintptr_t)ps.get();
 
-	if ((uintptr_t)ps.get() == g_ps_0x8B2AB983) {
+	if (hash == g_ps_0x8B2AB983) {
 
 		Com_ptr<ID3D10RenderTargetView> rtv_original;
 		device->OMGetRenderTargets(1, &rtv_original, nullptr);
@@ -301,7 +320,7 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 
 	// FIXME: the malaria attack effect 0x12A5247D gets rendered after this,
 	// so apply our post proccess to it as well?
-	if (g_has_lut && (uintptr_t)ps.get() == g_ps_0xDBF8FCBD) {
+	if (g_has_lut && hash == g_ps_0xDBF8FCBD) {
 
 		// We expect RTV to be a back buffer, unless we are having malaria attack.
 		Com_ptr<ID3D10RenderTargetView> rtv_original;
@@ -492,7 +511,7 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 }
 
 extern "C" __declspec(dllexport) const char* NAME = "FarCry2GraphicalUpgrade";
-extern "C" __declspec(dllexport) const char* DESCRIPTION = "FarCry2GraphicalUpgrade v1.0.0";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "FarCry2GraphicalUpgrade v1.0.1";
 extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/FarCry2GraphicalUpgrade";
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)

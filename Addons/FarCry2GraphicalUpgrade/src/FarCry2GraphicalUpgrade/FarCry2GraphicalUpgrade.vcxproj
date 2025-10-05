@@ -21,7 +21,7 @@
   <PropertyGroup Label="Globals">
     <VCProjectVersion>17.0</VCProjectVersion>
     <Keyword>Win32Proj</Keyword>
-    <ProjectGuid>{832D07DE-CBDC-4641-9075-402DEF402120}</ProjectGuid>
+    <ProjectGuid>{F61FA293-0DF7-4515-B93C-8F5968EB57FB}</ProjectGuid>
     <RootNamespace>UpgradeSwapEffect</RootNamespace>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
     <ProjectName>FarCry2GraphicalUpgrade</ProjectName>
