@@ -135,7 +135,7 @@ public:
 		return &ptr;
 	}
 
-	void attach(T* other) noexcept
+	void attach(T* const other) noexcept
 	{
 		if (ptr) {
 			ptr->Release();
