@@ -723,6 +723,18 @@ static void on_init_swapchain(reshade::api::swapchain* swapchain, bool resize)
 	}
 }
 
+static void on_init_device(reshade::api::device* device)
+{
+	// Set maximum frame latency to 1, the game is not setting this already to 1.
+	// It reduces input latecy massivly if GPU bound.
+	auto native_device = (IUnknown*)device->get_native();
+	Com_ptr<IDXGIDevice1> device1;
+	auto hr = native_device->QueryInterface(IID_PPV_ARGS(&device1));
+	if (SUCCEEDED(hr)) {
+		ensure(device1->SetMaximumFrameLatency(1), >= 0);
+	}
+}
+
 static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 {
 	// Set TRC
@@ -781,9 +793,9 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 	}
 }
 
-extern "C" __declspec(dllexport) const char *NAME = "BioshockGrapicalUpgrade";
-extern "C" __declspec(dllexport) const char *DESCRIPTION = "BioshockGrapicalUpgrade v1.0.1";
-extern "C" __declspec(dllexport) const char *WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/BioshockGraphicalUpgrade";
+extern "C" __declspec(dllexport) const char* NAME = "BioshockGrapicalUpgrade";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "BioshockGrapicalUpgrade v1.1.0";
+extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/BioshockGraphicalUpgrade";
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)
 {
@@ -794,13 +806,14 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)
 			}
 			g_graphical_upgrade_path = get_shaders_path();
 			read_config();
-			reshade::register_event<reshade::addon_event::create_swapchain>(on_create_swapchain);
+			reshade::register_event<reshade::addon_event::draw>(on_draw);
+			reshade::register_event<reshade::addon_event::init_pipeline>(on_init_pipeline);
 			reshade::register_event<reshade::addon_event::create_resource>(on_create_resource);
 			reshade::register_event<reshade::addon_event::create_resource_view>(on_create_resource_view);
 			reshade::register_event<reshade::addon_event::create_sampler>(on_create_sampler);
-			reshade::register_event<reshade::addon_event::init_pipeline>(on_init_pipeline);
-			reshade::register_event<reshade::addon_event::draw>(on_draw);
+			reshade::register_event<reshade::addon_event::create_swapchain>(on_create_swapchain);
 			reshade::register_event<reshade::addon_event::init_swapchain>(on_init_swapchain);
+			reshade::register_event<reshade::addon_event::init_device>(on_init_device);
 			reshade::register_overlay(nullptr, draw_settings_overlay);
 			break;
 		case DLL_PROCESS_DETACH:

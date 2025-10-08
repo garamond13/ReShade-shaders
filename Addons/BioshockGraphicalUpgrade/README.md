@@ -10,6 +10,7 @@
 - Accurate FPS limiter.
 - Upgraded render targets (greatly reduces color banding).
 - 10bit color output.
+- Greatly reduced input lag if GPU bound.
 
 ## Usage
 
