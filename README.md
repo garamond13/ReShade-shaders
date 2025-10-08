@@ -40,4 +40,7 @@ An accurate FPS limiter.
 Graphical upgrade for Bioshock. See Addons/BioshockGraphicalUpgrade for details.
 
 **FarCry2GraphicalUpgrade**  
-Graphical upgrade for Bioshock. See Addons/FarCry2GraphicalUpgrade for details.
+Graphical upgrade for Far Cry 2. See Addons/FarCry2GraphicalUpgrade for details.
+
+**BFBC2GraphicalUpgrade**  
+Graphical upgrade for Battlefield: Bad Company 2. See Addons/BFBC22GraphicalUpgrade for details.
