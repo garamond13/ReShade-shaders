@@ -11,7 +11,8 @@
 ## Usage
 
 - Install ReShade 6.6.0+ with full add-on support.
-- Copy **BFBC22GraphicalUpgrade.addon32** and **GraphicalUpgrade** folder in the games folder where **BFBC2Game.exe.exe** is (ReShade should be installed in the same folder).
+- Copy **BFBC22GraphicalUpgrade.addon32** and **GraphicalUpgrade** folder in the games folder where **BFBC2Game.exe** is (ReShade should be installed in the same folder).
+- Note that in game HBAO has to be enabled for XeGTAO to work.
 - Note that it works (should be used) with DirectX 11 only.
 
 ## Compilation
