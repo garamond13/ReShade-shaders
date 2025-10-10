@@ -299,7 +299,7 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 
 		// Unbind UAVs and release uav_prefilter_depths.
 		{
-			constexpr std::array<ID3D11UnorderedAccessView*, uav_prefilter_depths.size()> uav_nulls = {};
+			static constexpr std::array<ID3D11UnorderedAccessView*, uav_prefilter_depths.size()> uav_nulls = {};
 			context->CSSetUnorderedAccessViews(2, uav_nulls.size(), uav_nulls.data(), nullptr);
 			for (int i = 0; i < uav_prefilter_depths.size(); ++i) {
 				uav_prefilter_depths[i]->Release();
@@ -345,7 +345,7 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 
 		// Unbind UAVs.
 		{
-			constexpr std::array<ID3D11UnorderedAccessView*, 2> uav_nulls = {};
+			static constexpr std::array<ID3D11UnorderedAccessView*, 2> uav_nulls = {};
 			context->CSSetUnorderedAccessViews(0, uav_nulls.size(), uav_nulls.data(), nullptr);
 		}
 
@@ -379,7 +379,7 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 
 		// Unbind UAVs.
 		{
-			constexpr std::array<ID3D11UnorderedAccessView*, 1> uav_nulls = {};
+			static constexpr std::array<ID3D11UnorderedAccessView*, 1> uav_nulls = {};
 			context->CSSetUnorderedAccessViews(0, uav_nulls.size(), uav_nulls.data(), nullptr);
 		}
 
@@ -723,7 +723,7 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 }
 
 extern "C" __declspec(dllexport) const char* NAME = "BFBC2GraphicalUpgrade";
-extern "C" __declspec(dllexport) const char* DESCRIPTION = "BFBC2GraphicalUpgrade v1.0.0";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "BFBC2GraphicalUpgrade v1.0.1";
 extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/BFBC2GraphicalUpgrade";
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)
