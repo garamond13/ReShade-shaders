@@ -20,15 +20,8 @@ sampler2D smpColor
 	#endif
 };
 
-float3 min3(float3 x, float3 y, float3 z)
-{
-	return min(x, min(y, z));
-}
-
-float3 max3(float3 x, float3 y, float3 z)
-{
-	return max(x, max(y, z));
-}
+#define min3(x,y,z) min(x, min(y, z))
+#define max3(x,y,z) max(x, max(y, z))
 
 float3 _linearize(float3 rgb)
 {
@@ -48,21 +41,22 @@ float3 _delinearize(float3 rgb)
 #define delinearize(x) (_delinearize(x))
 #endif
 
-float3 casFilterNoScaling(float4 pos : SV_Position, float2 texcoord : TEXCOORD0) : SV_Target
+// With defined FFX_CAS_BETTER_DIAGONALS and FFX_CAS_USE_PRECISE_MATH.
+float3 casFilterNoScaling(float4 pos : SV_Position) : SV_Target
 {
 	// Load a collection of samples in a 3x3 neighorhood, where e is the current pixel.
 	// a b c
 	// d e f
 	// g h i
-	float3 sampleA = linearize(tex2Dlod(smpColor, float4(texcoord, 0.0, 0.0), int2(-1, -1)).rgb);
-	float3 sampleB = linearize(tex2Dlod(smpColor, float4(texcoord, 0.0, 0.0), int2(0, -1)).rgb);
-	float3 sampleC = linearize(tex2Dlod(smpColor, float4(texcoord, 0.0, 0.0), int2(1, -1)).rgb);
-	float3 sampleD = linearize(tex2Dlod(smpColor, float4(texcoord, 0.0, 0.0), int2(-1, 0)).rgb);
-	float3 sampleE = linearize(tex2Dlod(smpColor, float4(texcoord, 0.0, 0.0)).rgb);
-	float3 sampleF = linearize(tex2Dlod(smpColor, float4(texcoord, 0.0, 0.0), int2(1, 0)).rgb);
-	float3 sampleG = linearize(tex2Dlod(smpColor, float4(texcoord, 0.0, 0.0), int2(-1, 1)).rgb); 
-	float3 sampleH = linearize(tex2Dlod(smpColor, float4(texcoord, 0.0, 0.0), int2(0, 1)).rgb);
-	float3 sampleI = linearize(tex2Dlod(smpColor, float4(texcoord, 0.0, 0.0), int2(1, 1)).rgb);
+	float3 sampleA = linearize(tex2Dfetch(smpColor, int2(pos.xy) + int2(-1, -1), 0).rgb);
+	float3 sampleB = linearize(tex2Dfetch(smpColor, int2(pos.xy) + int2(0, -1), 0).rgb);
+	float3 sampleC = linearize(tex2Dfetch(smpColor, int2(pos.xy) + int2(1, -1), 0).rgb);
+	float3 sampleD = linearize(tex2Dfetch(smpColor, int2(pos.xy) + int2(-1, 0), 0).rgb);
+	float3 sampleE = linearize(tex2Dfetch(smpColor, int2(pos.xy), 0).rgb);
+	float3 sampleF = linearize(tex2Dfetch(smpColor, int2(pos.xy) + int2(1, 0), 0).rgb);
+	float3 sampleG = linearize(tex2Dfetch(smpColor, int2(pos.xy) + int2(-1, 1), 0).rgb); 
+	float3 sampleH = linearize(tex2Dfetch(smpColor, int2(pos.xy) + int2(0, 1), 0).rgb);
+	float3 sampleI = linearize(tex2Dfetch(smpColor, int2(pos.xy) + int2(1, 1), 0).rgb);
 
 	// Soft min and max.
 	//  a b c             b
