@@ -40,24 +40,24 @@ sampler3D smpLUT
 	Texture = LUTTex;
 };
 
-float4 sample_trilinear(float4 pos : SV_Position, float2 texcoord : TEXCOORD0) : SV_Target
+float3 sample_trilinear(float4 pos : SV_Position, float2 texcoord : TEXCOORD0) : SV_Target
 {
-	float4 color = tex2D(ReShade::BackBuffer, texcoord);
+	float3 color = tex2Dfetch(ReShade::BackBuffer, int2(pos.xy), 0).rgb;
 	const float scale = float(LUT_SIZE - 1) / float(LUT_SIZE);
 	const float offset = 1.0 / float(LUT_SIZE * 2);
-	color.rgb = tex3D(smpLUT, saturate(color.rgb) * scale + offset).rgb;
+	color = tex3D(smpLUT, saturate(color) * scale + offset).rgb;
 
 	#if DITHERING
-	color.rgb = color.rgb + TriDither(color.rgb, texcoord, BUFFER_COLOR_BIT_DEPTH);
+	color = color + TriDither(color, texcoord, BUFFER_COLOR_BIT_DEPTH);
 	#endif
 
-	return float4(color.rgb, color.a);
+	return color;
 }
 
-float4 sample_tetrahedral(float4 pos : SV_Position, float2 texcoord : TEXCOORD0) : SV_Target
+float3 sample_tetrahedral(float4 pos : SV_Position, float2 texcoord : TEXCOORD0) : SV_Target
 {
-	float4 color = tex2D(ReShade::BackBuffer, texcoord);
-	const float3 coord = saturate(color.rgb) * float(LUT_SIZE - 1);
+	float3 color = tex2Dfetch(ReShade::BackBuffer, int2(pos.xy), 0).rgb;
+	const float3 coord = saturate(color) * float(LUT_SIZE - 1);
 	
 	// See https://doi.org/10.2312/egp.20211031
 	//
@@ -97,13 +97,13 @@ float4 sample_tetrahedral(float4 pos : SV_Position, float2 texcoord : TEXCOORD0)
 	const float3 v1 = tex3Dfetch(smpLUT, base + 1, 0).rgb * bary.y;
 	const float3 v2 = tex3Dfetch(smpLUT, base + vert2, 0).rgb * bary.z;
 	const float3 v3 = tex3Dfetch(smpLUT, base + vert3, 0).rgb * bary.w;
-	color.rgb = v0 + v1 + v2 + v3;
+	color = v0 + v1 + v2 + v3;
 	
 	#if DITHERING
-	color.rgb = color.rgb + TriDither(color.rgb, texcoord, BUFFER_COLOR_BIT_DEPTH);
+	color = color + TriDither(color, texcoord, BUFFER_COLOR_BIT_DEPTH);
 	#endif
 
-	return float4(color.rgb, color.a);
+	return color;
 }
 
 technique CMS < ui_label = "Color Management System"; >
