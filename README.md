@@ -26,6 +26,9 @@ Note: To generate required 3D LUT for your game and display use provided CMSLUTG
 Draw an image overlay. Most usefull for crosshairs.  
 Note: Required overlay.png texture should be of the same size as a game resolution (back buffer size). The texture background should be transparent.
 
+**AnyUpscale**  
+A spatial upscaler.
+
 **UpgradeSwapEffect addon**  
 Upgrades DXGI swapchain to flip model and enable tearing (modern borderless window).  
 Notes: Use only on DX10+ games.
