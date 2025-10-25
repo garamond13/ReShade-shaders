@@ -58,12 +58,12 @@ public:
 	{
 		return srv;
 	}
-	
+
 	ID3D10RenderTargetView* const* get_rtv_address() const noexcept
 	{
 		return &rtv;
 	}
-	
+
 	ID3D10ShaderResourceView* const* get_srv_address() const noexcept{
 		return &srv;
 	}
@@ -84,42 +84,22 @@ private:
 	ID3D10ShaderResourceView* srv = nullptr;
 };
 
-// We need to pass this to all SMAA shaders (6 of them) on resolution change.
-class SMAA_rt_metrics
+template<typename... Args>
+void log_info(std::string_view fmt, Args&&... args)
 {
-public:
-	// Get and set if not valid.
-	const D3D10_SHADER_MACRO* get(float width, float height)
-	{
-		if (!is_valid) {
-			val_str =  std::format("float4({},{},{},{})", 1.0f / width, 1.0f / height, width, height);
-			shader_macros[0] = { "SMAA_RT_METRICS", val_str.c_str() };
-			shader_macros[1] = { nullptr, nullptr };
-			is_valid = true;
-		}
-		return shader_macros;
-	}
-
-	const D3D10_SHADER_MACRO* get() const
-	{
-		assert(is_valid);
-		return shader_macros;
-	}
-
-	void invalidate()
-	{
-		is_valid = false;
-	}
-
-private:
-
-	std::string val_str;
-	D3D10_SHADER_MACRO shader_macros[2];
-	bool is_valid = false;
-};
+	const std::string msg = std::vformat(fmt, std::make_format_args(args...));
+	reshade::log::message(reshade::log::level::info, msg.c_str());
+}
 
 template<typename... Args>
-inline void log_debug(std::string_view fmt, Args&&... args)
+void log_error(std::string_view fmt, Args&&... args)
+{
+	const std::string msg = std::vformat(fmt, std::make_format_args(args...));
+	reshade::log::message(reshade::log::level::error, msg.c_str());
+}
+
+template<typename... Args>
+void log_debug(std::string_view fmt, Args&&... args)
 {
 	const std::string msg = std::vformat(fmt, std::make_format_args(args...));
 	reshade::log::message(reshade::log::level::debug, msg.c_str());
