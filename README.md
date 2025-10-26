@@ -46,4 +46,7 @@ Graphical upgrade for Bioshock. See Addons/BioshockGraphicalUpgrade for details.
 Graphical upgrade for Far Cry 2. See Addons/FarCry2GraphicalUpgrade for details.
 
 **BFBC2GraphicalUpgrade**  
-Graphical upgrade for Battlefield: Bad Company 2. See Addons/BFBC22GraphicalUpgrade for details.
+Graphical upgrade for Battlefield: Bad Company 2. See Addons/BFBC2GraphicalUpgrade for details.
+
+**GrisGraphicalUpgrade**  
+Graphical upgrade for Gris. See Addons/GrisGraphicalUpgrade for details.
