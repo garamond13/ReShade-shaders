@@ -26,17 +26,19 @@ Note: To generate required 3D LUT for your game and display use provided CMSLUTG
 Draw an image overlay. Most usefull for crosshairs.  
 Note: Required overlay.png texture should be of the same size as a game resolution (back buffer size). The texture background should be transparent.
 
+## Addons
+
 **AnyUpscale**  
 A spatial upscaler.
 
-**UpgradeSwapEffect addon**  
+**UpgradeSwapEffect**  
 Upgrades DXGI swapchain to flip model and enable tearing (modern borderless window).  
 Notes: Use only on DX10+ games.
 
-**UpgradeRenderTargets addon**  
+**UpgradeRenderTargets**  
 Upgrades render targets to higher precision formats.
 
-**AccurateFPSLimiter addon**  
+**AccurateFPSLimiter**  
 An accurate FPS limiter.
 
 **BioshockGraphicalUpgrade**  
@@ -50,3 +52,6 @@ Graphical upgrade for Battlefield: Bad Company 2. See Addons/BFBC2GraphicalUpgra
 
 **GrisGraphicalUpgrade**  
 Graphical upgrade for Gris. See Addons/GrisGraphicalUpgrade for details.
+
+**DiscoElysiumGraphicalUpgrade**  
+Graphical upgrade for Disco Elysium. See Addons/DiscoElysiumGraphicalUpgrade for details.
