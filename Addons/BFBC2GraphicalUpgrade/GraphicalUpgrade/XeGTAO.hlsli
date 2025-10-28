@@ -20,10 +20,6 @@
 #define NDC_TO_VIEW_ADD float2(0.0, 0.0)
 #endif
 
-#ifndef NDC_TO_VIEW_MUL_X_PIXEL_SIZE
-#define NDC_TO_VIEW_MUL_X_PIXEL_SIZE float2(0.0, 0.0)
-#endif
-
 //
 
 // User configurable
@@ -71,6 +67,10 @@
 
 //
 
+#ifndef NDC_TO_VIEW_MUL_X_PIXEL_SIZE
+#define NDC_TO_VIEW_MUL_X_PIXEL_SIZE (NDC_TO_VIEW_MUL * VIEWPORT_PIXEL_SIZE)
+#endif
+
 #define XE_GTAO_DEPTH_MIP_LEVELS 5.0
 #define XE_GTAO_OCCLUSION_TERM_SCALE 1.5
 
@@ -97,7 +97,7 @@ float XeGTAO_DepthMIPFilter(float depth0, float depth1, float depth2, float dept
 	float weight3 = saturate((maxDepth - depth3) * falloffMul + falloffAdd);
 
 	float weightSum = weight0 + weight1 + weight2 + weight3;
-	return (weight0 * depth0 + weight1 * depth1 + weight2 * depth2 + weight3 * depth3) / weightSum;
+	return (weight0 * depth0 + weight1 * depth1 + weight2 * depth2 + weight3 * depth3) * rcp(weightSum);
 }
 
 // This is also a good place to do non-linear depth conversion for cases where one wants the 'radius' (effectively the threshold between near-field and far-field GI), 
@@ -185,7 +185,7 @@ float4 XeGTAO_CalculateEdges(float centerZ, float leftZ, float rightZ, float top
 	float slopeTB = (edgesLRTB.w - edgesLRTB.z) * 0.5;
 	float4 edgesLRTBSlopeAdjusted = edgesLRTB + float4(slopeLR, -slopeLR, slopeTB, -slopeTB);
 	edgesLRTB = min(abs(edgesLRTB), abs(edgesLRTBSlopeAdjusted));
-	return saturate(1.25 - edgesLRTB / (centerZ * 0.011));
+	return saturate(1.25 - edgesLRTB * rcp(centerZ * 0.011));
 }
 
 // packing/unpacking for edges; 2 bits per edge mean 4 gradient values (0, 0.33, 0.66, 1) for smoother transitions!
@@ -311,13 +311,13 @@ void XeGTAO_MainPass(uint2 pixCoord, float2 localNoise, Texture2D<float> sourceV
 		// approx viewspace pixel size at pixCoord; approximation of NDCToViewspace( normalizedScreenPos.xy + consts.ViewportPixelSize.xy, pixCenterPos.z ).xy - pixCenterPos.xy;
 		const float2 pixelDirRBViewspaceSizeAtCenterZ = viewspaceZ.xx * NDC_TO_VIEW_MUL_X_PIXEL_SIZE;
 
-		float screenspaceRadius = effectRadius / pixelDirRBViewspaceSizeAtCenterZ.x;
+		float screenspaceRadius = effectRadius * rcp(pixelDirRBViewspaceSizeAtCenterZ.x);
 
 		// fade out for small screen radii 
 		visibility += saturate((10.0 - screenspaceRadius) / 100.0) * 0.5;
 
 		// this is the min distance to start sampling from to avoid sampling from the center pixel (no useful data obtained from sampling center pixel)
-		const float minS = pixelTooCloseThreshold / screenspaceRadius;
+		const float minS = pixelTooCloseThreshold * rcp(screenspaceRadius);
 
 		//[unroll]
 		for (float slice = 0.0; slice < SLICE_COUNT; slice++) {
@@ -352,7 +352,7 @@ void XeGTAO_MainPass(uint2 pixCoord, float2 localNoise, Texture2D<float> sourceV
 
 			// line 14 from the paper
 			float projectedNormalVecLength = length(projectedNormalVec);
-			float cosNorm = saturate(dot(projectedNormalVec, viewVec) / projectedNormalVecLength);
+			float cosNorm = saturate(dot(projectedNormalVec, viewVec) * rcp(projectedNormalVecLength));
 
 			// line 15 from the paper
 			float n = signNorm * XeGTAO_FastACos(cosNorm);
@@ -406,8 +406,8 @@ void XeGTAO_MainPass(uint2 pixCoord, float2 localNoise, Texture2D<float> sourceV
 				float sampleDist1 = length(sampleDelta1);
 
 				// approx lines 23, 24 from the paper, unrolled
-				float3 sampleHorizonVec0 = sampleDelta0 / sampleDist0;
-				float3 sampleHorizonVec1 = sampleDelta1 / sampleDist1;
+				float3 sampleHorizonVec0 = sampleDelta0 * rcp(sampleDist0);
+				float3 sampleHorizonVec1 = sampleDelta1 * rcp(sampleDist1);
 
 				// any sample out of radius should be discarded - also use fallof range for smooth transitions; this is a modified idea from "4.3 Implementation details, Bounding the sampling area"
 				// this is our own thickness heuristic that relies on sooner discarding samples behind the center
@@ -541,7 +541,7 @@ void XeGTAO_Denoise(uint2 pixCoordBase, Texture2D<float> sourceAOTerm, Texture2D
 #if 1   // this allows some small amount of AO leaking from neighbours if there are 3 or 4 edges; this reduces both spatial and temporal aliasing
 		const float leak_threshold = 2.5;
 		const float leak_strength = 0.5;
-		float edginess = (saturate(4.0 - leak_threshold - dot(edgesC_LRTB[side], 1.0)) / (4.0 - leak_threshold)) * leak_strength;
+		float edginess = (saturate(4.0 - leak_threshold - dot(edgesC_LRTB[side], 1.0)) * rcp(4.0 - leak_threshold)) * leak_strength;
 		edgesC_LRTB[side] = saturate(edgesC_LRTB[side] + edginess);
 #endif
 
@@ -575,7 +575,7 @@ void XeGTAO_Denoise(uint2 pixCoordBase, Texture2D<float> sourceAOTerm, Texture2D
 		XeGTAO_AddSample(ssaoValueBL, weightBL[side], sum, sumWeight);
 		XeGTAO_AddSample(ssaoValueBR, weightBR[side], sum, sumWeight);
 
-		aoTerm[side] = sum / sumWeight;
+		aoTerm[side] = sum * rcp(sumWeight);
 
 		XeGTAO_Output(pixCoord, outputTexture, aoTerm[side], finalApply);
 	}

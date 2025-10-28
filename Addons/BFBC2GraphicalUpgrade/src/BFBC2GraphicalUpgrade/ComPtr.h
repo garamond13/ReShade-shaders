@@ -150,18 +150,6 @@ public:
 		return tmp;
 	}
 
-	template<typename U>
-	auto as(Com_ptr<U>& other) const noexcept
-	{
-		return ptr->QueryInterface(__uuidof(U), reinterpret_cast<void**>(other.reset_and_get_address()));
-	}
-
-	template<typename U>
-	auto as(U** other) const noexcept
-	{
-		return ptr->QueryInterface(__uuidof(U), reinterpret_cast<void**>(other));
-	}
-
 	void reset() noexcept
 	{
 		if (ptr) {

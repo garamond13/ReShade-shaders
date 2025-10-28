@@ -6,8 +6,6 @@
 #define EFFECT_FALLOFF_RANGE 0.8
 #include "XeGTAO.hlsli"
 
-#include "FullscreenTriangle.hlsli"
-
 Texture2D<float> tex0 : register(t0);
 Texture2D<float> tex1 : register(t1);
 RWTexture2D<unorm float> uav0 : register(u0);
@@ -29,6 +27,7 @@ SamplerState smp : register(s0);
 uint HilbertIndex(uint posX, uint posY)
 {
 	uint index = 0U;
+	[unroll]
 	for (uint curLevel = XE_HILBERT_WIDTH / 2U; curLevel > 0U; curLevel /= 2U) {
 		uint regionX = (posX & curLevel) > 0U;
 		uint regionY = (posY & curLevel) > 0U;
@@ -93,11 +92,7 @@ void denoise_pass_cs(uint2 dtid : SV_DispatchThreadID)
 	XeGTAO_Denoise(pix_coord_base, tex0, tex1, smp, uav0, true);
 }
 
-void load_ao_vs(uint id : SV_VertexID, out float4 pos : SV_Position, out float2 texcoord : TEXCOORD)
-{
-	fullscreen_triangle(id, pos, texcoord);
-}
-
+// Expects fullscreen triangle VS.
 float4 load_ao_ps(float4 pos : SV_Position) : SV_Target
 {
 	return float4(tex0.Load(int3(pos.xy, 0)).xxx, 1.0);
