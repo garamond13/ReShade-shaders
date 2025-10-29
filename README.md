@@ -55,3 +55,6 @@ Graphical upgrade for Gris. See Addons/GrisGraphicalUpgrade for details.
 
 **DiscoElysiumGraphicalUpgrade**  
 Graphical upgrade for Disco Elysium. See Addons/DiscoElysiumGraphicalUpgrade for details.
+
+**HadesGraphicalUpgrade**  
+Graphical upgrade for Hades. See Addons/HadesGraphicalUpgrade for details.
