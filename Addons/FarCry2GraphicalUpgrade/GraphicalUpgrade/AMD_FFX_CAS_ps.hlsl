@@ -8,37 +8,28 @@
 // Should be in linear color space.
 Texture2D tex : register(t0);
 
-SamplerState smp : register(s1);
-
 #ifndef SHARPNESS
 #define SHARPNESS 0.4
 #endif
 
-float3 min3(float3 x, float3 y, float3 z)
-{
-	return min(x, min(y, z));
-}
+#define min3(x,y,z) min(x, min(y, z))
+#define max3(x,y,z) max(x, max(y, z))
 
-float3 max3(float3 x, float3 y, float3 z)
-{
-	return max(x, max(y, z));
-}
-
-float4 main(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
+float4 main(float4 pos : SV_Position) : SV_Target
 {
 	// Load a collection of samples in a 3x3 neighorhood, where e is the current pixel.
 	// a b c
 	// d e f
 	// g h i
-	float3 sampleA = tex.SampleLevel(smp, texcoord, 0.0, int2(-1, -1)).rgb;
-	float3 sampleB = tex.SampleLevel(smp, texcoord, 0.0, int2(0, -1)).rgb;
-	float3 sampleC = tex.SampleLevel(smp, texcoord, 0.0, int2(1, -1)).rgb;
-	float3 sampleD = tex.SampleLevel(smp, texcoord, 0.0, int2(-1, 0)).rgb;
-	float4 sampleE = tex.SampleLevel(smp, texcoord, 0.0);
-	float3 sampleF = tex.SampleLevel(smp, texcoord, 0.0, int2(1, 0)).rgb;
-	float3 sampleG = tex.SampleLevel(smp, texcoord, 0.0, int2(-1, 1)).rgb; 
-	float3 sampleH = tex.SampleLevel(smp, texcoord, 0.0, int2(0, 1)).rgb;
-	float3 sampleI = tex.SampleLevel(smp, texcoord, 0.0, int2(1, 1)).rgb;
+	float3 sampleA = tex.Load(int3(pos.xy + int2(-1, -1), 0)).rgb;
+	float3 sampleB = tex.Load(int3(pos.xy + int2(0, -1), 0)).rgb;
+	float3 sampleC = tex.Load(int3(pos.xy + int2(1, -1), 0)).rgb;
+	float3 sampleD = tex.Load(int3(pos.xy + int2(-1, 0), 0)).rgb;
+	float4 sampleE = tex.Load(int3(pos.xy, 0));
+	float3 sampleF = tex.Load(int3(pos.xy + int2(1, 0), 0)).rgb;
+	float3 sampleG = tex.Load(int3(pos.xy + int2(-1, 1), 0)).rgb; 
+	float3 sampleH = tex.Load(int3(pos.xy + int2(0, 1), 0)).rgb;
+	float3 sampleI = tex.Load(int3(pos.xy + int2(1, 1), 0)).rgb;
 
 	// Soft min and max.
 	//  a b c             b
@@ -54,7 +45,7 @@ float4 main(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 
 	// Smooth minimum distance to signal limit divided by smooth max.
 	float3 amplifyRGB = saturate(min(minimumRGB, 2.0 - maximumRGB) / maximumRGB);
-	
+
 	// Shaping amount of sharpening.
 	amplifyRGB = sqrt(amplifyRGB);
 

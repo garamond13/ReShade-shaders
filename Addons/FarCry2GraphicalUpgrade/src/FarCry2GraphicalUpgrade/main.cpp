@@ -2,6 +2,7 @@
 #include "Helpers.h"
 
 #define DEV 0
+#define OUTPUT_ASSEMBLY 0
 
 // Path to the GraphicalUpgrade folder.
 static std::filesystem::path g_graphical_upgrade_path;
@@ -41,31 +42,13 @@ static std::filesystem::path get_shaders_path()
 	return path;
 }
 
-static bool lut_exists()
-{
-	std::filesystem::path path = g_graphical_upgrade_path;
-	path /= L"LUT.CUBE";
-	if (std::filesystem::exists(path)) {
-		return true;
-	}
-	return false;
-}
-
-static void read_config()
-{
-	// Get/set sharpness.
-	if (!reshade::get_config_value(nullptr, "FarCry2GraphicalUpgrade", "Sharpness", g_amd_ffx_cas_sharpness)) {
-		reshade::set_config_value(nullptr, "FarCry2GraphicalUpgrade", "Sharpness", g_amd_ffx_cas_sharpness);
-	}
-}
-
 // Returns true if we replaced the original code, otherwise returns false.
 static bool replace_shader_code(reshade::api::shader_desc* desc)
 {
 	if (desc->code_size == 0) {
 		return false;
 	}
-	
+
 	// Make shader file path from shader hash and check do we have a replacement shader on that path.
 	const uint32_t hash = compute_crc32((const uint8_t*)desc->code, desc->code_size);
 	const std::filesystem::path path = g_graphical_upgrade_path / std::format(L"0x{:08X}.hlsl", hash);
@@ -79,11 +62,10 @@ static bool replace_shader_code(reshade::api::shader_desc* desc)
 	auto hr = D3DCompileFromFile(path.c_str(), nullptr, nullptr, "main", "ps_4_1", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &g_shader_code.back(), &error);
 	if (FAILED(hr)) {
 		if (error) {
-			MessageBoxA(nullptr, (LPCSTR)error->GetBufferPointer(), "ERROR: D3DCompileFromFile", MB_OK);
+			log_error("D3DCompileFromFile: {}", (const char*)error->GetBufferPointer());
 		}
 		else {
-			const auto text = "HRESULT: " + std::format("{:08X}", hr);
-			MessageBoxA(nullptr, text.c_str(), "ERROR: D3DCompileFromFile", MB_OK);
+			log_error("D3DCompileFromFile: (HRESULT){:08X}", hr);
 		}
 		return false;
 	}
@@ -93,6 +75,16 @@ static bool replace_shader_code(reshade::api::shader_desc* desc)
 	desc->code_size = g_shader_code.back()->GetBufferSize();
 	
 	return true;
+}
+
+static bool lut_exists()
+{
+	std::filesystem::path path = g_graphical_upgrade_path;
+	path /= L"LUT.CUBE";
+	if (std::filesystem::exists(path)) {
+		return true;
+	}
+	return false;
 }
 
 // FIXME: Optimize this without turnning it into assembly level of readable.
@@ -115,7 +107,7 @@ static void read_cube_file(std::vector<float>& data, size_t& lut_size)
 				continue;
 			}
 			if (line.rfind("LUT_1D_SIZE", 0) == 0) {
-				reshade::log::message(reshade::log::level::error, "LUT is 1D! Only 3D LUTs are supported.");
+				log_error("LUT is 1D! Only 3D LUTs are supported.");
 				return;
 			}
 			if (line.rfind("LUT_3D_SIZE", 0) == 0) {
@@ -174,48 +166,48 @@ static void create_srv_lut(ID3D10Device* device, ID3D10ShaderResourceView** srv)
 	ensure(device->CreateShaderResourceView(tex.get(), nullptr, srv), >= 0);
 }
 
-static void create_vertex_shader(ID3D10Device* device, ID3D10VertexShader** vs, const wchar_t* file, const char* entry_point = "main", const D3D10_SHADER_MACRO* shader_macros = nullptr)
+static void compile_shader(ID3DBlob** code, const wchar_t* file, const char* target, const char* entry_point = "main", const D3D_SHADER_MACRO* defines = nullptr)
 {
 	std::filesystem::path path = g_graphical_upgrade_path;
 	path /= file;
-	Com_ptr<ID3D10Blob> code;
-	Com_ptr<ID3D10Blob> error;
-	auto hr = D3DCompileFromFile(path.c_str(), shader_macros, D3D_COMPILE_STANDARD_FILE_INCLUDE, entry_point, "vs_4_1", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &code, &error);
+	Com_ptr<ID3DBlob> error;
+	auto hr = D3DCompileFromFile(path.c_str(), defines, D3D_COMPILE_STANDARD_FILE_INCLUDE, entry_point, target, D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, code, &error);
 	if (FAILED(hr)) {
 		if (error) {
-			MessageBoxA(nullptr, (LPCSTR)error->GetBufferPointer(), "ERROR: D3DCompileFromFile", MB_OK);
+			log_error("D3DCompileFromFile: {}", (const char*)error->GetBufferPointer());
 		}
 		else {
-			const auto text = "HRESULT: " + std::format("{:08X}", hr);
-			MessageBoxA(nullptr, text.c_str(), "ERROR: D3DCompileFromFile", MB_OK);
+			log_error("D3DCompileFromFile: (HRESULT){:08X}", hr);
 		}
 	}
+
+	#if DEV && OUTPUT_ASSEMBLY
+	Com_ptr<ID3DBlob> disassembly;
+	D3DDisassemble((*code)->GetBufferPointer(), (*code)->GetBufferSize(), 0, nullptr, &disassembly);
+	std::ofstream assembly(path.replace_filename(path.filename().string() + "_" + entry_point + ".asm"));
+	assembly.write((const char*)disassembly->GetBufferPointer(), disassembly->GetBufferSize());
+	#endif
+}
+
+static void create_vertex_shader(ID3D10Device* device, ID3D10VertexShader** vs, const wchar_t* file, const char* entry_point = "main", const D3D_SHADER_MACRO* defines = nullptr)
+{
+	Com_ptr<ID3DBlob> code;
+	compile_shader(&code, file, "vs_4_1", entry_point, defines);
 	ensure(device->CreateVertexShader(code->GetBufferPointer(), code->GetBufferSize(), vs), >= 0);
 }
 
-static void create_pixel_shader(ID3D10Device* device, ID3D10PixelShader** ps, const wchar_t* file, const char* entry_point = "main", const D3D10_SHADER_MACRO* shader_macros = nullptr)
+static void create_pixel_shader(ID3D10Device* device, ID3D10PixelShader** ps, const wchar_t* file, const char* entry_point = "main", const D3D_SHADER_MACRO* defines = nullptr)
 {
-	std::filesystem::path path = g_graphical_upgrade_path;
-	path /= file;
-	Com_ptr<ID3D10Blob> code;
-	Com_ptr<ID3D10Blob> error;
-	auto hr = D3DCompileFromFile(path.c_str(), shader_macros, D3D_COMPILE_STANDARD_FILE_INCLUDE, entry_point, "ps_4_1", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &code, &error);
-	if (FAILED(hr)) {
-		if (error) {
-			MessageBoxA(nullptr, (LPCSTR)error->GetBufferPointer(), "ERROR: D3DCompileFromFile", MB_OK);
-		}
-		else {
-			const auto text = "HRESULT: " + std::format("{:08X}", hr);
-			MessageBoxA(nullptr, text.c_str(), "ERROR: D3DCompileFromFile", MB_OK);
-		}
-	}
+	Com_ptr<ID3DBlob> code;
+	compile_shader(&code, file, "ps_4_1", entry_point, defines);
 	ensure(device->CreatePixelShader(code->GetBufferPointer(), code->GetBufferSize(), ps), >= 0);
 }
 
 static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count, uint32_t instance_count, uint32_t first_vertex, uint32_t first_instance)
 {
-	// We are using PS as hash for draw calls.
 	auto device = (ID3D10Device*)cmd_list->get_native();
+
+	// We are using PS as hash for draw calls.
 	Com_ptr<ID3D10PixelShader> ps;
 	device->PSGetShader(&ps);
 	const auto hash = (uintptr_t)ps.get();
@@ -230,7 +222,7 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		Com_ptr<ID3D10Resource> resource;
 		rtv_original->GetResource(&resource);
 		Com_ptr<ID3D10Texture2D> tex;
-		ensure(resource.as(tex), >= 0);
+		ensure(resource->QueryInterface(&tex), >= 0);
 		D3D10_TEXTURE2D_DESC tex_desc;
 		tex->GetDesc(&tex_desc);
 
@@ -238,11 +230,11 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		//
 
 		RT_views rt_views_0x8B2AB983(device, tex_desc);
-		
-		// Render 0x8B2AB983 pass.
+
+		// Bindings.
 		device->OMSetRenderTargets(1, rt_views_0x8B2AB983.get_rtv_address(), nullptr);
+
 		cmd_list->draw(vertex_count, instance_count, first_vertex, first_instance);
-		device->OMSetRenderTargets(0, nullptr, nullptr);
 
 		//
 
@@ -269,52 +261,53 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		device->IAGetPrimitiveTopology(&primitive_topology_original);
 		device->IASetPrimitiveTopology(D3D10_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
-		// Create and bind Fullscreen Triangle VS.
+		// Create Fullscreen Triangle VS.
 		[[unlikely]] if (!g_vs_fullscreen_triangle) {
 			create_vertex_shader(device, &g_vs_fullscreen_triangle, L"FullscreenTriangle_vs.hlsl");
 		}
-		device->VSSetShader(g_vs_fullscreen_triangle.get());
 
-		// Create and bind PS.
+		// Create PS.
 		[[unlikely]] if (!g_ps_srgb_to_linear) {
 			create_pixel_shader(device, &g_ps_srgb_to_linear, L"sRGBToLinear_ps.hlsl");
 		}
-		device->PSSetShaderResources(0, 1, rt_views_0x8B2AB983.get_srv_address());
-		device->PSSetShader(g_ps_srgb_to_linear.get());
 
 		RT_views rt_views_srgb_to_linear(device, tex_desc);
 
-		// Render sRGBToLinear pass.
+		// Bindings
 		device->OMSetRenderTargets(1, rt_views_srgb_to_linear.get_rtv_address(), nullptr);
+		device->VSSetShader(g_vs_fullscreen_triangle.get());
+		device->PSSetShader(g_ps_srgb_to_linear.get());
+		device->PSSetShaderResources(0, 1, rt_views_0x8B2AB983.get_srv_address());
+
 		device->Draw(3, 0);
-		device->OMSetRenderTargets(0, nullptr, nullptr);
 
 		//
 
 		// AMD FFX CAS pass
 		//
 
-		// Create and bind PS.
+		// Create PS.
 		[[unlikely]] if (!g_ps_amd_ffx_cas) {
 			const std::string amd_ffx_cas_sharpness_str = std::to_string(g_amd_ffx_cas_sharpness);
-			const D3D10_SHADER_MACRO shader_macros[] = {
+			const D3D10_SHADER_MACRO defines[] = {
 				{ "SHARPNESS", amd_ffx_cas_sharpness_str.c_str() },
 				{ nullptr, nullptr }
 			};
-			create_pixel_shader(device, &g_ps_amd_ffx_cas, L"AMD_FFX_CAS_ps.hlsl", "main", shader_macros);
+			create_pixel_shader(device, &g_ps_amd_ffx_cas, L"AMD_FFX_CAS_ps.hlsl", "main", defines);
 		}
+
+		// Bindings.
+		device->OMSetRenderTargets(1, &rtv_original, nullptr);
 		device->PSSetShaderResources(0, 1, rt_views_srgb_to_linear.get_srv_address());
 		device->PSSetShader(g_ps_amd_ffx_cas.get());
 
-		// Render AMD FFX CAS pass.
-		device->OMSetRenderTargets(1, &rtv_original, nullptr);
 		device->Draw(3, 0);
 
 		//
-		
+
 		// Restore original states.
 		device->IASetPrimitiveTopology(primitive_topology_original);
-		
+
 		return true;
 	}
 
@@ -331,7 +324,7 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		Com_ptr<ID3D10Resource> resource;
 		rtv_original->GetResource(&resource);
 		Com_ptr<ID3D10Texture2D> tex;
-		ensure(resource.as(tex), >= 0);
+		ensure(resource->QueryInterface(&tex), >= 0);
 		D3D10_TEXTURE2D_DESC tex_desc;
 		tex->GetDesc(&tex_desc);
 
@@ -341,11 +334,11 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		tex_desc.Format = DXGI_FORMAT_R16G16B16A16_UNORM;
 		tex_desc.BindFlags = D3D10_BIND_RENDER_TARGET | D3D10_BIND_SHADER_RESOURCE;
 		RT_views rt_views_0xDBF8FCBD(device, tex_desc);
-		
-		// Render 0xDBF8FCBD pass.
+
+		// Bindings.
 		device->OMSetRenderTargets(1, rt_views_0xDBF8FCBD.get_rtv_address(), nullptr);
+
 		cmd_list->draw(vertex_count, instance_count, first_vertex, first_instance);
-		device->OMSetRenderTargets(0, nullptr, nullptr);
 
 		//
 
@@ -357,34 +350,37 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		device->IAGetPrimitiveTopology(&primitive_topology_original);
 		device->IASetPrimitiveTopology(D3D10_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
-		// Create and bind Fullscreen Triangle VS.
+		// Create Fullscreen Triangle VS.
 		[[unlikely]] if (!g_vs_fullscreen_triangle) {
 			create_vertex_shader(device, &g_vs_fullscreen_triangle, L"FullscreenTriangle_vs.hlsl");
 		}
-		device->VSSetShader(g_vs_fullscreen_triangle.get());
 
-		// Create and bind PS.
+		// Create SRV LUT.
 		[[unlikely]] if (!g_srv_lut) {
 			create_srv_lut(device, &g_srv_lut);
 		}
+
+		// Create PS.
 		[[unlikely]] if (!g_ps_sample_lut) {
 			const std::string lut_size_str = std::to_string(g_lut_size);
-			const D3D10_SHADER_MACRO shader_macros[] = {
+			const D3D10_SHADER_MACRO defines[] = {
 				{ "LUT_SIZE", lut_size_str.c_str() },
 				{ nullptr, nullptr }
 			};
-			create_pixel_shader(device, &g_ps_sample_lut, L"SampleLUT_ps.hlsl", "main", shader_macros);
+			create_pixel_shader(device, &g_ps_sample_lut, L"SampleLUT_ps.hlsl", "main", defines);
 		}
+
+		// Bindings.
+		device->OMSetRenderTargets(1, &rtv_original, nullptr);
+		device->VSSetShader(g_vs_fullscreen_triangle.get());
+		device->PSSetShader(g_ps_sample_lut.get());
 		const std::array ps_resources_sample_lut = { rt_views_0xDBF8FCBD.get_srv(), g_srv_lut.get() };
 		device->PSSetShaderResources(0, ps_resources_sample_lut.size(), ps_resources_sample_lut.data());
-		device->PSSetShader(g_ps_sample_lut.get());
-			
-		// Render SampleLUT pass.
-		device->OMSetRenderTargets(1, &rtv_original, nullptr);
+
 		device->Draw(3, 0);
 
 		//
-		
+
 		// Restore original states.
 		device->IASetPrimitiveTopology(primitive_topology_original);
 
@@ -412,15 +408,17 @@ static void on_init_pipeline(reshade::api::device* device, reshade::api::pipelin
 		if (subobjects[i].type == reshade::api::pipeline_subobject_type::pixel_shader) {
 			auto desc = (reshade::api::shader_desc*)subobjects[i].data;
 			const auto hash = compute_crc32((const uint8_t*)desc->code, desc->code_size);
-			if (hash == 0xDBF8FCBD) {
-				g_ps_0xDBF8FCBD = pipeline.handle;
-			}
-			else if (hash == 0x8B2AB983) {
-				g_ps_0x8B2AB983 = pipeline.handle;
+			switch (hash) {
+				case 0xDBF8FCBD:
+					g_ps_0xDBF8FCBD = pipeline.handle;
+					break;
+				case 0x8B2AB983:
+					g_ps_0x8B2AB983 = pipeline.handle;
+					break;
 			}
 		}
 	}
-	
+
 	// Free the memory allocated in the "replace_shader_code" call.
 	g_shader_code.clear();
 }
@@ -473,7 +471,7 @@ static bool on_create_swapchain(reshade::api::device_api api, reshade::api::swap
 	// Always force the game into borderless window.
 	SetWindowLongPtrW((HWND)hwnd, GWL_STYLE, WS_POPUP);
 	SetWindowPos((HWND)hwnd, HWND_TOP, 0, 0, desc.back_buffer.texture.width, desc.back_buffer.texture.height, SWP_NOZORDER | SWP_FRAMECHANGED | SWP_SHOWWINDOW);
-	
+
 	desc.back_buffer_count = 2;
 	desc.present_mode = DXGI_SWAP_EFFECT_FLIP_DISCARD;
 	desc.present_flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
@@ -491,19 +489,25 @@ static void on_init_device(reshade::api::device* device)
 		return;
 	}
 
-	// Set maximum frame latency to 1, apparently the game is not setting this already to 1.
+	// Set maximum frame latency to 1, the game is not setting this already to 1.
 	// It reduces input latecy massivly if GPU bound.
 	auto native_device = (IUnknown*)device->get_native();
 	Com_ptr<IDXGIDevice1> device1;
-	auto hr = native_device->QueryInterface(IID_PPV_ARGS(&device1));
+	auto hr = native_device->QueryInterface(&device1);
 	if (SUCCEEDED(hr)) {
 		ensure(device1->SetMaximumFrameLatency(1), >= 0);
 	}
 }
 
+static void read_config()
+{
+	if (!reshade::get_config_value(nullptr, "FarCry2GraphicalUpgrade", "Sharpness", g_amd_ffx_cas_sharpness)) {
+		reshade::set_config_value(nullptr, "FarCry2GraphicalUpgrade", "Sharpness", g_amd_ffx_cas_sharpness);
+	}
+}
+
 static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 {
-	// Set sharpness.
 	if (ImGui::SliderFloat("Sharpness", &g_amd_ffx_cas_sharpness, 0.0f, 1.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp)) {
 		reshade::set_config_value(nullptr, "FarCry2GraphicalUpgrade", "Sharpness", g_amd_ffx_cas_sharpness);
 		g_ps_amd_ffx_cas.reset();
@@ -511,7 +515,7 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 }
 
 extern "C" __declspec(dllexport) const char* NAME = "FarCry2GraphicalUpgrade";
-extern "C" __declspec(dllexport) const char* DESCRIPTION = "FarCry2GraphicalUpgrade v1.0.2";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "FarCry2GraphicalUpgrade v1.1.0";
 extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/FarCry2GraphicalUpgrade";
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)

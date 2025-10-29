@@ -85,11 +85,26 @@ private:
 };
 
 template<typename... Args>
-inline void log_debug(std::string_view fmt, Args&&... args)
+void log_info(std::string_view fmt, Args&&... args)
+{
+	const std::string msg = std::vformat(fmt, std::make_format_args(args...));
+	reshade::log::message(reshade::log::level::info, msg.c_str());
+}
+
+template<typename... Args>
+void log_error(std::string_view fmt, Args&&... args)
+{
+	const std::string msg = std::vformat(fmt, std::make_format_args(args...));
+	reshade::log::message(reshade::log::level::error, msg.c_str());
+}
+
+template<typename... Args>
+void log_debug(std::string_view fmt, Args&&... args)
 {
 	const std::string msg = std::vformat(fmt, std::make_format_args(args...));
 	reshade::log::message(reshade::log::level::debug, msg.c_str());
 }
+
 
 inline auto to_string(reshade::api::format format)
 {
