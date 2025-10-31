@@ -210,6 +210,9 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 	// We are using PS as hash for draw calls.
 	Com_ptr<ID3D10PixelShader> ps;
 	device->PSGetShader(&ps);
+	if (!ps) {
+		return false;
+	}
 	const auto hash = (uintptr_t)ps.get();
 
 	if (hash == g_ps_0x8B2AB983) {
@@ -515,7 +518,7 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 }
 
 extern "C" __declspec(dllexport) const char* NAME = "FarCry2GraphicalUpgrade";
-extern "C" __declspec(dllexport) const char* DESCRIPTION = "FarCry2GraphicalUpgrade v1.1.0";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "FarCry2GraphicalUpgrade v1.1.1";
 extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/FarCry2GraphicalUpgrade";
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)
