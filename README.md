@@ -58,3 +58,6 @@ Graphical upgrade for Disco Elysium. See Addons/DiscoElysiumGraphicalUpgrade for
 
 **HadesGraphicalUpgrade**  
 Graphical upgrade for Hades. See Addons/HadesGraphicalUpgrade for details.
+
+**HollowKnightGraphicalUpgrade**  
+Graphical upgrade for Hollow Knight. See Addons/HollowKnightGraphicalUpgrade for details.
