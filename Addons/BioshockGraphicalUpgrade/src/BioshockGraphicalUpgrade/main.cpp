@@ -158,7 +158,7 @@ static Com_ptr<ID3D10PixelShader> g_ps_xegtao_denoise_pass;
 Com_ptr<ID3D10BlendState> g_blend_xegtao;
 static bool g_xegtao_enable = true;
 static float g_xegtao_fov_y = 47.0f; // in degrees
-static float g_xegtao_radius = 0.1;
+static float g_xegtao_radius = 0.1f;
 static int g_xegtao_slice_count = 9;
 static bool is_xegtao_drawn;
 
@@ -1330,7 +1330,7 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 }
 
 extern "C" __declspec(dllexport) const char* NAME = "BioshockGrapicalUpgrade";
-extern "C" __declspec(dllexport) const char* DESCRIPTION = "BioshockGrapicalUpgrade v2.0.0";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "BioshockGrapicalUpgrade v2.1.0";
 extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/BioshockGraphicalUpgrade";
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)
