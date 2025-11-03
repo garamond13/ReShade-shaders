@@ -67,8 +67,13 @@
 #define DENOISE_BLUR_BETA 1.2
 #endif
 
-#define CLIP_NEAR 0.1
+#ifndef CLIP_NEAR
+#define CLIP_NEAR 1.0
+#endif
+
+#ifndef CLIP_FAR
 #define CLIP_FAR 1000.0
+#endif
 
 //
 

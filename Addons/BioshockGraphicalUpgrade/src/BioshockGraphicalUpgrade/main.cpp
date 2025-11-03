@@ -118,6 +118,10 @@ constexpr GUID g_ps_0x9CFB96DA_guid = { 0xfd87086, 0xb29a, 0x4c23, { 0xa9, 0x30,
 constexpr uint32_t g_ps_0x3B177042_hash = 0x3B177042;
 constexpr GUID g_ps_0x3B177042_guid = { 0x3897d2ee, 0xb12, 0x4dfc, { 0xa8, 0xa0, 0xae, 0x50, 0x1e, 0x17, 0x3c, 0x3 } };
 
+// Fog (6).
+constexpr uint32_t g_ps_0xEB7BE1D6_hash = 0xEB7BE1D6;
+constexpr GUID g_ps_0xEB7BE1D6_guid = { 0x9eaab4f0, 0x8224, 0x4a26, { 0xa4, 0x11, 0x2a, 0x98, 0x9f, 0x7d, 0xb8, 0xaf } };
+
 // Godrays.
 constexpr uint32_t g_ps_0xE689FDF8_hash = 0xE689FDF8;
 constexpr GUID g_ps_0xE689FDF8_guid = { 0xeda804e9, 0xb9ab, 0x487e, { 0xa9, 0x45, 0x6a, 0xf2, 0x6e, 0xd5, 0x81, 0xef } };
@@ -712,9 +716,8 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 		Com_ptr<ID3D10RenderTargetView> rtv_original;
 		device->OMGetRenderTargets(1, &rtv_original, nullptr);
 
-		#if DEV
 		// Get RT resource (texture) and texture description.
-		// Make sure we always have the main scene.
+		// We won't always have the main scene, check via resorce dimensions do we have it. 
 		Com_ptr<ID3D10Resource> resource;
 		rtv_original->GetResource(&resource);
 		Com_ptr<ID3D10Texture2D> tex;
@@ -722,10 +725,8 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 		D3D10_TEXTURE2D_DESC tex_desc;
 		tex->GetDesc(&tex_desc);
 		if (tex_desc.Width != g_swapchain_width) {
-			log_debug("0xE2683E33 (DrawIndexed) RTV wasnt what we expected it to be.");
 			return false;
 		}
-		#endif
 
 		draw_xegtao(device, &rtv_original);
 		is_xegtao_drawn = true;
@@ -829,10 +830,10 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 		return true;
 	}
 
-	// 0xE689FDF8 godrays
+	// 0xEB7BE1D6 fog (6)
 	size = sizeof(hash);
-	hr = ps->GetPrivateData(g_ps_0xE689FDF8_guid, &size, &hash);
-	if (SUCCEEDED(hr) && hash == g_ps_0xE689FDF8_hash) {
+	hr = ps->GetPrivateData(g_ps_0xEB7BE1D6_guid, &size, &hash);
+	if (SUCCEEDED(hr) && hash == g_ps_0xEB7BE1D6_hash) {
 		// We expect RTV to be the main scene.
 		Com_ptr<ID3D10RenderTargetView> rtv_original;
 		device->OMGetRenderTargets(1, &rtv_original, nullptr);
@@ -847,10 +848,39 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 		D3D10_TEXTURE2D_DESC tex_desc;
 		tex->GetDesc(&tex_desc);
 		if (tex_desc.Width != g_swapchain_width) {
-			log_debug("0xE689FDF8 RTV wasnt what we expected it to be.");
+			log_debug("0xEB7BE1D6 RTV wasnt what we expected it to be.");
 			return false;
 		}
 		#endif
+
+		draw_xegtao(device, &rtv_original);
+		is_xegtao_drawn = true;
+
+		// Draw the original shader.
+		cmd_list->draw_indexed(index_count, instance_count, first_index, vertex_offset, first_instance);
+
+		return true;
+	}
+
+	// 0xE689FDF8 godrays
+	size = sizeof(hash);
+	hr = ps->GetPrivateData(g_ps_0xE689FDF8_guid, &size, &hash);
+	if (SUCCEEDED(hr) && hash == g_ps_0xE689FDF8_hash) {
+		// We expect RTV to be the main scene.
+		Com_ptr<ID3D10RenderTargetView> rtv_original;
+		device->OMGetRenderTargets(1, &rtv_original, nullptr);
+
+		// Get RT resource (texture) and texture description.
+		// We won't always have the main scene, check via resorce dimensions do we have it. 
+		Com_ptr<ID3D10Resource> resource;
+		rtv_original->GetResource(&resource);
+		Com_ptr<ID3D10Texture2D> tex;
+		ensure(resource->QueryInterface(&tex), >= 0);
+		D3D10_TEXTURE2D_DESC tex_desc;
+		tex->GetDesc(&tex_desc);
+		if (tex_desc.Width != g_swapchain_width) {
+			return false;
+		}
 
 		draw_xegtao(device, &rtv_original);
 		is_xegtao_drawn = true;
@@ -967,11 +997,11 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		// Create PS.
 		[[unlikely]] if (!g_ps_0x87A0B43D) {
 			const std::string bloom_intensity_str = std::to_string(g_bloom_intensity);
-			const D3D10_SHADER_MACRO shader_macros[] = {
+			const D3D10_SHADER_MACRO defines[] = {
 				{ "BLOOM_INTENSITY", bloom_intensity_str.c_str() },
 				{ nullptr, nullptr }
 			};
-			create_pixel_shader(device, &g_ps_0x87A0B43D, L"0x87A0B43D_ps.hlsl", "main", shader_macros);
+			create_pixel_shader(device, &g_ps_0x87A0B43D, L"0x87A0B43D_ps.hlsl", "main", defines);
 		}
 
 		tex_desc.Format = DXGI_FORMAT_R16G16B16A16_UNORM;
@@ -1030,12 +1060,12 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		[[unlikely]] if (!g_ps_delinearize) {
 			const std::string srgb_str = g_trc == TRC_SRGB ? "SRGB" : "";
 			const std::string gamma_str = std::to_string(g_gamma);
-			const D3D10_SHADER_MACRO shader_macros[] = {
+			const D3D10_SHADER_MACRO defines[] = {
 				{ srgb_str.c_str(), nullptr },
 				{ "GAMMA", gamma_str.c_str() },
 				{ nullptr, nullptr }
 			};
-			create_pixel_shader(device, &g_ps_delinearize, L"Delinearize_ps.hlsl", "main", shader_macros);
+			create_pixel_shader(device, &g_ps_delinearize, L"Delinearize_ps.hlsl", "main", defines);
 		}
 
 		RT_views rt_views_delinearize(device, tex_desc);
@@ -1159,11 +1189,11 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		// Create PS.
 		[[unlikely]] if (!g_ps_amd_ffx_cas) {
 			const std::string amd_ffx_cas_sharpness_str = std::to_string(g_amd_ffx_cas_sharpness);
-			const D3D10_SHADER_MACRO shader_macros[] = {
+			const D3D10_SHADER_MACRO defines[] = {
 				{ "SHARPNESS", amd_ffx_cas_sharpness_str.c_str() },
 				{ nullptr, nullptr }
 			};
-			create_pixel_shader(device, &g_ps_amd_ffx_cas, L"AMD_FFX_CAS_ps.hlsl", "main", shader_macros);
+			create_pixel_shader(device, &g_ps_amd_ffx_cas, L"AMD_FFX_CAS_ps.hlsl", "main", defines);
 		}
 
 		RT_views rt_views_amd_ffx_cas(device, tex_desc);
@@ -1187,14 +1217,14 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 			const std::string amd_ffx_lfga_amount_str = std::to_string(g_amd_ffx_lfga_amount);
 			const std::string srgb_str = g_trc == TRC_SRGB ? "SRGB" : "";
 			const std::string gamma_str = std::to_string(g_gamma);
-			const D3D10_SHADER_MACRO shader_macros[] = {
+			const D3D10_SHADER_MACRO defines[] = {
 				{ "WIEWPORT_DIMS", viewport_dims.c_str() },
 				{ "AMOUNT", amd_ffx_lfga_amount_str.c_str() },
 				{ srgb_str.c_str(), nullptr },
 				{ "GAMMA", gamma_str.c_str() },
 				{ nullptr, nullptr }
 			};
-			create_pixel_shader(device, &g_ps_amd_ffx_lfga, L"AMD_FFX_LFGA_ps.hlsl", "main", shader_macros);
+			create_pixel_shader(device, &g_ps_amd_ffx_lfga, L"AMD_FFX_LFGA_ps.hlsl", "main", defines);
 		}
 
 		// Create constant buffer.
@@ -1262,7 +1292,7 @@ static void on_init_pipeline(reshade::api::device* device, reshade::api::pipelin
 		if (subobjects[i].type == reshade::api::pipeline_subobject_type::pixel_shader) {
 			auto desc = (reshade::api::shader_desc*)subobjects[i].data;
 			const auto hash = compute_crc32((const uint8_t*)desc->code, desc->code_size);
-			switch(hash) {
+			switch (hash) {
 				case g_ps_0x87A0B43D_hash:
 					ensure(((ID3D10PixelShader*)pipeline.handle)->SetPrivateData(g_ps_0x87A0B43D_guid, sizeof(g_ps_0x87A0B43D_hash), &g_ps_0x87A0B43D_hash), >= 0);
 					break;
@@ -1286,6 +1316,9 @@ static void on_init_pipeline(reshade::api::device* device, reshade::api::pipelin
 					break;
 				case g_ps_0xE2683E33_hash:
 					ensure(((ID3D10PixelShader*)pipeline.handle)->SetPrivateData(g_ps_0xE2683E33_guid, sizeof(g_ps_0xE2683E33_hash), &g_ps_0xE2683E33_hash), >= 0);
+					break;
+				case g_ps_0xEB7BE1D6_hash:
+					ensure(((ID3D10PixelShader*)pipeline.handle)->SetPrivateData(g_ps_0xEB7BE1D6_guid, sizeof(g_ps_0xEB7BE1D6_hash), &g_ps_0xEB7BE1D6_hash), >= 0);
 					break;
 			}
 		}
@@ -1329,7 +1362,7 @@ static bool on_create_resource_view(reshade::api::device* device, reshade::api::
 
 static bool on_create_sampler(reshade::api::device* device, reshade::api::sampler_desc& desc)
 {
-	// The game already uses anistropyc filtering where it matters.
+	// The game already uses anisotropic filtering where it matters.
 	desc.max_anisotropy = 16.0f;
 
 	return true;
@@ -1498,7 +1531,7 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 }
 
 extern "C" __declspec(dllexport) const char* NAME = "BioshockGrapicalUpgrade";
-extern "C" __declspec(dllexport) const char* DESCRIPTION = "BioshockGrapicalUpgrade v2.2.0";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "BioshockGrapicalUpgrade v2.3.0";
 extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/BioshockGraphicalUpgrade";
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)

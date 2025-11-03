@@ -1,5 +1,7 @@
 #define RADIUS_MULTIPLIER 1.59
 #define EFFECT_FALLOFF_RANGE 0.8
+#define CLIP_NEAR 0.1
+#define CLIP_FAR 100.0
 #include "XeGTAO.hlsli"
 
 Texture2D<float> tex0 : register(t0);
