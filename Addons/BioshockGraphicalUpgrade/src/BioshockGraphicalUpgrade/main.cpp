@@ -98,19 +98,25 @@ static Com_ptr<ID3D10Buffer> g_cb;
 
 static Com_ptr<ID3D10VertexShader> g_vs_fullscreen_triangle;
 
-// Tone maping.
-// The last shader before UI.
-constexpr uint32_t g_ps_0x87A0B43D_hash = 0x87A0B43D;
-constexpr GUID g_ps_0x87A0B43D_guid = { 0x476ef3b9, 0xe14e, 0x49f2, { 0xa6, 0x5c, 0x8c, 0x7a, 0x41, 0xd4, 0xa6, 0x12 } };
-static Com_ptr<ID3D10PixelShader> g_ps_0x87A0B43D;
-
-// Fog 1.
+// Fog (1).
 constexpr uint32_t g_ps_0xB69D6558_hash = 0xB69D6558;
 constexpr GUID g_ps_0xB69D6558_guid = { 0x6920fbb, 0xcfa4, 0x48b8, { 0x94, 0xf9, 0x80, 0x7, 0x83, 0xe2, 0xbc, 0xfb } };
 
-// Fog 2.
+// Fog (2).
+constexpr uint32_t g_ps_0xE2683E33_hash = 0xE2683E33;
+constexpr GUID g_ps_0xE2683E33_guid = { 0x7bc430f7, 0x5db5, 0x4b25, { 0x83, 0x90, 0xc8, 0x9c, 0x74, 0xc5, 0xa7, 0xf } };
+
+// Fog (3).
 constexpr uint32_t g_ps_0xC907CF9A_hash = 0xC907CF9A;
 constexpr GUID g_ps_0xC907CF9A_guid = { 0x4875f184, 0xadee, 0x4f40, { 0xb6, 0xf5, 0xfa, 0xf8, 0x54, 0xcd, 0xb4, 0x15 } };
+
+// Fog (4).
+constexpr uint32_t g_ps_0x9CFB96DA_hash = 0x9CFB96DA;
+constexpr GUID g_ps_0x9CFB96DA_guid = { 0xfd87086, 0xb29a, 0x4c23, { 0xa9, 0x30, 0x8e, 0x9a, 0x98, 0x59, 0x15, 0x88 } };
+
+// Fog (5).
+constexpr uint32_t g_ps_0x3B177042_hash = 0x3B177042;
+constexpr GUID g_ps_0x3B177042_guid = { 0x3897d2ee, 0xb12, 0x4dfc, { 0xa8, 0xa0, 0xae, 0x50, 0x1e, 0x17, 0x3c, 0x3 } };
 
 // Godrays.
 constexpr uint32_t g_ps_0xE689FDF8_hash = 0xE689FDF8;
@@ -119,6 +125,12 @@ constexpr GUID g_ps_0xE689FDF8_guid = { 0xeda804e9, 0xb9ab, 0x487e, { 0xa9, 0x45
 // Bloom downsample.
 constexpr uint32_t g_ps_0xB51C436B_hash = 0xB51C436B;
 constexpr GUID g_ps_0xB51C436B_guid = { 0xf6b85c15, 0x7efe, 0x4504, { 0x9a, 0xa5, 0xd7, 0xa9, 0x31, 0x7, 0xc, 0xb3 } };
+
+// Tone maping.
+// The last shader before UI.
+constexpr uint32_t g_ps_0x87A0B43D_hash = 0x87A0B43D;
+constexpr GUID g_ps_0x87A0B43D_guid = { 0x476ef3b9, 0xe14e, 0x49f2, { 0xa6, 0x5c, 0x8c, 0x7a, 0x41, 0xd4, 0xa6, 0x12 } };
+static Com_ptr<ID3D10PixelShader> g_ps_0x87A0B43D;
 
 static Com_ptr<ID3D10ShaderResourceView> g_srv_depth;
 
@@ -158,7 +170,7 @@ static Com_ptr<ID3D10PixelShader> g_ps_xegtao_denoise_pass;
 Com_ptr<ID3D10BlendState> g_blend_xegtao;
 static bool g_xegtao_enable = true;
 static float g_xegtao_fov_y = 47.0f; // in degrees
-static float g_xegtao_radius = 0.1f;
+static float g_xegtao_radius = 0.11f;
 static int g_xegtao_slice_count = 9;
 static bool is_xegtao_drawn;
 
@@ -400,7 +412,7 @@ static void draw_xegtao(ID3D10Device* device, ID3D10RenderTargetView*const* rtv)
 	device->OMSetRenderTargets(0, nullptr, nullptr);
 
 	//
-	
+
 	// Set common states.
 	//
 
@@ -466,13 +478,13 @@ static void draw_xegtao(ID3D10Device* device, ID3D10RenderTargetView*const* rtv)
 	D3D10_VIEWPORT viewport = {};
 	viewport.Width = g_swapchain_width;
 	viewport.Height = g_swapchain_height;
-	
+
 	// Create prefilter depths PS, for mip0.
 	[[unlikely]] if (!g_ps_xegtao_prefilter_depth_mip0) {
 		g_xegtao_defines.set(g_swapchain_width, g_swapchain_height, g_xegtao_fov_y, g_xegtao_radius, g_xegtao_slice_count);
 		create_pixel_shader(device, &g_ps_xegtao_prefilter_depth_mip0, L"XeGTAO_impl.hlsl", "prefilter_depths_mip0_ps", g_xegtao_defines.get());
 	}
-	
+
 	// Bindings.
 	device->OMSetRenderTargets(1, &rtv_working_depth_mips[0], nullptr);
 	device->RSSetViewports(1, &viewport);
@@ -507,15 +519,15 @@ static void draw_xegtao(ID3D10Device* device, ID3D10RenderTargetView*const* rtv)
 	viewport.Width = g_swapchain_width;
 	viewport.Height = g_swapchain_height;
 	device->RSSetViewports(1, &viewport);
-	
+
 	// MainPass pass.
 	//
-	
+
 	// Create PS.
 	[[unlikely]] if (!g_ps_xegtao_main_pass) {
 		create_pixel_shader(device, &g_ps_xegtao_main_pass, L"XeGTAO_impl.hlsl", "main_pass_ps", g_xegtao_defines.get());
 	}
-	
+
 	// Create RT views.
 	tex_desc.MipLevels = 1;
 	tex_desc.Format = DXGI_FORMAT_R8_UNORM;
@@ -527,7 +539,7 @@ static void draw_xegtao(ID3D10Device* device, ID3D10RenderTargetView*const* rtv)
 	device->OMSetRenderTargets(rts_main_pass.size(), rts_main_pass.data(), nullptr);
 	device->PSSetShader(g_ps_xegtao_main_pass.get());
 	device->PSSetShaderResources(0, 1, &srv_working_depth);
-	
+
 	device->Draw(3, 0);
 
 	//
@@ -555,7 +567,7 @@ static void draw_xegtao(ID3D10Device* device, ID3D10RenderTargetView*const* rtv)
 		blend_desc.RenderTargetWriteMask[0] = D3D10_COLOR_WRITE_ENABLE_ALL;
 		ensure(device->CreateBlendState(&blend_desc, &g_blend_xegtao), >= 0);
 	}
-	
+
 	// Bindings.
 	////
 
@@ -571,9 +583,9 @@ static void draw_xegtao(ID3D10Device* device, ID3D10RenderTargetView*const* rtv)
 	////
 
 	device->Draw(3, 0);
-	
+
 	//
-	
+
 	// Restore states.
 	device->OMSetRenderTargets(1, &rtv_original, dsv_original.get());
 	device->IASetPrimitiveTopology(primitive_topology_original);
@@ -627,7 +639,7 @@ static HRESULT __stdcall detour_present(IDXGISwapChain* swapchain, UINT sync_int
 	////
 
 	start = std::chrono::high_resolution_clock::now();
-	
+
 	//
 
 	flags |= DXGI_PRESENT_ALLOW_TEARING;
@@ -645,6 +657,11 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 	return false;
 	#endif
 
+	// Here, for now we only have XeGTAO, so optimize with early exit.
+	if (!g_xegtao_enable || is_xegtao_drawn) {
+		return false;
+	}
+
 	auto device = (ID3D10Device*)cmd_list->get_native();
 	Com_ptr<ID3D10PixelShader> ps;
 	device->PSGetShader(&ps);
@@ -654,11 +671,14 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 
 	// We can't reliably track shaders that we need via handle alone,
 	// so we will use private data.
+	//
+	// The order doesnt matter, this will be equivalent to logical OR.
 	
+	// 0xB69D6558 fog (1)
 	uint32_t hash;
 	UINT size = sizeof(hash);
 	auto hr = ps->GetPrivateData(g_ps_0xB69D6558_guid, &size, &hash);
-	if (g_xegtao_enable && !is_xegtao_drawn && SUCCEEDED(hr) && hash == g_ps_0xB69D6558_hash) {
+	if (SUCCEEDED(hr) && hash == g_ps_0xB69D6558_hash) {
 		// We expect RTV to be the main scene.
 		Com_ptr<ID3D10RenderTargetView> rtv_original;
 		device->OMGetRenderTargets(1, &rtv_original, nullptr);
@@ -668,7 +688,7 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 		Com_ptr<ID3D10Resource> resource;
 		rtv_original->GetResource(&resource);
 		Com_ptr<ID3D10Texture2D> tex;
-		ensure(resource->QueryInterface(IID_PPV_ARGS(&tex)), >= 0);
+		ensure(resource->QueryInterface(&tex), >= 0);
 		D3D10_TEXTURE2D_DESC tex_desc;
 		tex->GetDesc(&tex_desc);
 		if (tex_desc.Width != g_swapchain_width) {
@@ -680,12 +700,46 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 
 		// Draw the original shader.
 		cmd_list->draw_indexed(index_count, instance_count, first_index, vertex_offset, first_instance);
-		
+
 		return true;
 	}
+
+	// 0xE2683E33 fog (2)
+	size = sizeof(hash);
+	hr = ps->GetPrivateData(g_ps_0xE2683E33_guid, &size, &hash);
+	if (SUCCEEDED(hr) && hash == g_ps_0xE2683E33_hash) {
+		// We expect RTV to be the main scene.
+		Com_ptr<ID3D10RenderTargetView> rtv_original;
+		device->OMGetRenderTargets(1, &rtv_original, nullptr);
+
+		#if DEV
+		// Get RT resource (texture) and texture description.
+		// Make sure we always have the main scene.
+		Com_ptr<ID3D10Resource> resource;
+		rtv_original->GetResource(&resource);
+		Com_ptr<ID3D10Texture2D> tex;
+		ensure(resource->QueryInterface(&tex), >= 0);
+		D3D10_TEXTURE2D_DESC tex_desc;
+		tex->GetDesc(&tex_desc);
+		if (tex_desc.Width != g_swapchain_width) {
+			log_debug("0xE2683E33 (DrawIndexed) RTV wasnt what we expected it to be.");
+			return false;
+		}
+		#endif
+
+		draw_xegtao(device, &rtv_original);
+		is_xegtao_drawn = true;
+
+		// Draw the original shader.
+		cmd_list->draw_indexed(index_count, instance_count, first_index, vertex_offset, first_instance);
+
+		return true;
+	}
+
+	// 0xC907CF9A fog (3)
 	size = sizeof(hash);
 	hr = ps->GetPrivateData(g_ps_0xC907CF9A_guid, &size, &hash);
-	if (g_xegtao_enable && !is_xegtao_drawn && SUCCEEDED(hr) && hash == g_ps_0xC907CF9A_hash) {
+	if (SUCCEEDED(hr) && hash == g_ps_0xC907CF9A_hash) {
 		// We expect RTV to be the main scene.
 		Com_ptr<ID3D10RenderTargetView> rtv_original;
 		device->OMGetRenderTargets(1, &rtv_original, nullptr);
@@ -695,7 +749,7 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 		Com_ptr<ID3D10Resource> resource;
 		rtv_original->GetResource(&resource);
 		Com_ptr<ID3D10Texture2D> tex;
-		ensure(resource->QueryInterface(IID_PPV_ARGS(&tex)), >= 0);
+		ensure(resource->QueryInterface(&tex), >= 0);
 		D3D10_TEXTURE2D_DESC tex_desc;
 		tex->GetDesc(&tex_desc);
 		if (tex_desc.Width != g_swapchain_width) {
@@ -710,20 +764,86 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 
 		return true;
 	}
+
+	// 0x9CFB96DA fog (4)
 	size = sizeof(hash);
-	hr = ps->GetPrivateData(g_ps_0xE689FDF8_guid, &size, &hash);
-	if (g_xegtao_enable && !is_xegtao_drawn && SUCCEEDED(hr) && hash == g_ps_0xE689FDF8_hash) {
+	hr = ps->GetPrivateData(g_ps_0x9CFB96DA_guid, &size, &hash);
+	if (SUCCEEDED(hr) && hash == g_ps_0x9CFB96DA_hash) {
 		// We expect RTV to be the main scene.
 		Com_ptr<ID3D10RenderTargetView> rtv_original;
 		device->OMGetRenderTargets(1, &rtv_original, nullptr);
 
 		#if DEV
 		// Get RT resource (texture) and texture description.
-		// Make sure we always have main scene
+		// Make sure we always have the main scene.
 		Com_ptr<ID3D10Resource> resource;
 		rtv_original->GetResource(&resource);
 		Com_ptr<ID3D10Texture2D> tex;
-		ensure(resource->QueryInterface(IID_PPV_ARGS(&tex)), >= 0);
+		ensure(resource->QueryInterface(&tex), >= 0);
+		D3D10_TEXTURE2D_DESC tex_desc;
+		tex->GetDesc(&tex_desc);
+		if (tex_desc.Width != g_swapchain_width) {
+			log_debug("0x9CFB96DA RTV wasnt what we expected it to be.");
+			return false;
+		}
+		#endif
+
+		draw_xegtao(device, &rtv_original);
+		is_xegtao_drawn = true;
+
+		// Draw the original shader.
+		cmd_list->draw_indexed(index_count, instance_count, first_index, vertex_offset, first_instance);
+
+		return true;
+	}
+
+	// 0x3B177042 fog (5)
+	size = sizeof(hash);
+	hr = ps->GetPrivateData(g_ps_0x3B177042_guid, &size, &hash);
+	if (SUCCEEDED(hr) && hash == g_ps_0x3B177042_hash) {
+		// We expect RTV to be the main scene.
+		Com_ptr<ID3D10RenderTargetView> rtv_original;
+		device->OMGetRenderTargets(1, &rtv_original, nullptr);
+
+		#if DEV
+		// Get RT resource (texture) and texture description.
+		// Make sure we always have the main scene.
+		Com_ptr<ID3D10Resource> resource;
+		rtv_original->GetResource(&resource);
+		Com_ptr<ID3D10Texture2D> tex;
+		ensure(resource->QueryInterface(&tex), >= 0);
+		D3D10_TEXTURE2D_DESC tex_desc;
+		tex->GetDesc(&tex_desc);
+		if (tex_desc.Width != g_swapchain_width) {
+			log_debug("0x3B177042 RTV wasnt what we expected it to be.");
+			return false;
+		}
+		#endif
+
+		draw_xegtao(device, &rtv_original);
+		is_xegtao_drawn = true;
+
+		// Draw the original shader.
+		cmd_list->draw_indexed(index_count, instance_count, first_index, vertex_offset, first_instance);
+
+		return true;
+	}
+
+	// 0xE689FDF8 godrays
+	size = sizeof(hash);
+	hr = ps->GetPrivateData(g_ps_0xE689FDF8_guid, &size, &hash);
+	if (SUCCEEDED(hr) && hash == g_ps_0xE689FDF8_hash) {
+		// We expect RTV to be the main scene.
+		Com_ptr<ID3D10RenderTargetView> rtv_original;
+		device->OMGetRenderTargets(1, &rtv_original, nullptr);
+
+		#if DEV
+		// Get RT resource (texture) and texture description.
+		// Make sure we always have the main scene.
+		Com_ptr<ID3D10Resource> resource;
+		rtv_original->GetResource(&resource);
+		Com_ptr<ID3D10Texture2D> tex;
+		ensure(resource->QueryInterface(&tex), >= 0);
 		D3D10_TEXTURE2D_DESC tex_desc;
 		tex->GetDesc(&tex_desc);
 		if (tex_desc.Width != g_swapchain_width) {
@@ -737,9 +857,10 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 
 		// Draw the original shader.
 		cmd_list->draw_indexed(index_count, instance_count, first_index, vertex_offset, first_instance);
-		
+
 		return true;
 	}
+
 	return false;
 }
 
@@ -758,10 +879,45 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 
 	// We can't reliably track shaders that we need via handle alone,
 	// so we will use private data.
+	//
+	// The order doesnt matter, this will be equivalent to logical OR.
 
+	// 0xE2683E33 fog (2)
 	uint32_t hash;
 	UINT size = sizeof(hash);
-	auto hr = ps->GetPrivateData(g_ps_0xB51C436B_guid, &size, &hash);
+	auto hr = ps->GetPrivateData(g_ps_0xE2683E33_guid, &size, &hash);
+	if (g_xegtao_enable && !is_xegtao_drawn && SUCCEEDED(hr) && hash == g_ps_0xE2683E33_hash) {
+		// We expect RTV to be the main scene.
+		Com_ptr<ID3D10RenderTargetView> rtv_original;
+		device->OMGetRenderTargets(1, &rtv_original, nullptr);
+
+		#if DEV
+		// Get RT resource (texture) and texture description.
+		// Make sure we always have the main scene.
+		Com_ptr<ID3D10Resource> resource;
+		rtv_original->GetResource(&resource);
+		Com_ptr<ID3D10Texture2D> tex;
+		ensure(resource->QueryInterface(&tex), >= 0);
+		D3D10_TEXTURE2D_DESC tex_desc;
+		tex->GetDesc(&tex_desc);
+		if (tex_desc.Width != g_swapchain_width) {
+			log_debug("0xE2683E33 (Draw) RTV wasnt what we expected it to be.");
+			return false;
+		}
+		#endif
+
+		draw_xegtao(device, &rtv_original);
+		is_xegtao_drawn = true;
+
+		// Draw the original shader.
+		cmd_list->draw(vertex_count, instance_count, first_vertex, first_instance);
+
+		return true;
+	}
+
+	// 0xB51C436B bloom downscale
+	size = sizeof(hash);
+	hr = ps->GetPrivateData(g_ps_0xB51C436B_guid, &size, &hash);
 	if (g_xegtao_enable && !is_xegtao_drawn && SUCCEEDED(hr) && hash == g_ps_0xB51C436B_hash) {
 		// We expect SRV to be the main scene.
 		Com_ptr<ID3D10ShaderResourceView> srv_original;
@@ -781,6 +937,8 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 
 		return true;
 	}
+
+	// 0x87A0B43D tone maping
 	size = sizeof(hash);
 	hr = ps->GetPrivateData(g_ps_0x87A0B43D_guid, &size, &hash);
 	if (SUCCEEDED(hr) && hash == g_ps_0x87A0B43D_hash) {
@@ -794,7 +952,7 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		Com_ptr<ID3D10Resource> resource;
 		rtv_original->GetResource(&resource);
 		Com_ptr<ID3D10Texture2D> tex;
-		ensure(resource->QueryInterface(IID_PPV_ARGS(&tex)), >= 0);
+		ensure(resource->QueryInterface(&tex), >= 0);
 		D3D10_TEXTURE2D_DESC tex_desc;
 		tex->GetDesc(&tex_desc);
 
@@ -1076,7 +1234,7 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		device->PSSetConstantBuffers(13, 1, &g_cb); // The game should never be using CB slot 13.
 		const std::array ps_resources_amd_ffx_lfga = { rt_views_amd_ffx_cas.get_srv(), g_srv_blue_noise_tex.get() };
 		device->PSSetShaderResources(0, ps_resources_amd_ffx_lfga.size(), ps_resources_amd_ffx_lfga.data());
-		
+
 		// Backup the original sampler.
 		Com_ptr<ID3D10SamplerState> smp_original0;
 		device->PSGetSamplers(0, 1, &smp_original0);
@@ -1094,6 +1252,7 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 
 		return true;
 	}
+
 	return false;
 }
 
@@ -1118,6 +1277,15 @@ static void on_init_pipeline(reshade::api::device* device, reshade::api::pipelin
 					break;
 				case g_ps_0xB51C436B_hash:
 					ensure(((ID3D10PixelShader*)pipeline.handle)->SetPrivateData(g_ps_0xB51C436B_guid, sizeof(g_ps_0xB51C436B_hash), &g_ps_0xB51C436B_hash), >= 0);
+					break;
+				case g_ps_0x9CFB96DA_hash:
+					ensure(((ID3D10PixelShader*)pipeline.handle)->SetPrivateData(g_ps_0x9CFB96DA_guid, sizeof(g_ps_0x9CFB96DA_hash), &g_ps_0x9CFB96DA_hash), >= 0);
+					break;
+				case g_ps_0x3B177042_hash:
+					ensure(((ID3D10PixelShader*)pipeline.handle)->SetPrivateData(g_ps_0x3B177042_guid, sizeof(g_ps_0x3B177042_hash), &g_ps_0x3B177042_hash), >= 0);
+					break;
+				case g_ps_0xE2683E33_hash:
+					ensure(((ID3D10PixelShader*)pipeline.handle)->SetPrivateData(g_ps_0xE2683E33_guid, sizeof(g_ps_0xE2683E33_hash), &g_ps_0xE2683E33_hash), >= 0);
 					break;
 			}
 		}
@@ -1218,7 +1386,7 @@ static void on_init_device(reshade::api::device* device)
 	// It reduces input latecy massivly if GPU bound.
 	auto native_device = (IUnknown*)device->get_native();
 	Com_ptr<IDXGIDevice1> device1;
-	auto hr = native_device->QueryInterface(IID_PPV_ARGS(&device1));
+	auto hr = native_device->QueryInterface(&device1);
 	if (SUCCEEDED(hr)) {
 		ensure(device1->SetMaximumFrameLatency(1), >= 0);
 	}
@@ -1330,7 +1498,7 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 }
 
 extern "C" __declspec(dllexport) const char* NAME = "BioshockGrapicalUpgrade";
-extern "C" __declspec(dllexport) const char* DESCRIPTION = "BioshockGrapicalUpgrade v2.1.0";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "BioshockGrapicalUpgrade v2.2.0";
 extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/BioshockGraphicalUpgrade";
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)

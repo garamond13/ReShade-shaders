@@ -279,7 +279,7 @@ void XeGTAO_MainPass(uint2 pixCoord, float2 localNoise, Texture2D<float> sourceV
 		// this is the min distance to start sampling from to avoid sampling from the center pixel (no useful data obtained from sampling center pixel)
 		const float minS = pixelTooCloseThreshold / screenspaceRadius;
 
-		//[unroll]
+		[unroll]
 		for (float slice = 0.0; slice < SLICE_COUNT; slice++) {
 			float sliceK = (slice + noiseSlice) / SLICE_COUNT;
 			// lines 5, 6 from the paper
