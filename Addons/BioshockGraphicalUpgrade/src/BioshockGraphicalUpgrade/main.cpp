@@ -921,9 +921,8 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		Com_ptr<ID3D10RenderTargetView> rtv_original;
 		device->OMGetRenderTargets(1, &rtv_original, nullptr);
 
-		#if DEV
 		// Get RT resource (texture) and texture description.
-		// Make sure we always have the main scene.
+		// We won't always have the main scene, check via resorce dimensions do we have it. 
 		Com_ptr<ID3D10Resource> resource;
 		rtv_original->GetResource(&resource);
 		Com_ptr<ID3D10Texture2D> tex;
@@ -931,10 +930,8 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		D3D10_TEXTURE2D_DESC tex_desc;
 		tex->GetDesc(&tex_desc);
 		if (tex_desc.Width != g_swapchain_width) {
-			log_debug("0xE2683E33 (Draw) RTV wasnt what we expected it to be.");
 			return false;
 		}
-		#endif
 
 		draw_xegtao(device, &rtv_original);
 		is_xegtao_drawn = true;
@@ -1531,7 +1528,7 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 }
 
 extern "C" __declspec(dllexport) const char* NAME = "BioshockGrapicalUpgrade";
-extern "C" __declspec(dllexport) const char* DESCRIPTION = "BioshockGrapicalUpgrade v2.3.0";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "BioshockGrapicalUpgrade v2.4.0";
 extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/BioshockGraphicalUpgrade";
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)
