@@ -137,7 +137,6 @@ constexpr GUID g_ps_0x87A0B43D_guid = { 0x476ef3b9, 0xe14e, 0x49f2, { 0xa6, 0x5c
 static Com_ptr<ID3D10PixelShader> g_ps_0x87A0B43D;
 
 static Com_ptr<ID3D10ShaderResourceView> g_srv_depth;
-
 static Com_ptr<ID3D10PixelShader> g_ps_delinearize;
 
 // SMAA
@@ -676,8 +675,8 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 	// We can't reliably track shaders that we need via handle alone,
 	// so we will use private data.
 	//
-	// The order doesnt matter, this will be equivalent to logical OR.
-	
+	// The order doesn't matter, this will be equivalent to the logical OR.
+
 	// 0xB69D6558 fog (1)
 	uint32_t hash;
 	UINT size = sizeof(hash);
@@ -774,9 +773,8 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 		Com_ptr<ID3D10RenderTargetView> rtv_original;
 		device->OMGetRenderTargets(1, &rtv_original, nullptr);
 
-		#if DEV
 		// Get RT resource (texture) and texture description.
-		// Make sure we always have the main scene.
+		// We won't always have the main scene, check via resorce dimensions do we have it.
 		Com_ptr<ID3D10Resource> resource;
 		rtv_original->GetResource(&resource);
 		Com_ptr<ID3D10Texture2D> tex;
@@ -784,10 +782,8 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 		D3D10_TEXTURE2D_DESC tex_desc;
 		tex->GetDesc(&tex_desc);
 		if (tex_desc.Width != g_swapchain_width) {
-			log_debug("0x9CFB96DA RTV wasnt what we expected it to be.");
 			return false;
 		}
-		#endif
 
 		draw_xegtao(device, &rtv_original);
 		is_xegtao_drawn = true;
@@ -806,9 +802,8 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 		Com_ptr<ID3D10RenderTargetView> rtv_original;
 		device->OMGetRenderTargets(1, &rtv_original, nullptr);
 
-		#if DEV
 		// Get RT resource (texture) and texture description.
-		// Make sure we always have the main scene.
+		// We won't always have the main scene, check via resorce dimensions do we have it.
 		Com_ptr<ID3D10Resource> resource;
 		rtv_original->GetResource(&resource);
 		Com_ptr<ID3D10Texture2D> tex;
@@ -816,10 +811,8 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 		D3D10_TEXTURE2D_DESC tex_desc;
 		tex->GetDesc(&tex_desc);
 		if (tex_desc.Width != g_swapchain_width) {
-			log_debug("0x3B177042 RTV wasnt what we expected it to be.");
 			return false;
 		}
-		#endif
 
 		draw_xegtao(device, &rtv_original);
 		is_xegtao_drawn = true;
@@ -838,9 +831,8 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 		Com_ptr<ID3D10RenderTargetView> rtv_original;
 		device->OMGetRenderTargets(1, &rtv_original, nullptr);
 
-		#if DEV
 		// Get RT resource (texture) and texture description.
-		// Make sure we always have the main scene.
+		// We won't always have the main scene, check via resorce dimensions do we have it.
 		Com_ptr<ID3D10Resource> resource;
 		rtv_original->GetResource(&resource);
 		Com_ptr<ID3D10Texture2D> tex;
@@ -848,10 +840,8 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 		D3D10_TEXTURE2D_DESC tex_desc;
 		tex->GetDesc(&tex_desc);
 		if (tex_desc.Width != g_swapchain_width) {
-			log_debug("0xEB7BE1D6 RTV wasnt what we expected it to be.");
 			return false;
 		}
-		#endif
 
 		draw_xegtao(device, &rtv_original);
 		is_xegtao_drawn = true;
@@ -910,7 +900,7 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 	// We can't reliably track shaders that we need via handle alone,
 	// so we will use private data.
 	//
-	// The order doesnt matter, this will be equivalent to logical OR.
+	// The order doesn't matter, this will be equivalent to the logical OR.
 
 	// 0xE2683E33 fog (2)
 	uint32_t hash;
@@ -1265,7 +1255,7 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		// Backup the original sampler.
 		Com_ptr<ID3D10SamplerState> smp_original0;
 		device->PSGetSamplers(0, 1, &smp_original0);
-		
+
 		device->PSSetSamplers(0, 1, &g_smp_point_wrap);
 
 		////
@@ -1386,7 +1376,7 @@ static bool on_create_swapchain(reshade::api::device_api api, reshade::api::swap
 static void on_init_swapchain(reshade::api::swapchain* swapchain, bool resize)
 {
 	auto native_swapchain = (IDXGISwapChain*)swapchain->get_native();
-	
+
 	// Hook IDXGISwapChain::Present
 	if (!g_original_present) {
 		auto vtable = *(void***)native_swapchain;
@@ -1528,7 +1518,7 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 }
 
 extern "C" __declspec(dllexport) const char* NAME = "BioshockGrapicalUpgrade";
-extern "C" __declspec(dllexport) const char* DESCRIPTION = "BioshockGrapicalUpgrade v2.4.0";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "BioshockGrapicalUpgrade v2.5.0";
 extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/BioshockGraphicalUpgrade";
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)
