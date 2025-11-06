@@ -2,6 +2,7 @@
 // See Demo for the reference https://github.com/iryoku/smaa
 
 #define SMAA_PRESET_ULTRA
+#define SMAA_PREDICATION 1
 #define SMAA_CUSTOM_SL
 SamplerState LinearSampler : register(s1);
 SamplerState PointSampler : register(s0);
@@ -22,7 +23,7 @@ SamplerState PointSampler : register(s0);
 
 #include "FullscreenTriangle.hlsli"
 
-Texture2D tex : register(t0);
+Texture2D tex0 : register(t0);
 Texture2D tex1 : register(t1);
 Texture2D tex2 : register(t2);
 
@@ -37,8 +38,9 @@ void smaa_edge_detection_vs(uint id : SV_VertexID, out float4 position : SV_Posi
 
 float2 smaa_edge_detection_ps(float4 position : SV_Position, float2 texcoord : TEXCOORD0, float4 offset[3] : TEXCOORD1) : SV_Target
 {
-	// tex = colorTexGamma
-	return SMAAColorEdgeDetectionPS(texcoord, offset, tex);
+	// tex0 = colorTexGamma
+	// tex1 = predicationTex
+	return SMAAColorEdgeDetectionPS(texcoord, offset, tex0, tex1);
 }
 
 //
@@ -54,10 +56,10 @@ void smaa_blending_weight_calculation_vs(uint id : SV_VertexID, out float4 posit
 
 float4 smaa_blending_weight_calculation_ps(float4 position : SV_Position, float2 texcoord : TEXCOORD0, float2 pixcoord : TEXCOORD1, float4 offset[3] : TEXCOORD2) : SV_Target
 {
-	// tex = edgesTex
+	// tex0 = edgesTex
 	// tex1 = areaTex
 	// tex2 = searchTex
-	return SMAABlendingWeightCalculationPS(texcoord, pixcoord, offset, tex, tex1, tex2, 0);
+	return SMAABlendingWeightCalculationPS(texcoord, pixcoord, offset, tex0, tex1, tex2, 0);
 }
 
 //
@@ -73,9 +75,9 @@ void smaa_neighborhood_blending_vs(uint id : SV_VertexID, out float4 position : 
 
 float4 smaa_neighborhood_blending_ps(float4 position : SV_Position, float2 texcoord : TEXCOORD0, float4 offset : TEXCOORD1) : SV_Target
 {
-	// tex = colorTex
+	// tex0 = colorTex
 	// tex1 = blendTex
-	return SMAANeighborhoodBlendingPS(texcoord, offset, tex, tex1);
+	return SMAANeighborhoodBlendingPS(texcoord, offset, tex0, tex1);
 }
 
 //

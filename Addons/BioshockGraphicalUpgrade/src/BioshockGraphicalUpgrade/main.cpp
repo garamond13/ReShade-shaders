@@ -142,14 +142,16 @@ static Com_ptr<ID3D10PixelShader> g_ps_delinearize;
 // SMAA
 constexpr float g_smaa_clear_color[4] = {};
 static SMAA_rt_metrics g_smaa_rt_metrics;
-static Com_ptr<ID3D10ShaderResourceView> g_srv_area_tex;
-static Com_ptr<ID3D10ShaderResourceView> g_srv_search_tex;
+static Com_ptr<ID3D10ShaderResourceView> g_srv_smaa_area_tex;
+static Com_ptr<ID3D10ShaderResourceView> g_srv_smaa_search_tex;
 static Com_ptr<ID3D10VertexShader> g_vs_smaa_edge_detection;
 static Com_ptr<ID3D10PixelShader> g_ps_smaa_edge_detection;
 static Com_ptr<ID3D10VertexShader> g_vs_smaa_blending_weight_calculation;
 static Com_ptr<ID3D10PixelShader> g_ps_smaa_blending_weight_calculation;
-static Com_ptr<ID3D10VertexShader> g_vs_neighborhood_blending;
-static Com_ptr<ID3D10PixelShader> g_ps_neighborhood_blending;
+static Com_ptr<ID3D10VertexShader> g_vs_smaa_neighborhood_blending;
+static Com_ptr<ID3D10PixelShader> g_ps_smaa_neighborhood_blending;
+static Com_ptr<ID3D10DepthStencilState> g_ds_smaa_disable_depth_replace_stencil;
+static Com_ptr<ID3D10DepthStencilState> g_ds_smaa_disable_depth_use_stencil;
 
 // AMD FFX CAS
 static Com_ptr<ID3D10PixelShader> g_ps_amd_ffx_cas;
@@ -273,8 +275,7 @@ static void update_constant_buffer(ID3D10Buffer* buffer, void* data, size_t size
 	buffer->Unmap();
 }
 
-// Used by SMAA.
-static void create_srv_area_tex(ID3D10Device* device, ID3D10ShaderResourceView** srv)
+static void create_srv_smaa_area_tex(ID3D10Device* device, ID3D10ShaderResourceView** srv)
 {
 	D3D10_TEXTURE2D_DESC tex_desc = {};
 	tex_desc.Width = AREATEX_WIDTH;
@@ -293,8 +294,7 @@ static void create_srv_area_tex(ID3D10Device* device, ID3D10ShaderResourceView**
 	ensure(device->CreateShaderResourceView(tex.get(), nullptr, srv), >= 0);
 }
 
-// Used by SMAA.
-static void create_srv_search_tex(ID3D10Device* device, ID3D10ShaderResourceView** srv)
+static void create_srv_smaa_search_tex(ID3D10Device* device, ID3D10ShaderResourceView** srv)
 {
 	D3D10_TEXTURE2D_DESC tex_desc = {};
 	tex_desc.Width = SEARCHTEX_WIDTH;
@@ -379,7 +379,7 @@ static void draw_xegtao(ID3D10Device* device, ID3D10RenderTargetView*const* rtv)
 	// Primitive topology.
 	D3D10_PRIMITIVE_TOPOLOGY primitive_topology_original;
 	device->IAGetPrimitiveTopology(&primitive_topology_original);
-	
+
 	// VS.
 	Com_ptr<ID3D10VertexShader> vs_original;
 	device->VSGetShader(&vs_original);
@@ -1067,12 +1067,7 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 
 		//
 
-		// TODO: Optimize SMAA performance with depth stencil.
-
 		// SMAAEdgeDetection pass
-		//
-		// In my tests using depth as predication texture performs slightly worse in terms of quality.
-		// Performance gains shouldn't be net positive since we have to linearize depth in the seperate pass.
 		//
 
 		// Create VS.
@@ -1086,16 +1081,46 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 			create_pixel_shader(device, &g_ps_smaa_edge_detection, L"SMAA_impl.hlsl", "smaa_edge_detection_ps", g_smaa_rt_metrics.get());
 		}
 
+		// Create DS.
+		[[unlikely]] if (!g_ds_smaa_disable_depth_replace_stencil) {
+			D3D10_DEPTH_STENCIL_DESC desc = {};
+			desc.DepthWriteMask = D3D10_DEPTH_WRITE_MASK_ALL;
+			desc.DepthFunc = D3D10_COMPARISON_LESS;
+			desc.StencilEnable = TRUE;
+			desc.StencilReadMask = D3D10_DEFAULT_STENCIL_READ_MASK;
+			desc.StencilWriteMask = D3D10_DEFAULT_STENCIL_WRITE_MASK;
+			desc.FrontFace.StencilFailOp = D3D10_STENCIL_OP_KEEP;
+			desc.FrontFace.StencilDepthFailOp = D3D10_STENCIL_OP_KEEP;
+			desc.FrontFace.StencilPassOp = D3D10_STENCIL_OP_REPLACE;
+			desc.FrontFace.StencilFunc = D3D10_COMPARISON_ALWAYS;
+			desc.BackFace.StencilFailOp = D3D10_STENCIL_OP_KEEP;
+			desc.BackFace.StencilDepthFailOp = D3D10_STENCIL_OP_KEEP;
+			desc.BackFace.StencilPassOp = D3D10_STENCIL_OP_KEEP;
+			desc.BackFace.StencilFunc = D3D10_COMPARISON_ALWAYS;
+			ensure(device->CreateDepthStencilState(&desc, &g_ds_smaa_disable_depth_replace_stencil), >= 0);
+		}
+
+		// Create DSV.
+		tex_desc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
+		tex_desc.BindFlags = D3D10_BIND_DEPTH_STENCIL;
+		ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.reset_and_get_address()), >= 0);
+		Com_ptr<ID3D10DepthStencilView> dsv;
+		ensure(device->CreateDepthStencilView(tex.get(), nullptr, &dsv), >= 0);
+
 		tex_desc.Format = DXGI_FORMAT_R8G8_UNORM;
+		tex_desc.BindFlags = D3D10_BIND_SHADER_RESOURCE | D3D10_BIND_RENDER_TARGET;
 		RT_views rt_views_edges_tex(device, tex_desc);
 
 		// Bindings.
-		device->OMSetRenderTargets(1, rt_views_edges_tex.get_rtv_address(), nullptr);
+		device->OMSetDepthStencilState(g_ds_smaa_disable_depth_replace_stencil.get(), 1);
+		device->OMSetRenderTargets(1, rt_views_edges_tex.get_rtv_address(), dsv.get());
 		device->VSSetShader(g_vs_smaa_edge_detection.get());
 		device->PSSetShader(g_ps_smaa_edge_detection.get());
-		device->PSSetShaderResources(0, 1, rt_views_delinearize.get_srv_address());
+		const std::array ps_resources_smaa_edge_detection = { rt_views_delinearize.get_srv(), g_srv_depth.get() };
+		device->PSSetShaderResources(0, ps_resources_smaa_edge_detection.size(), ps_resources_smaa_edge_detection.data());
 
 		device->ClearRenderTargetView(rt_views_edges_tex.get_rtv(), g_smaa_clear_color);
+		device->ClearDepthStencilView(dsv.get(), D3D10_CLEAR_STENCIL, 1.0f, 0);
 		device->Draw(3, 0);
 
 		//
@@ -1114,23 +1139,43 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		}
 
 		// Create area texture.
-		[[unlikely]] if (!g_srv_area_tex) {
-			create_srv_area_tex(device, &g_srv_area_tex);
+		[[unlikely]] if (!g_srv_smaa_area_tex) {
+			create_srv_smaa_area_tex(device, &g_srv_smaa_area_tex);
 		}
 
 		// Create search texture.
-		[[unlikely]] if (!g_srv_search_tex) {
-			create_srv_search_tex(device, &g_srv_search_tex);
+		[[unlikely]] if (!g_srv_smaa_search_tex) {
+			create_srv_smaa_search_tex(device, &g_srv_smaa_search_tex);
+		}
+
+		// Create DS.
+		[[unlikely]] if (!g_ds_smaa_disable_depth_use_stencil) {
+			D3D10_DEPTH_STENCIL_DESC desc = {};
+			desc.DepthWriteMask = D3D10_DEPTH_WRITE_MASK_ALL;
+			desc.DepthFunc = D3D10_COMPARISON_LESS;
+			desc.StencilEnable = TRUE;
+			desc.StencilReadMask = D3D10_DEFAULT_STENCIL_READ_MASK;
+			desc.StencilWriteMask = D3D10_DEFAULT_STENCIL_WRITE_MASK;
+			desc.FrontFace.StencilFailOp = D3D10_STENCIL_OP_KEEP;
+			desc.FrontFace.StencilDepthFailOp = D3D10_STENCIL_OP_KEEP;
+			desc.FrontFace.StencilPassOp = D3D10_STENCIL_OP_KEEP;
+			desc.FrontFace.StencilFunc = D3D10_COMPARISON_EQUAL;
+			desc.BackFace.StencilFailOp = D3D10_STENCIL_OP_KEEP;
+			desc.BackFace.StencilDepthFailOp = D3D10_STENCIL_OP_KEEP;
+			desc.BackFace.StencilPassOp = D3D10_STENCIL_OP_KEEP;
+			desc.BackFace.StencilFunc = D3D10_COMPARISON_ALWAYS;
+			ensure(device->CreateDepthStencilState(&desc, &g_ds_smaa_disable_depth_use_stencil), >= 0);
 		}
 
 		tex_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
 		RT_views rt_views_blend_tex(device, tex_desc);
 
 		// Bindings.
-		device->OMSetRenderTargets(1, rt_views_blend_tex.get_rtv_address(), nullptr);
+		device->OMSetDepthStencilState(g_ds_smaa_disable_depth_use_stencil.get(), 1);
+		device->OMSetRenderTargets(1, rt_views_blend_tex.get_rtv_address(), dsv.get());
 		device->VSSetShader(g_vs_smaa_blending_weight_calculation.get());
 		device->PSSetShader(g_ps_smaa_blending_weight_calculation.get());
-		const std::array ps_resources_smaa_blending_weight_calculation = { rt_views_edges_tex.get_srv(), g_srv_area_tex.get(), g_srv_search_tex.get() };
+		const std::array ps_resources_smaa_blending_weight_calculation = { rt_views_edges_tex.get_srv(), g_srv_smaa_area_tex.get(), g_srv_smaa_search_tex.get() };
 		device->PSSetShaderResources(0, ps_resources_smaa_blending_weight_calculation.size(), ps_resources_smaa_blending_weight_calculation.data());
 
 		device->ClearRenderTargetView(rt_views_blend_tex.get_rtv(), g_smaa_clear_color);
@@ -1142,13 +1187,13 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		//
 
 		// Create VS.
-		[[unlikely]] if (!g_vs_neighborhood_blending) {
-			create_vertex_shader(device, &g_vs_neighborhood_blending, L"SMAA_impl.hlsl", "smaa_neighborhood_blending_vs", g_smaa_rt_metrics.get());
+		[[unlikely]] if (!g_vs_smaa_neighborhood_blending) {
+			create_vertex_shader(device, &g_vs_smaa_neighborhood_blending, L"SMAA_impl.hlsl", "smaa_neighborhood_blending_vs", g_smaa_rt_metrics.get());
 		}
 
 		// Create PS.
-		[[unlikely]] if (!g_ps_neighborhood_blending) {
-			create_pixel_shader(device, &g_ps_neighborhood_blending, L"SMAA_impl.hlsl", "smaa_neighborhood_blending_ps", g_smaa_rt_metrics.get());
+		[[unlikely]] if (!g_ps_smaa_neighborhood_blending) {
+			create_pixel_shader(device, &g_ps_smaa_neighborhood_blending, L"SMAA_impl.hlsl", "smaa_neighborhood_blending_ps", g_smaa_rt_metrics.get());
 		}
 
 		tex_desc.Format = DXGI_FORMAT_R16G16B16A16_UNORM;
@@ -1156,8 +1201,8 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 
 		// Bindings.
 		device->OMSetRenderTargets(1, rt_views_resources_neighborhood_blending.get_rtv_address(), nullptr);
-		device->VSSetShader(g_vs_neighborhood_blending.get());
-		device->PSSetShader(g_ps_neighborhood_blending.get());
+		device->VSSetShader(g_vs_smaa_neighborhood_blending.get());
+		device->PSSetShader(g_ps_smaa_neighborhood_blending.get());
 		const std::array ps_resources_neighborhood_blending = { rt_views_0x87A0B43D.get_srv(), rt_views_blend_tex.get_srv() };
 		device->PSSetShaderResources(0, ps_resources_neighborhood_blending.size(), ps_resources_neighborhood_blending.data());
 
@@ -1395,8 +1440,8 @@ static void on_init_swapchain(reshade::api::swapchain* swapchain, bool resize)
 	g_ps_smaa_edge_detection.reset();
 	g_vs_smaa_blending_weight_calculation.reset();
 	g_ps_smaa_blending_weight_calculation.reset();
-	g_vs_neighborhood_blending.reset();
-	g_ps_neighborhood_blending.reset();
+	g_vs_smaa_neighborhood_blending.reset();
+	g_ps_smaa_neighborhood_blending.reset();
 	g_ps_amd_ffx_lfga.reset();
 }
 
@@ -1518,7 +1563,7 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 }
 
 extern "C" __declspec(dllexport) const char* NAME = "BioshockGrapicalUpgrade";
-extern "C" __declspec(dllexport) const char* DESCRIPTION = "BioshockGrapicalUpgrade v2.5.0";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "BioshockGrapicalUpgrade v2.6.0";
 extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/BioshockGraphicalUpgrade";
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)
