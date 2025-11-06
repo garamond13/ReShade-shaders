@@ -1083,20 +1083,10 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 
 		// Create DS.
 		[[unlikely]] if (!g_ds_smaa_disable_depth_replace_stencil) {
-			D3D10_DEPTH_STENCIL_DESC desc = {};
-			desc.DepthWriteMask = D3D10_DEPTH_WRITE_MASK_ALL;
-			desc.DepthFunc = D3D10_COMPARISON_LESS;
+			auto desc = default_D3D10_DEPTH_STENCIL_DESC();
+			desc.DepthEnable = FALSE;
 			desc.StencilEnable = TRUE;
-			desc.StencilReadMask = D3D10_DEFAULT_STENCIL_READ_MASK;
-			desc.StencilWriteMask = D3D10_DEFAULT_STENCIL_WRITE_MASK;
-			desc.FrontFace.StencilFailOp = D3D10_STENCIL_OP_KEEP;
-			desc.FrontFace.StencilDepthFailOp = D3D10_STENCIL_OP_KEEP;
 			desc.FrontFace.StencilPassOp = D3D10_STENCIL_OP_REPLACE;
-			desc.FrontFace.StencilFunc = D3D10_COMPARISON_ALWAYS;
-			desc.BackFace.StencilFailOp = D3D10_STENCIL_OP_KEEP;
-			desc.BackFace.StencilDepthFailOp = D3D10_STENCIL_OP_KEEP;
-			desc.BackFace.StencilPassOp = D3D10_STENCIL_OP_KEEP;
-			desc.BackFace.StencilFunc = D3D10_COMPARISON_ALWAYS;
 			ensure(device->CreateDepthStencilState(&desc, &g_ds_smaa_disable_depth_replace_stencil), >= 0);
 		}
 
@@ -1150,20 +1140,10 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 
 		// Create DS.
 		[[unlikely]] if (!g_ds_smaa_disable_depth_use_stencil) {
-			D3D10_DEPTH_STENCIL_DESC desc = {};
-			desc.DepthWriteMask = D3D10_DEPTH_WRITE_MASK_ALL;
-			desc.DepthFunc = D3D10_COMPARISON_LESS;
+			auto desc = default_D3D10_DEPTH_STENCIL_DESC();
+			desc.DepthEnable = FALSE;
 			desc.StencilEnable = TRUE;
-			desc.StencilReadMask = D3D10_DEFAULT_STENCIL_READ_MASK;
-			desc.StencilWriteMask = D3D10_DEFAULT_STENCIL_WRITE_MASK;
-			desc.FrontFace.StencilFailOp = D3D10_STENCIL_OP_KEEP;
-			desc.FrontFace.StencilDepthFailOp = D3D10_STENCIL_OP_KEEP;
-			desc.FrontFace.StencilPassOp = D3D10_STENCIL_OP_KEEP;
 			desc.FrontFace.StencilFunc = D3D10_COMPARISON_EQUAL;
-			desc.BackFace.StencilFailOp = D3D10_STENCIL_OP_KEEP;
-			desc.BackFace.StencilDepthFailOp = D3D10_STENCIL_OP_KEEP;
-			desc.BackFace.StencilPassOp = D3D10_STENCIL_OP_KEEP;
-			desc.BackFace.StencilFunc = D3D10_COMPARISON_ALWAYS;
 			ensure(device->CreateDepthStencilState(&desc, &g_ds_smaa_disable_depth_use_stencil), >= 0);
 		}
 
@@ -1563,7 +1543,7 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 }
 
 extern "C" __declspec(dllexport) const char* NAME = "BioshockGrapicalUpgrade";
-extern "C" __declspec(dllexport) const char* DESCRIPTION = "BioshockGrapicalUpgrade v2.6.0";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "BioshockGrapicalUpgrade v2.6.1";
 extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/BioshockGraphicalUpgrade";
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)

@@ -105,6 +105,31 @@ void log_debug(std::string_view fmt, Args&&... args)
 	reshade::log::message(reshade::log::level::debug, msg.c_str());
 }
 
+constexpr D3D10_DEPTH_STENCIL_DESC default_D3D10_DEPTH_STENCIL_DESC() noexcept
+{
+	D3D10_DEPTH_STENCIL_DESC desc = {
+		.DepthEnable = TRUE,
+		.DepthWriteMask = D3D10_DEPTH_WRITE_MASK_ALL,
+		.DepthFunc = D3D10_COMPARISON_LESS,
+		.StencilEnable = FALSE,
+		.StencilReadMask = D3D10_DEFAULT_STENCIL_READ_MASK,
+		.StencilWriteMask = D3D10_DEFAULT_STENCIL_WRITE_MASK,
+		.FrontFace = {
+			.StencilFailOp = D3D10_STENCIL_OP_KEEP,
+			.StencilDepthFailOp = D3D10_STENCIL_OP_KEEP,
+			.StencilPassOp = D3D10_STENCIL_OP_KEEP,
+			.StencilFunc = D3D10_COMPARISON_ALWAYS
+		},
+		.BackFace = {
+			.StencilFailOp = D3D10_STENCIL_OP_KEEP,
+			.StencilDepthFailOp = D3D10_STENCIL_OP_KEEP,
+			.StencilPassOp = D3D10_STENCIL_OP_KEEP,
+			.StencilFunc = D3D10_COMPARISON_ALWAYS
+		}
+	};
+	return desc;
+}
+
 inline auto to_string(reshade::api::format format)
 {
 	switch(format) {
