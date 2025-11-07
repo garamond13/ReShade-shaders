@@ -314,7 +314,7 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		return true;
 	}
 
-	// FIXME: the malaria attack effect 0x12A5247D gets rendered after this,
+	// The malaria attack effect 0x12A5247D gets rendered after this,
 	// so apply our post proccess to it as well?
 	if (g_has_lut && hash == g_ps_0xDBF8FCBD) {
 
@@ -428,6 +428,12 @@ static void on_init_pipeline(reshade::api::device* device, reshade::api::pipelin
 
 static bool on_create_resource(reshade::api::device* device, reshade::api::resource_desc& desc, reshade::api::subresource_data* initial_data, reshade::api::resource_usage initial_state)
 {
+	// Upgrade depth stencil.
+	if (desc.texture.format == reshade::api::format::r24_g8_typeless) {
+		desc.texture.format = reshade::api::format::r32_g8_typeless;
+		return true;
+	}
+
 	// Upgrade render targets.
 	if (((desc.usage & reshade::api::resource_usage::render_target) != 0)) {
 		if (desc.texture.format == reshade::api::format::r8g8b8a8_unorm) {
@@ -445,8 +451,21 @@ static bool on_create_resource(reshade::api::device* device, reshade::api::resou
 
 static bool on_create_resource_view(reshade::api::device* device, reshade::api::resource resource, reshade::api::resource_usage usage_type, reshade::api::resource_view_desc& desc)
 {
-	// Try to filter only render targets that we have upgraded.
 	const auto resource_desc = device->get_resource_desc(resource);
+
+	// Depth stencil.
+	if (resource_desc.texture.format == reshade::api::format::r32_g8_typeless) {
+		if (desc.format == reshade::api::format::d24_unorm_s8_uint) {
+			desc.format = reshade::api::format::d32_float_s8_uint;
+			return true;
+		}
+		if (desc.format == reshade::api::format::r24_unorm_x8_uint) {
+			desc.format = reshade::api::format::r32_float_x8_uint;
+			return true;
+		}
+	}
+
+	// Render targets.
 	if ((resource_desc.usage & reshade::api::resource_usage::render_target) != 0) {
 		if (resource_desc.texture.format == reshade::api::format::r16g16b16a16_unorm) {
 			desc.format = reshade::api::format::r16g16b16a16_unorm;
@@ -518,7 +537,7 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 }
 
 extern "C" __declspec(dllexport) const char* NAME = "FarCry2GraphicalUpgrade";
-extern "C" __declspec(dllexport) const char* DESCRIPTION = "FarCry2GraphicalUpgrade v1.1.1";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "FarCry2GraphicalUpgrade v2.0.0";
 extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/FarCry2GraphicalUpgrade";
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)

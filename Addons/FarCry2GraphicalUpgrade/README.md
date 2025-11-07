@@ -5,6 +5,7 @@
 - 3D LUT aplicator.
 - 16x anisotropic filtering.
 - Upgraded render targets (greatly reduces color banding).
+- Upgraded depth precision.
 - 10bit color output.
 - Fix for the DX10 black square bug.
 - Greatly reduced input lag if GPU bound.
@@ -17,7 +18,9 @@
 - Note that it works (should be used) with DirectX 10 only.
 
 ## Known issues
+
 - Save game image may apear black or wrong in other ways. This does not corupt the save file in any other way, the save file should still work perfectly fine.
 
 ## Compilation
+
 - You can clone [ReShade](https://github.com/crosire/reshade) and add FarCry2GraphicalUpgrade project to Examples solution, then build the project.
