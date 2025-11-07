@@ -126,6 +126,10 @@ constexpr GUID g_ps_0xEB7BE1D6_guid = { 0x9eaab4f0, 0x8224, 0x4a26, { 0xa4, 0x11
 constexpr uint32_t g_ps_0xF5E21918_hash = 0xF5E21918;
 constexpr GUID g_ps_0xF5E21918_guid = { 0x973eae08, 0x71f3, 0x492a, { 0x94, 0xe7, 0x94, 0xb, 0x15, 0xe8, 0x7b, 0xbc } };
 
+// Ceiling debris.
+constexpr uint32_t g_ps_0xDC232D31_hash = 0xDC232D31;
+constexpr GUID g_ps_0xDC232D31_guid = { 0xa7cc6654, 0xa644, 0x4908, { 0xb1, 0xf4, 0x6a, 0x9e, 0x59, 0x84, 0xf8, 0xb5 } };
+
 // "R" glass door.
 constexpr uint32_t g_ps_0x59018C97_hash = 0x59018C97;
 constexpr GUID g_ps_0x59018C97_guid = { 0x83c202f5, 0x2883, 0x4f24, { 0x83, 0xdb, 0x1c, 0x6e, 0xb3, 0x72, 0x6, 0x7 } };
@@ -133,6 +137,10 @@ constexpr GUID g_ps_0x59018C97_guid = { 0x83c202f5, 0x2883, 0x4f24, { 0x83, 0xdb
 // Godrays.
 constexpr uint32_t g_ps_0xE689FDF8_hash = 0xE689FDF8;
 constexpr GUID g_ps_0xE689FDF8_guid = { 0xeda804e9, 0xb9ab, 0x487e, { 0xa9, 0x45, 0x6a, 0xf2, 0x6e, 0xd5, 0x81, 0xef } };
+
+// Flashing images.
+constexpr uint32_t g_ps_0x7862AA89_hash = 0x7862AA89;
+constexpr GUID g_ps_0x7862AA89_guid = { 0xb012ee87, 0x13a1, 0x4c5f, { 0x8a, 0xc4, 0x5b, 0x14, 0x70, 0xc4, 0x66, 0x65 } };
 
 // Bloom downsample.
 constexpr uint32_t g_ps_0xB51C436B_hash = 0xB51C436B;
@@ -889,6 +897,38 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 		return true;
 	}
 
+	// 0xDC232D31 ceiling debris
+	size = sizeof(hash);
+	hr = ps->GetPrivateData(g_ps_0xDC232D31_guid, &size, &hash);
+	if (SUCCEEDED(hr) && hash == g_ps_0xDC232D31_hash) {
+		// We expect RTV to be the main scene.
+		Com_ptr<ID3D10RenderTargetView> rtv_original;
+		device->OMGetRenderTargets(1, &rtv_original, nullptr);
+
+		#if DEV
+		// Get RT resource (texture) and texture description.
+		// Make sure we always have the main scene.
+		Com_ptr<ID3D10Resource> resource;
+		rtv_original->GetResource(&resource);
+		Com_ptr<ID3D10Texture2D> tex;
+		ensure(resource->QueryInterface(&tex), >= 0);
+		D3D10_TEXTURE2D_DESC tex_desc;
+		tex->GetDesc(&tex_desc);
+		if (tex_desc.Width != g_swapchain_width) {
+			log_debug("0xDC232D31 RTV wasnt what we expected it to be.");
+			return false;
+		}
+		#endif
+
+		draw_xegtao(device, &rtv_original);
+		is_xegtao_drawn = true;
+
+		// Draw the original shader.
+		cmd_list->draw_indexed(index_count, instance_count, first_index, vertex_offset, first_instance);
+
+		return true;
+	}
+
 	// 0x59018C97 "R" glass door
 	size = sizeof(hash);
 	hr = ps->GetPrivateData(g_ps_0x59018C97_guid, &size, &hash);
@@ -940,6 +980,38 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 		if (tex_desc.Width != g_swapchain_width) {
 			return false;
 		}
+
+		draw_xegtao(device, &rtv_original);
+		is_xegtao_drawn = true;
+
+		// Draw the original shader.
+		cmd_list->draw_indexed(index_count, instance_count, first_index, vertex_offset, first_instance);
+
+		return true;
+	}
+
+	// 0x7862AA89 flashing images
+	size = sizeof(hash);
+	hr = ps->GetPrivateData(g_ps_0x7862AA89_guid, &size, &hash);
+	if (SUCCEEDED(hr) && hash == g_ps_0x7862AA89_hash) {
+		// We expect RTV to be the main scene.
+		Com_ptr<ID3D10RenderTargetView> rtv_original;
+		device->OMGetRenderTargets(1, &rtv_original, nullptr);
+
+		#if DEV
+		// Get RT resource (texture) and texture description.
+		// Make sure we always have the main scene.
+		Com_ptr<ID3D10Resource> resource;
+		rtv_original->GetResource(&resource);
+		Com_ptr<ID3D10Texture2D> tex;
+		ensure(resource->QueryInterface(&tex), >= 0);
+		D3D10_TEXTURE2D_DESC tex_desc;
+		tex->GetDesc(&tex_desc);
+		if (tex_desc.Width != g_swapchain_width) {
+			log_debug("0x7862AA89 RTV wasnt what we expected it to be.");
+			return false;
+		}
+		#endif
 
 		draw_xegtao(device, &rtv_original);
 		is_xegtao_drawn = true;
@@ -1407,6 +1479,12 @@ static void on_init_pipeline(reshade::api::device* device, reshade::api::pipelin
 				case g_ps_0xF5E21918_hash:
 					ensure(((ID3D10PixelShader*)pipeline.handle)->SetPrivateData(g_ps_0xF5E21918_guid, sizeof(g_ps_0xF5E21918_hash), &g_ps_0xF5E21918_hash), >= 0);
 					break;
+				case g_ps_0xDC232D31_hash:
+					ensure(((ID3D10PixelShader*)pipeline.handle)->SetPrivateData(g_ps_0xDC232D31_guid, sizeof(g_ps_0xDC232D31_hash), &g_ps_0xDC232D31_hash), >= 0);
+					break;
+				case g_ps_0x7862AA89_hash:
+					ensure(((ID3D10PixelShader*)pipeline.handle)->SetPrivateData(g_ps_0x7862AA89_guid, sizeof(g_ps_0x7862AA89_hash), &g_ps_0x7862AA89_hash), >= 0);
+					break;
 			}
 		}
 	}
@@ -1618,7 +1696,7 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 }
 
 extern "C" __declspec(dllexport) const char* NAME = "BioshockGrapicalUpgrade";
-extern "C" __declspec(dllexport) const char* DESCRIPTION = "BioshockGrapicalUpgrade v2.8.0";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "BioshockGrapicalUpgrade v2.9.0";
 extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/BioshockGraphicalUpgrade";
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)
