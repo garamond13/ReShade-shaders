@@ -83,9 +83,6 @@ private:
 	D3D10_SHADER_MACRO defines[2];
 };
 
-// Tone responce curve.
-//
-
 // Path to the GraphicalUpgrade folder.
 static std::filesystem::path g_graphical_upgrade_path;
 
@@ -199,8 +196,6 @@ static bool is_xegtao_drawn;
 static int g_trc = TRC_GAMMA;
 
 static float g_gamma = 2.2f;
-
-//
 
 static float g_bloom_intensity = 1.0f;
 
@@ -905,9 +900,8 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 		Com_ptr<ID3D10RenderTargetView> rtv_original;
 		device->OMGetRenderTargets(1, &rtv_original, nullptr);
 
-		#if DEV
 		// Get RT resource (texture) and texture description.
-		// Make sure we always have the main scene.
+		// We won't always have the main scene, check via resorce dimensions do we have it.
 		Com_ptr<ID3D10Resource> resource;
 		rtv_original->GetResource(&resource);
 		Com_ptr<ID3D10Texture2D> tex;
@@ -915,10 +909,8 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 		D3D10_TEXTURE2D_DESC tex_desc;
 		tex->GetDesc(&tex_desc);
 		if (tex_desc.Width != g_swapchain_width) {
-			log_debug("0xDC232D31 RTV wasnt what we expected it to be.");
 			return false;
 		}
-		#endif
 
 		draw_xegtao(device, &rtv_original);
 		is_xegtao_drawn = true;
@@ -937,9 +929,8 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 		Com_ptr<ID3D10RenderTargetView> rtv_original;
 		device->OMGetRenderTargets(1, &rtv_original, nullptr);
 
-		#if DEV
 		// Get RT resource (texture) and texture description.
-		// Make sure we always have the main scene.
+		// We won't always have the main scene, check via resorce dimensions do we have it.
 		Com_ptr<ID3D10Resource> resource;
 		rtv_original->GetResource(&resource);
 		Com_ptr<ID3D10Texture2D> tex;
@@ -947,10 +938,8 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 		D3D10_TEXTURE2D_DESC tex_desc;
 		tex->GetDesc(&tex_desc);
 		if (tex_desc.Width != g_swapchain_width) {
-			log_debug("0x59018C97 RTV wasnt what we expected it to be.");
 			return false;
 		}
-		#endif
 
 		draw_xegtao(device, &rtv_original);
 		is_xegtao_drawn = true;
@@ -1492,6 +1481,28 @@ static void on_init_pipeline(reshade::api::device* device, reshade::api::pipelin
 
 static bool on_create_resource(reshade::api::device* device, reshade::api::resource_desc& desc, reshade::api::subresource_data* initial_data, reshade::api::resource_usage initial_state)
 {
+	// Upgrade depth stencil.
+	//
+
+	if (desc.texture.format == reshade::api::format::d24_unorm_s8_uint) {
+		desc.texture.format = reshade::api::format::d32_float_s8_uint;
+		return true;
+	}
+
+	// WORKAROUND: Generic Depth addon is messing with depth fromats,
+	// with it we get r24_g8_typeless instead of d24_unorm_s8_uint.
+	if (desc.texture.format == reshade::api::format::r24_g8_typeless) {
+		desc.texture.format = reshade::api::format::r32_g8_typeless;
+		return true;
+	}
+
+	if (desc.texture.format == reshade::api::format::r24_unorm_x8_uint) {
+		desc.texture.format = reshade::api::format::r32_float_x8_uint;
+		return true;
+	}
+
+	//
+
 	// Upgrade render targets.
 	if (((desc.usage & reshade::api::resource_usage::render_target) != 0)) {
 		if (desc.texture.format == reshade::api::format::r11g11b10_float) {
@@ -1505,7 +1516,7 @@ static bool on_create_resource(reshade::api::device* device, reshade::api::resou
 
 static void on_init_resource(reshade::api::device* device, const reshade::api::resource_desc& desc, const reshade::api::subresource_data* initial_data, reshade::api::resource_usage initial_state, reshade::api::resource resource)
 {
-	if (desc.texture.format == reshade::api::format::r24_unorm_x8_uint /* DXGI_FORMAT_R24_UNORM_X8_TYPELESS */ ) {
+	if (desc.texture.format == reshade::api::format::r32_float_x8_uint) {
 		auto native_device = (ID3D10Device*)device->get_native();
 		ensure(native_device->CreateShaderResourceView((ID3D10Resource*)resource.handle, nullptr, g_srv_depth.reset_and_get_address()), >= 0);
 	}
@@ -1513,8 +1524,19 @@ static void on_init_resource(reshade::api::device* device, const reshade::api::r
 
 static bool on_create_resource_view(reshade::api::device* device, reshade::api::resource resource, reshade::api::resource_usage usage_type, reshade::api::resource_view_desc& desc)
 {
-	// Try to filter only render targets that we have upgraded.
 	const auto resource_desc = device->get_resource_desc(resource);
+
+	// Depth stencil.
+	if (resource_desc.texture.format == reshade::api::format::d32_float_s8_uint || resource_desc.texture.format == reshade::api::format::r32_g8_typeless) {
+		desc.format = reshade::api::format::d32_float_s8_uint;
+		return true;
+	}
+	if (resource_desc.texture.format == reshade::api::format::r32_float_x8_uint) {
+		desc.format = reshade::api::format::r32_float_x8_uint;
+		return true;
+	}
+
+	// Render targets.
 	if ((resource_desc.usage & reshade::api::resource_usage::render_target) != 0) {
 		if (resource_desc.texture.format == reshade::api::format::r16g16b16a16_float) {
 			desc.format = reshade::api::format::r16g16b16a16_float;
@@ -1696,7 +1718,7 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 }
 
 extern "C" __declspec(dllexport) const char* NAME = "BioshockGrapicalUpgrade";
-extern "C" __declspec(dllexport) const char* DESCRIPTION = "BioshockGrapicalUpgrade v2.9.0";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "BioshockGrapicalUpgrade v3.0.0";
 extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/BioshockGraphicalUpgrade";
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)

@@ -10,6 +10,7 @@
 - Adjustable bloom intensity.
 - Accurate FPS limiter.
 - Upgraded render targets (greatly reduces color banding).
+- Upgraded depth precision.
 - 10bit color output.
 - Greatly reduced input lag.
 
@@ -18,10 +19,6 @@
 - Install ReShade 6.6.0+ with full add-on support.
 - Copy **BioshockGraphicalUpgrade.addon32** and **GraphicalUpgrade** folder in the game folder where **Bioshock.exe** is (ReShade should be installed in the same folder).
 - Note that it works (should be used) with DirectX 10 only.
-
-## Known issues
-
-- On The Crash Site level (the very 1st level) raw ambient occlusion can be seen under the water.
 
 ## Compilation
 
