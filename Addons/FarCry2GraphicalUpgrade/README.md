@@ -20,6 +20,7 @@
 ## Known issues
 
 - Save game image may apear black or wrong in other ways. This does not corupt the save file in any other way, the save file should still work perfectly fine.
+- Wrong swapchain resolution or wrong window size. **SOLUTION:** Start the game with `-RenderProfile_Fullscreen 0 -borderless` command line argument, or change in game resolution, or in `%USERPROFILE%\Documents\My Games\Far Cry 2\GamerProfile.xml` make sure you have `Fullscreen="1"` set.
 
 ## Compilation
 

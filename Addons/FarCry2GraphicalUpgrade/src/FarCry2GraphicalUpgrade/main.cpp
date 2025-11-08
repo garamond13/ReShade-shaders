@@ -491,15 +491,17 @@ static bool on_create_sampler(reshade::api::device* device, reshade::api::sample
 static bool on_create_swapchain(reshade::api::device_api api, reshade::api::swapchain_desc& desc, void* hwnd)
 {
 	// Always force the game into borderless window.
+	// The game if not forced into borderless window or fullscreen exclusive mode
+	// may start with wrong window size or wrong swapchain size.
 	SetWindowLongPtrW((HWND)hwnd, GWL_STYLE, WS_POPUP);
 	SetWindowPos((HWND)hwnd, HWND_TOP, 0, 0, desc.back_buffer.texture.width, desc.back_buffer.texture.height, SWP_NOZORDER | SWP_FRAMECHANGED | SWP_SHOWWINDOW);
 
+	desc.back_buffer.texture.format = reshade::api::format::r10g10b10a2_unorm;
 	desc.back_buffer_count = 2;
 	desc.present_mode = DXGI_SWAP_EFFECT_FLIP_DISCARD;
 	desc.present_flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
-	desc.sync_interval = 0;
 	desc.fullscreen_state = false;
-	desc.back_buffer.texture.format = reshade::api::format::r10g10b10a2_unorm;
+	desc.sync_interval = 0;
 	return true;
 }
 
@@ -537,7 +539,7 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 }
 
 extern "C" __declspec(dllexport) const char* NAME = "FarCry2GraphicalUpgrade";
-extern "C" __declspec(dllexport) const char* DESCRIPTION = "FarCry2GraphicalUpgrade v2.0.0";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "FarCry2GraphicalUpgrade v2.0.1";
 extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/FarCry2GraphicalUpgrade";
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)
