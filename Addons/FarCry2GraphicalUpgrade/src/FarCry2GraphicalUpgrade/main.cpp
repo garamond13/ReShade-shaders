@@ -112,6 +112,7 @@ static void read_cube_file(std::vector<float>& data, size_t& lut_size)
 			}
 			if (line.rfind("LUT_3D_SIZE", 0) == 0) {
 				std::sscanf(line.c_str(), "LUT_3D_SIZE %u", &lut_size);
+				log_info("LUT_3D_SIZE {}", lut_size);
 				data.resize(lut_size * lut_size * lut_size * 4);
 				continue;
 			}
@@ -539,7 +540,7 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 }
 
 extern "C" __declspec(dllexport) const char* NAME = "FarCry2GraphicalUpgrade";
-extern "C" __declspec(dllexport) const char* DESCRIPTION = "FarCry2GraphicalUpgrade v2.0.1";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "FarCry2GraphicalUpgrade v2.0.2";
 extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/FarCry2GraphicalUpgrade";
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)
