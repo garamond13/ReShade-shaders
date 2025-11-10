@@ -51,7 +51,7 @@ static bool replace_shader_code(reshade::api::shader_desc* desc)
 
 	// Make shader file path from shader hash and check do we have a replacement shader on that path.
 	const uint32_t hash = compute_crc32((const uint8_t*)desc->code, desc->code_size);
-	const std::filesystem::path path = g_graphical_upgrade_path / std::format(L"0x{:08X}.hlsl", hash);
+	std::filesystem::path path = g_graphical_upgrade_path / std::format(L"0x{:08X}.hlsl", hash);
 	if (!std::filesystem::exists(path)) {
 		return false;
 	}
@@ -70,10 +70,17 @@ static bool replace_shader_code(reshade::api::shader_desc* desc)
 		return false;
 	}
 
+	#if DEV && OUTPUT_ASSEMBLY
+	Com_ptr<ID3DBlob> disassembly;
+	D3DDisassemble(g_shader_code.back()->GetBufferPointer(), g_shader_code.back()->GetBufferSize(), 0, nullptr, &disassembly);
+	std::ofstream assembly(path.replace_filename(path.filename().wstring() + L".asm"));
+	assembly.write((const char*)disassembly->GetBufferPointer(), disassembly->GetBufferSize());
+	#endif
+
 	// Replace the original shader code with the compiled replacement shader code.
 	desc->code = g_shader_code.back()->GetBufferPointer();
 	desc->code_size = g_shader_code.back()->GetBufferSize();
-	
+
 	return true;
 }
 
@@ -217,7 +224,6 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 	const auto hash = (uintptr_t)ps.get();
 
 	if (hash == g_ps_0x8B2AB983) {
-
 		Com_ptr<ID3D10RenderTargetView> rtv_original;
 		device->OMGetRenderTargets(1, &rtv_original, nullptr);
 
@@ -318,7 +324,6 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 	// The malaria attack effect 0x12A5247D gets rendered after this,
 	// so apply our post proccess to it as well?
 	if (g_has_lut && hash == g_ps_0xDBF8FCBD) {
-
 		// We expect RTV to be a back buffer, unless we are having malaria attack.
 		Com_ptr<ID3D10RenderTargetView> rtv_original;
 		device->OMGetRenderTargets(1, &rtv_original, nullptr);
@@ -492,7 +497,7 @@ static bool on_create_sampler(reshade::api::device* device, reshade::api::sample
 static bool on_create_swapchain(reshade::api::device_api api, reshade::api::swapchain_desc& desc, void* hwnd)
 {
 	// Always force the game into borderless window.
-	// The game if not forced into borderless window or fullscreen exclusive mode
+	// The game if not forced (not by the addon) into borderless window or fullscreen exclusive mode
 	// may start with wrong window size or wrong swapchain size.
 	SetWindowLongPtrW((HWND)hwnd, GWL_STYLE, WS_POPUP);
 	SetWindowPos((HWND)hwnd, HWND_TOP, 0, 0, desc.back_buffer.texture.width, desc.back_buffer.texture.height, SWP_NOZORDER | SWP_FRAMECHANGED | SWP_SHOWWINDOW);
@@ -540,7 +545,7 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 }
 
 extern "C" __declspec(dllexport) const char* NAME = "FarCry2GraphicalUpgrade";
-extern "C" __declspec(dllexport) const char* DESCRIPTION = "FarCry2GraphicalUpgrade v2.0.2";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "FarCry2GraphicalUpgrade v2.1.0";
 extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/FarCry2GraphicalUpgrade";
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)
