@@ -123,14 +123,22 @@ static void read_cube_file(std::vector<float>& data, size_t& lut_size)
 				data.resize(lut_size * lut_size * lut_size * 4);
 				continue;
 			}
-
-			// We only expect (support) 0.0 0.0 0.0 and 1.0 1.0 1.0.
-			// TODO: Handle properly DOMAIN_MAX less than 1.0?
-			// TODO: Show errors on domains outside of [0.0, 1.0]?
 			if (line.rfind("DOMAIN_MIN", 0) == 0) {
+				float r, g, b;
+				std::sscanf(line.c_str(), "DOMAIN_MIN %f %f %f", &r, &g, &b);
+				if (r != 0.0f || g != 0.0f || b != 0.0f) {
+					log_error("LUTs DOMAIN_MIN is {} {} {}! Only DOMAIN_MIN 0 0 0 is supported.", r, g, b);
+					return;
+				}
 				continue;
 			}
 			if (line.rfind("DOMAIN_MAX", 0) == 0) {
+				float r, g, b;
+				std::sscanf(line.c_str(), "DOMAIN_MAX %f %f %f", &r, &g, &b);
+				if (r != 1.0f || g != 1.0f || b != 1.0f) {
+					log_error("LUTs DOMAIN_MAX is {} {} {}! Only DOMAIN_MAX 1 1 1 is supported.", r, g, b);
+					return;
+				}
 				continue;
 			}
 
@@ -545,7 +553,7 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 }
 
 extern "C" __declspec(dllexport) const char* NAME = "FarCry2GraphicalUpgrade";
-extern "C" __declspec(dllexport) const char* DESCRIPTION = "FarCry2GraphicalUpgrade v2.1.0";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "FarCry2GraphicalUpgrade v2.1.1";
 extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/FarCry2GraphicalUpgrade";
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)
