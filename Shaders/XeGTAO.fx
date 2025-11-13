@@ -267,24 +267,24 @@ float XeGTAO_DepthMIPFilter(float depth0, float depth1, float depth2, float dept
 void XeGTAO_PrefilterDepths_MIP0(float2 pos, out float outDepth)
 {
 	#if RESHADE_DEPTH_INPUT_IS_UPSIDE_DOWN
-	pos.y = 1.0 - pos.y;
+	pos.y = float(BUFFER_HEIGHT) - 1.0 - pos.y;
 	#endif
 
 	#if RESHADE_DEPTH_INPUT_IS_MIRRORED
-	pos.x = 1.0 - pos.x;
+	pos.x = float(BUFFER_WIDTH) - 1.0 - pos.x;
 	#endif
 
 	pos.x /= RESHADE_DEPTH_INPUT_X_SCALE;
 	pos.y /= RESHADE_DEPTH_INPUT_Y_SCALE;
 	
 	#if RESHADE_DEPTH_INPUT_X_PIXEL_OFFSET
-	pos.x -= RESHADE_DEPTH_INPUT_X_PIXEL_OFFSET * BUFFER_RCP_WIDTH;
+	pos.x -= RESHADE_DEPTH_INPUT_X_PIXEL_OFFSET;
 	#else // Do not check RESHADE_DEPTH_INPUT_X_OFFSET, since it may be a decimal number, which the preprocessor cannot handle
 	pos.x -= RESHADE_DEPTH_INPUT_X_OFFSET / 2.000000001;
 	#endif
 
 	#if RESHADE_DEPTH_INPUT_Y_PIXEL_OFFSET
-	pos.y += RESHADE_DEPTH_INPUT_Y_PIXEL_OFFSET * BUFFER_RCP_HEIGHT;
+	pos.y += RESHADE_DEPTH_INPUT_Y_PIXEL_OFFSET;
 	#else
 	pos.y += RESHADE_DEPTH_INPUT_Y_OFFSET / 2.000000001;
 	#endif
