@@ -130,6 +130,22 @@ constexpr D3D10_DEPTH_STENCIL_DESC default_D3D10_DEPTH_STENCIL_DESC() noexcept
 	return desc;
 }
 
+constexpr D3D10_BLEND_DESC default_D3D10_BLEND_DESC() noexcept
+{
+	D3D10_BLEND_DESC desc = {
+		.AlphaToCoverageEnable = FALSE,
+		.BlendEnable = { FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE },
+		.SrcBlend = D3D10_BLEND_ONE,
+		.DestBlend = D3D10_BLEND_ZERO,
+		.BlendOp = D3D10_BLEND_OP_ADD,
+		.SrcBlendAlpha = D3D10_BLEND_ONE,
+		.DestBlendAlpha = D3D10_BLEND_ZERO,
+		.BlendOpAlpha = D3D10_BLEND_OP_ADD,
+		.RenderTargetWriteMask = { D3D10_COLOR_WRITE_ENABLE_ALL, D3D10_COLOR_WRITE_ENABLE_ALL, D3D10_COLOR_WRITE_ENABLE_ALL, D3D10_COLOR_WRITE_ENABLE_ALL, D3D10_COLOR_WRITE_ENABLE_ALL, D3D10_COLOR_WRITE_ENABLE_ALL, D3D10_COLOR_WRITE_ENABLE_ALL, D3D10_COLOR_WRITE_ENABLE_ALL }
+	};
+	return desc;
+}
+
 inline auto to_string(reshade::api::format format)
 {
 	switch(format) {

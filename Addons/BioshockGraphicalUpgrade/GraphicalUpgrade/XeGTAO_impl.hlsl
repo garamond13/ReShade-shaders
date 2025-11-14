@@ -5,7 +5,7 @@
 #include "XeGTAO.hlsli"
 
 Texture2D<float> tex0 : register(t0);
-Texture2D<float> tex1 : register(t1);
+Texture2D<float2> tex1 : register(t1);
 SamplerState smp : register(s0);
 
 // From https://www.shadertoy.com/view/3tB3z3 - except we're using R2 here
@@ -65,20 +65,19 @@ void prefilter_depths_ps(float4 pos : SV_Position, float2 texcoord : TEXCOORD, o
 	XeGTAO_PrefilterDepths(texcoord, tex0, smp, out_working_depth);
 }
 
-void main_pass_ps(float4 pos : SV_Position, out float out_working_ao_term : SV_Target0, out float out_working_edges : SV_Target1)
+void main_pass_ps(float4 pos : SV_Position, out float2 out_working_ao_term_and_edges : SV_Target)
 {
 	// tex0 = g_srcWorkingDepth
 	// smp = g_samplerPointClamp
-	XeGTAO_MainPass(pos.xy, SpatioTemporalNoise(pos.xy, 0), tex0, smp, out_working_ao_term, out_working_edges);
+	XeGTAO_MainPass(pos.xy, SpatioTemporalNoise(pos.xy, 0), tex0, smp, out_working_ao_term_and_edges);
 }
 
 float4 denoise_pass_ps(float4 pos : SV_Position) : SV_Target
 {
 	float final_ao_term;
 
-	// tex0 = g_srcWorkingAOTerm
-	// tex1 = g_srcWorkingEdges
-	XeGTAO_Denoise(pos.xy, tex0, tex1, final_ao_term, true);
+	// tex1 = g_srcWorkingAOTerm and g_srcWorkingEdges, packed.
+	XeGTAO_Denoise(pos.xy, tex1, final_ao_term, true);
 
 	return float4(final_ao_term.xxx, 1.0);
 }

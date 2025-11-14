@@ -544,13 +544,11 @@ static void draw_xegtao(ID3D10Device* device, ID3D10RenderTargetView*const* rtv)
 
 	// Create RT views.
 	tex_desc.MipLevels = 1;
-	tex_desc.Format = DXGI_FORMAT_R8_UNORM;
-	RT_views rt_views_working_edges(device, tex_desc);
-	RT_views rt_views_working_ao_term(device, tex_desc);
+	tex_desc.Format = DXGI_FORMAT_R8G8_UNORM;
+	RT_views rt_views_working_ao_term_and_edges(device, tex_desc);
 
 	// Bindings.
-	std::array rts_main_pass = { rt_views_working_ao_term.get_rtv(), rt_views_working_edges.get_rtv() };
-	device->OMSetRenderTargets(rts_main_pass.size(), rts_main_pass.data(), nullptr);
+	device->OMSetRenderTargets(1, rt_views_working_ao_term_and_edges.get_rtv_address(), nullptr);
 	device->PSSetShader(g_ps_xegtao_main_pass.get());
 	device->PSSetShaderResources(0, 1, &srv_working_depth);
 
@@ -570,15 +568,9 @@ static void draw_xegtao(ID3D10Device* device, ID3D10RenderTargetView*const* rtv)
 
 	// Create blend.
 	[[unlikely]] if (!g_blend_xegtao) {
-		D3D10_BLEND_DESC blend_desc = {};
+		auto blend_desc = default_D3D10_BLEND_DESC();
 		blend_desc.BlendEnable[0] = TRUE;
 		blend_desc.SrcBlend = D3D10_BLEND_DEST_COLOR;
-		blend_desc.DestBlend = D3D10_BLEND_ZERO;
-		blend_desc.BlendOp = D3D10_BLEND_OP_ADD;
-		blend_desc.SrcBlendAlpha = D3D10_BLEND_ONE;
-		blend_desc.DestBlendAlpha = D3D10_BLEND_ONE;
-		blend_desc.BlendOpAlpha = D3D10_BLEND_OP_ADD;
-		blend_desc.RenderTargetWriteMask[0] = D3D10_COLOR_WRITE_ENABLE_ALL;
 		ensure(device->CreateBlendState(&blend_desc, &g_blend_xegtao), >= 0);
 	}
 
@@ -587,8 +579,7 @@ static void draw_xegtao(ID3D10Device* device, ID3D10RenderTargetView*const* rtv)
 
 	device->OMSetRenderTargets(1, rtv, nullptr);
 	device->PSSetShader(g_ps_xegtao_denoise_pass.get());
-	std::array srvs_denoise = { rt_views_working_ao_term.get_srv(), rt_views_working_edges.get_srv() };
-	device->PSSetShaderResources(0, srvs_denoise.size(), srvs_denoise.data());
+	device->PSSetShaderResources(1, 1, rt_views_working_ao_term_and_edges.get_srv_address());
 
 	#if !(DEV && SHOW_AO)
 	device->OMSetBlendState(g_blend_xegtao.get(), nullptr, UINT_MAX);
@@ -1718,7 +1709,7 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 }
 
 extern "C" __declspec(dllexport) const char* NAME = "BioshockGrapicalUpgrade";
-extern "C" __declspec(dllexport) const char* DESCRIPTION = "BioshockGrapicalUpgrade v3.0.0";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "BioshockGrapicalUpgrade v3.0.1";
 extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/BioshockGraphicalUpgrade";
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)

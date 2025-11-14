@@ -213,7 +213,7 @@ float XeGTAO_FastACos(float inX)
 	return inX >= 0.0 ? res : PI - res;
 }
 
-void XeGTAO_MainPass(uint2 pixCoord, float2 localNoise, Texture2D<float> sourceViewspaceDepth, SamplerState depthSampler, out float outWorkingAOTerm, out float outWorkingEdges)
+void XeGTAO_MainPass(uint2 pixCoord, float2 localNoise, Texture2D<float> sourceViewspaceDepth, SamplerState depthSampler, out float2 outWorkingAOTermAndEdges)
 {
 	float2 normalizedScreenPos = (pixCoord + 0.5) * VIEWPORT_PIXEL_SIZE;
 
@@ -230,7 +230,7 @@ void XeGTAO_MainPass(uint2 pixCoord, float2 localNoise, Texture2D<float> sourceV
 	const float pixBZ = valuesBR.x;
 
 	float4 edgesLRTB = XeGTAO_CalculateEdges(viewspaceZ, pixLZ, pixRZ, pixTZ, pixBZ);
-	outWorkingEdges = XeGTAO_PackEdges(edgesLRTB);
+	outWorkingAOTermAndEdges.y = XeGTAO_PackEdges(edgesLRTB);
 
 	// Generating screen space normals in-place is faster than generating normals in a separate pass but requires
 	// use of 32bit depth buffer (16bit works but visibly degrades quality) which in turn slows everything down. So to
@@ -426,7 +426,7 @@ void XeGTAO_MainPass(uint2 pixCoord, float2 localNoise, Texture2D<float> sourceV
 		visibility = max(0.03, visibility); // disallow total occlusion (which wouldn't make any sense anyhow since pixel is visible but also helps with packing bent normals)
 	}
 
-	outWorkingAOTerm = saturate(visibility / XE_GTAO_OCCLUSION_TERM_SCALE);
+	outWorkingAOTermAndEdges.x = saturate(visibility / XE_GTAO_OCCLUSION_TERM_SCALE);
 }
 
 float4 XeGTAO_UnpackEdges(float _packedVal)
@@ -449,16 +449,28 @@ void XeGTAO_AddSample(float ssaoValue, float edgeValue, inout float sum, inout f
 	sumWeight += weight;
 }
 
-void XeGTAO_Denoise(int2 pixCoordBase, Texture2D<float> sourceAOTerm, Texture2D<float> sourceEdges, out float aoTerm, const uniform bool finalApply)
+void XeGTAO_Denoise(int2 pixCoordBase, Texture2D<float2> sourceAOTermAndEdges, out float aoTerm, const uniform bool finalApply)
 {
 	const float blurAmount = finalApply ? DENOISE_BLUR_BETA : DENOISE_BLUR_BETA / 5.0;
 	const float diagWeight = 0.85 * 0.5;
 
-	float4 edgesC_LRTB = XeGTAO_UnpackEdges(sourceEdges.Load(int3(pixCoordBase, 0)));
-	float4 edgesL_LRTB = XeGTAO_UnpackEdges(sourceEdges.Load(int3(pixCoordBase + int2(-1, 0), 0)));
-	float4 edgesR_LRTB = XeGTAO_UnpackEdges(sourceEdges.Load(int3(pixCoordBase + int2(1, 0), 0)));
-	float4 edgesT_LRTB = XeGTAO_UnpackEdges(sourceEdges.Load(int3(pixCoordBase + int2(0, -1), 0)));
-	float4 edgesB_LRTB = XeGTAO_UnpackEdges(sourceEdges.Load(int3(pixCoordBase + int2(0, 1), 0)));
+	// Get AOTerm and Edges.
+	// Originally they are in 2 separate textures.
+	float2 C = sourceAOTermAndEdges.Load(int3(pixCoordBase, 0));
+	float2 L = sourceAOTermAndEdges.Load(int3(pixCoordBase + int2(-1, 0), 0));
+	float2 R = sourceAOTermAndEdges.Load(int3(pixCoordBase + int2(1, 0), 0));
+	float2 T = sourceAOTermAndEdges.Load(int3(pixCoordBase + int2(0, -1), 0));
+	float2 B = sourceAOTermAndEdges.Load(int3(pixCoordBase + int2(0, 1), 0));
+	float TL = sourceAOTermAndEdges.Load(int3(pixCoordBase + int2(-1, -1), 0)).x;
+	float TR = sourceAOTermAndEdges.Load(int3(pixCoordBase + int2(1, -1), 0)).x;
+	float BL = sourceAOTermAndEdges.Load(int3(pixCoordBase + int2(-1, 1), 0)).x;
+	float BR = sourceAOTermAndEdges.Load(int3(pixCoordBase + int2(1, 1), 0)).x;
+
+	float4 edgesC_LRTB = XeGTAO_UnpackEdges(C.y);
+	float4 edgesL_LRTB = XeGTAO_UnpackEdges(L.y);
+	float4 edgesR_LRTB = XeGTAO_UnpackEdges(R.y);
+	float4 edgesT_LRTB = XeGTAO_UnpackEdges(T.y);
+	float4 edgesB_LRTB = XeGTAO_UnpackEdges(B.y);
 
 	// Edges aren't perfectly symmetrical: edge detection algorithm does not guarantee that a left edge on the right pixel will match the right edge on the left pixel (although
 	// they will match in majority of cases). This line further enforces the symmetricity, creating a slightly sharper blur. Works real nice with TAA.
@@ -476,15 +488,15 @@ void XeGTAO_Denoise(int2 pixCoordBase, Texture2D<float> sourceAOTerm, Texture2D<
 	float weightBL = diagWeight * (edgesC_LRTB.w * edgesB_LRTB.x + edgesC_LRTB.x * edgesL_LRTB.w);
 	float weightBR = diagWeight * (edgesC_LRTB.y * edgesR_LRTB.w + edgesC_LRTB.w * edgesB_LRTB.y);
 
-	float ssaoValue = sourceAOTerm.Load(int3(pixCoordBase, 0));
-	float ssaoValueL = sourceAOTerm.Load(int3(pixCoordBase + int2(-1, 0), 0));
-	float ssaoValueT = sourceAOTerm.Load(int3(pixCoordBase + int2(0, -1), 0));
-	float ssaoValueR = sourceAOTerm.Load(int3(pixCoordBase + int2(1, 0), 0));
-	float ssaoValueB = sourceAOTerm.Load(int3(pixCoordBase + int2(0, 1), 0));
-	float ssaoValueTL = sourceAOTerm.Load(int3(pixCoordBase + int2(-1, -1), 0));
-	float ssaoValueBR = sourceAOTerm.Load(int3(pixCoordBase + int2(1, 1), 0));
-	float ssaoValueTR = sourceAOTerm.Load(int3(pixCoordBase + int2(1, -1), 0));
-	float ssaoValueBL = sourceAOTerm.Load(int3(pixCoordBase + int2(-1, 1), 0));
+	float ssaoValue = C.x;
+	float ssaoValueL = L.x;
+	float ssaoValueT = T.x;
+	float ssaoValueR = R.x;
+	float ssaoValueB = B.x;
+	float ssaoValueTL = TL;
+	float ssaoValueBR = BR;
+	float ssaoValueTR = TR;
+	float ssaoValueBL = BL;
 
 	float sumWeight = blurAmount;
 	float sum = ssaoValue * sumWeight;
