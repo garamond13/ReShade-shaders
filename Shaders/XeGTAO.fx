@@ -73,7 +73,7 @@
 
 // Applies power function to the final value: occlusion = pow(occlusion, finalPower).
 // Expected range: [0.5, 5.0].
-// Originaly the default is 2.2, but it looks too dark.
+// Originally the default is 2.2, but it looks too dark.
 #ifndef FINAL_VALUE_POWER
 #define FINAL_VALUE_POWER 1.0
 #endif
@@ -174,31 +174,16 @@ sampler2D smpViewspaceDepthMIP4
 
 //
 
-texture2D texAOTerm
+texture2D texAOTermAndEdges
 {
 	Width = BUFFER_WIDTH;
 	Height = BUFFER_HEIGHT;
-	Format = R8;
+	Format = R8G8;
 };
 
-sampler2D smpAOTerm
+sampler2D smpAOTermAndEdges
 {
-	Texture = texAOTerm;
-	MinFilter = POINT;
-	MipFilter = POINT;
-	MagFilter = POINT;
-};
-
-texture2D texEdges
-{
-	Width = BUFFER_WIDTH;
-	Height = BUFFER_HEIGHT;
-	Format = R8;
-};
-
-sampler2D smpEdges
-{
-	Texture = texEdges;
+	Texture = texAOTermAndEdges;
 	MinFilter = POINT;
 	MipFilter = POINT;
 	MagFilter = POINT;
@@ -206,9 +191,6 @@ sampler2D smpEdges
 
 #define XE_GTAO_DEPTH_MIP_LEVELS 5.0
 #define XE_GTAO_OCCLUSION_TERM_SCALE 1.5
-
-#define XE_GTAO_PI 3.1415926535897932384626433832795
-#define XE_GTAO_PI_HALF 1.5707963267948966192313216916398
 
 #define VIEWPORT_PIXEL_SIZE BUFFER_PIXEL_SIZE
 
@@ -219,6 +201,9 @@ sampler2D smpEdges
 #define NDC_TO_VIEW_ADD float2(-TAN_HALF_FOV_X, TAN_HALF_FOV_Y)
 
 #define NDC_TO_VIEW_MUL_X_PIXEL_SIZE (NDC_TO_VIEW_MUL * VIEWPORT_PIXEL_SIZE)
+
+#define XE_GTAO_PI 3.1415926535897932384626433832795
+#define XE_GTAO_PI_HALF 1.5707963267948966192313216916398
 
 float XeGTAO_ScreenSpaceToViewSpaceDepth(float screenDepth)
 {
@@ -381,7 +366,7 @@ float XeGTAO_FastACos(float inX)
 	return inX >= 0.0 ? res : PI - res;
 }
 
-void XeGTAO_MainPass(uint2 pixCoord, float2 localNoise, out float outWorkingAOTerm, out float outWorkingEdges)
+void XeGTAO_MainPass(uint2 pixCoord, float2 localNoise, out float2 outWorkingAOTermAndEdges)
 {
 	float2 normalizedScreenPos = (pixCoord + 0.5) * VIEWPORT_PIXEL_SIZE;
 
@@ -398,7 +383,7 @@ void XeGTAO_MainPass(uint2 pixCoord, float2 localNoise, out float outWorkingAOTe
 	const float pixBZ = valuesBR.x;
 
 	float4 edgesLRTB = XeGTAO_CalculateEdges(viewspaceZ, pixLZ, pixRZ, pixTZ, pixBZ);
-	outWorkingEdges = XeGTAO_PackEdges(edgesLRTB);
+	outWorkingAOTermAndEdges.y = XeGTAO_PackEdges(edgesLRTB);
 
 	// Generating screen space normals in-place is faster than generating normals in a separate pass but requires
 	// use of 32bit depth buffer (16bit works but visibly degrades quality) which in turn slows everything down. So to
@@ -617,7 +602,7 @@ void XeGTAO_MainPass(uint2 pixCoord, float2 localNoise, out float outWorkingAOTe
 		visibility = max(0.03, visibility); // disallow total occlusion (which wouldn't make any sense anyhow since pixel is visible but also helps with packing bent normals)
 	}
 
-	outWorkingAOTerm = saturate(visibility / XE_GTAO_OCCLUSION_TERM_SCALE);
+	outWorkingAOTermAndEdges.x = saturate(visibility / XE_GTAO_OCCLUSION_TERM_SCALE);
 }
 
 float4 XeGTAO_UnpackEdges(float _packedVal)
@@ -647,11 +632,23 @@ void XeGTAO_Denoise(int2 pixCoordBase, out float aoTerm)
 	const float blurAmount = DENOISE_BLUR_BETA;
 	const float diagWeight = 0.85 * 0.5;
 
-	float4 edgesC_LRTB = XeGTAO_UnpackEdges(tex2Dfetch(smpEdges, pixCoordBase, 0).x);
-	float4 edgesL_LRTB = XeGTAO_UnpackEdges(tex2Dfetch(smpEdges, pixCoordBase + int2(-1, 0), 0).x);
-	float4 edgesR_LRTB = XeGTAO_UnpackEdges(tex2Dfetch(smpEdges, pixCoordBase + int2(1, 0), 0).x);
-	float4 edgesT_LRTB = XeGTAO_UnpackEdges(tex2Dfetch(smpEdges, pixCoordBase + int2(0, -1), 0).x);
-	float4 edgesB_LRTB = XeGTAO_UnpackEdges(tex2Dfetch(smpEdges, pixCoordBase + int2(0, 1), 0).x);
+	// Get AOTerm and Edges.
+	// Originally they are in 2 separate textures.
+	float2 C = tex2Dfetch(smpAOTermAndEdges, pixCoordBase, 0).xy;
+	float2 L = tex2Dfetch(smpAOTermAndEdges, pixCoordBase + int2(-1, 0), 0).xy;
+	float2 R = tex2Dfetch(smpAOTermAndEdges, pixCoordBase + int2(1, 0), 0).xy;
+	float2 T = tex2Dfetch(smpAOTermAndEdges, pixCoordBase + int2(0, -1), 0).xy;
+	float2 B = tex2Dfetch(smpAOTermAndEdges, pixCoordBase + int2(0, 1), 0).xy;
+	float TL = tex2Dfetch(smpAOTermAndEdges, pixCoordBase + int2(-1, -1), 0).x;
+	float TR = tex2Dfetch(smpAOTermAndEdges, pixCoordBase + int2(1, -1), 0).x;
+	float BL = tex2Dfetch(smpAOTermAndEdges, pixCoordBase + int2(-1, 1), 0).x;
+	float BR = tex2Dfetch(smpAOTermAndEdges, pixCoordBase + int2(1, 1), 0).x;
+
+	float4 edgesC_LRTB = XeGTAO_UnpackEdges(C.y);
+	float4 edgesL_LRTB = XeGTAO_UnpackEdges(L.y);
+	float4 edgesR_LRTB = XeGTAO_UnpackEdges(R.y);
+	float4 edgesT_LRTB = XeGTAO_UnpackEdges(T.y);
+	float4 edgesB_LRTB = XeGTAO_UnpackEdges(B.y);
 
 	// Edges aren't perfectly symmetrical: edge detection algorithm does not guarantee that a left edge on the right pixel will match the right edge on the left pixel (although
 	// they will match in majority of cases). This line further enforces the symmetricity, creating a slightly sharper blur. Works real nice with TAA.
@@ -669,15 +666,15 @@ void XeGTAO_Denoise(int2 pixCoordBase, out float aoTerm)
 	float weightBL = diagWeight * (edgesC_LRTB.w * edgesB_LRTB.x + edgesC_LRTB.x * edgesL_LRTB.w);
 	float weightBR = diagWeight * (edgesC_LRTB.y * edgesR_LRTB.w + edgesC_LRTB.w * edgesB_LRTB.y);
 
-	float ssaoValue = tex2Dfetch(smpAOTerm, pixCoordBase, 0).x;
-	float ssaoValueL = tex2Dfetch(smpAOTerm, pixCoordBase + int2(-1, 0), 0).x;
-	float ssaoValueT = tex2Dfetch(smpAOTerm, pixCoordBase + int2(0, -1), 0).x;
-	float ssaoValueR = tex2Dfetch(smpAOTerm, pixCoordBase + int2(1, 0), 0).x;
-	float ssaoValueB = tex2Dfetch(smpAOTerm, pixCoordBase + int2(0, 1), 0).x;
-	float ssaoValueTL = tex2Dfetch(smpAOTerm, pixCoordBase + int2(-1, -1), 0).x;
-	float ssaoValueBR = tex2Dfetch(smpAOTerm, pixCoordBase + int2(1, 1), 0).x;
-	float ssaoValueTR = tex2Dfetch(smpAOTerm, pixCoordBase + int2(1, -1), 0).x;
-	float ssaoValueBL = tex2Dfetch(smpAOTerm, pixCoordBase + int2(-1, 1), 0).x;
+	float ssaoValue = C.x;
+	float ssaoValueL = L.x;
+	float ssaoValueT = T.x;
+	float ssaoValueR = R.x;
+	float ssaoValueB = B.x;
+	float ssaoValueTL = TL;
+	float ssaoValueBR = BR;
+	float ssaoValueTR = TR;
+	float ssaoValueBL = BL;
 
 	float sumWeight = blurAmount;
 	float sum = ssaoValue * sumWeight;
@@ -773,9 +770,9 @@ void PrefilterDepthsMIP4PS(float4 pos : SV_Position, float2 texcoord : TEXCOORD,
 	XeGTAO_PrefilterDepths(depths4, outWorkingDepthMIP4);
 }
 
-void MainPassPS(float4 pos : SV_Position, out float outWorkingAOTerm : SV_Target0, out float outWorkingEdges : SV_Target1)
+void MainPassPS(float4 pos : SV_Position, out float2 outWorkingAOTermAndEdges : SV_Target)
 {
-	XeGTAO_MainPass(pos.xy, SpatioTemporalNoise(pos.xy, 0), outWorkingAOTerm, outWorkingEdges);
+	XeGTAO_MainPass(pos.xy, SpatioTemporalNoise(pos.xy, 0), outWorkingAOTermAndEdges);
 }
 
 float4 DenoisePassPS(float4 pos : SV_Position) : SV_Target
@@ -826,8 +823,7 @@ technique XeGTAO < ui_label = "XeGTAO"; >
 	{
 		VertexShader = PostProcessVS;
 		PixelShader = MainPassPS;
-		RenderTarget0 = texAOTerm;
-		RenderTarget1 = texEdges;
+		RenderTarget = texAOTermAndEdges;
 	}
 
 	// Doing only one DenoisePass pass (as last/final pass) correspond to "Denoising level: Sharp" from the XeGTAO demo.
