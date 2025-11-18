@@ -247,10 +247,15 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		// Render the original shader 0x8B2AB983 to texture.
 		//
 
-		RT_views rt_views_0x8B2AB983(device, tex_desc);
+		// Create RT and views.
+		ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.reset_and_get_address()), >= 0);
+		Com_ptr<ID3D10RenderTargetView> rtv_0x8B2AB983;
+		ensure(device->CreateRenderTargetView(tex.get(), nullptr, &rtv_0x8B2AB983), >= 0);
+		Com_ptr<ID3D10ShaderResourceView> srv_0x8B2AB983;
+		ensure(device->CreateShaderResourceView(tex.get(), nullptr, &srv_0x8B2AB983), >= 0);
 
 		// Bindings.
-		device->OMSetRenderTargets(1, rt_views_0x8B2AB983.get_rtv_address(), nullptr);
+		device->OMSetRenderTargets(1, &rtv_0x8B2AB983, nullptr);
 
 		cmd_list->draw(vertex_count, instance_count, first_vertex, first_instance);
 
@@ -289,13 +294,19 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 			create_pixel_shader(device, &g_ps_srgb_to_linear, L"sRGBToLinear_ps.hlsl");
 		}
 
-		RT_views rt_views_srgb_to_linear(device, tex_desc);
+		// Create RT and views.
+		ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.reset_and_get_address()), >= 0);
+		Com_ptr<ID3D10RenderTargetView> rtv_srgb_to_linear;
+		ensure(device->CreateRenderTargetView(tex.get(), nullptr, &rtv_srgb_to_linear), >= 0);
+		Com_ptr<ID3D10ShaderResourceView> srv_srgb_to_linear;
+		ensure(device->CreateShaderResourceView(tex.get(), nullptr, &srv_srgb_to_linear), >= 0);
+
 
 		// Bindings
-		device->OMSetRenderTargets(1, rt_views_srgb_to_linear.get_rtv_address(), nullptr);
+		device->OMSetRenderTargets(1, &rtv_srgb_to_linear, nullptr);
 		device->VSSetShader(g_vs_fullscreen_triangle.get());
 		device->PSSetShader(g_ps_srgb_to_linear.get());
-		device->PSSetShaderResources(0, 1, rt_views_0x8B2AB983.get_srv_address());
+		device->PSSetShaderResources(0, 1, &srv_0x8B2AB983);
 
 		device->Draw(3, 0);
 
@@ -316,7 +327,7 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 
 		// Bindings.
 		device->OMSetRenderTargets(1, &rtv_original, nullptr);
-		device->PSSetShaderResources(0, 1, rt_views_srgb_to_linear.get_srv_address());
+		device->PSSetShaderResources(0, 1, &srv_srgb_to_linear);
 		device->PSSetShader(g_ps_amd_ffx_cas.get());
 
 		device->Draw(3, 0);
@@ -348,12 +359,17 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		// Render the original shader 0xDBF8FCBD to texture.
 		//
 
+		// Create RT and views.
 		tex_desc.Format = DXGI_FORMAT_R16G16B16A16_UNORM;
 		tex_desc.BindFlags = D3D10_BIND_RENDER_TARGET | D3D10_BIND_SHADER_RESOURCE;
-		RT_views rt_views_0xDBF8FCBD(device, tex_desc);
+		ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.reset_and_get_address()), >= 0);
+		Com_ptr<ID3D10RenderTargetView> rtv_0xDBF8FCBD;
+		ensure(device->CreateRenderTargetView(tex.get(), nullptr, &rtv_0xDBF8FCBD), >= 0);
+		Com_ptr<ID3D10ShaderResourceView> srv_0xDBF8FCBD;
+		ensure(device->CreateShaderResourceView(tex.get(), nullptr, &srv_0xDBF8FCBD), >= 0);
 
 		// Bindings.
-		device->OMSetRenderTargets(1, rt_views_0xDBF8FCBD.get_rtv_address(), nullptr);
+		device->OMSetRenderTargets(1, &rtv_0xDBF8FCBD, nullptr);
 
 		cmd_list->draw(vertex_count, instance_count, first_vertex, first_instance);
 
@@ -391,8 +407,8 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		device->OMSetRenderTargets(1, &rtv_original, nullptr);
 		device->VSSetShader(g_vs_fullscreen_triangle.get());
 		device->PSSetShader(g_ps_sample_lut.get());
-		const std::array ps_resources_sample_lut = { rt_views_0xDBF8FCBD.get_srv(), g_srv_lut.get() };
-		device->PSSetShaderResources(0, ps_resources_sample_lut.size(), ps_resources_sample_lut.data());
+		const std::array ps_srvs_sample_lut = { srv_0xDBF8FCBD.get(), g_srv_lut.get() };
+		device->PSSetShaderResources(0, ps_srvs_sample_lut.size(), ps_srvs_sample_lut.data());
 
 		device->Draw(3, 0);
 
@@ -442,12 +458,6 @@ static void on_init_pipeline(reshade::api::device* device, reshade::api::pipelin
 
 static bool on_create_resource(reshade::api::device* device, reshade::api::resource_desc& desc, reshade::api::subresource_data* initial_data, reshade::api::resource_usage initial_state)
 {
-	// Upgrade depth stencil.
-	if (desc.texture.format == reshade::api::format::r24_g8_typeless) {
-		desc.texture.format = reshade::api::format::r32_g8_typeless;
-		return true;
-	}
-
 	// Upgrade render targets.
 	if (((desc.usage & reshade::api::resource_usage::render_target) != 0)) {
 		if (desc.texture.format == reshade::api::format::r8g8b8a8_unorm) {
@@ -466,18 +476,6 @@ static bool on_create_resource(reshade::api::device* device, reshade::api::resou
 static bool on_create_resource_view(reshade::api::device* device, reshade::api::resource resource, reshade::api::resource_usage usage_type, reshade::api::resource_view_desc& desc)
 {
 	const auto resource_desc = device->get_resource_desc(resource);
-
-	// Depth stencil.
-	if (resource_desc.texture.format == reshade::api::format::r32_g8_typeless) {
-		if (desc.format == reshade::api::format::d24_unorm_s8_uint) {
-			desc.format = reshade::api::format::d32_float_s8_uint;
-			return true;
-		}
-		if (desc.format == reshade::api::format::r24_unorm_x8_uint) {
-			desc.format = reshade::api::format::r32_float_x8_uint;
-			return true;
-		}
-	}
 
 	// Render targets.
 	if ((resource_desc.usage & reshade::api::resource_usage::render_target) != 0) {
@@ -528,7 +526,6 @@ static void on_init_device(reshade::api::device* device)
 	}
 
 	// Set maximum frame latency to 1, the game is not setting this already to 1.
-	// It reduces input latecy massivly if GPU bound.
 	auto native_device = (IUnknown*)device->get_native();
 	Com_ptr<IDXGIDevice1> device1;
 	auto hr = native_device->QueryInterface(&device1);
@@ -553,7 +550,7 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 }
 
 extern "C" __declspec(dllexport) const char* NAME = "FarCry2GraphicalUpgrade";
-extern "C" __declspec(dllexport) const char* DESCRIPTION = "FarCry2GraphicalUpgrade v2.1.1";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "FarCry2GraphicalUpgrade v2.2.0";
 extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/FarCry2GraphicalUpgrade";
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)
