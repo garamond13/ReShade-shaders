@@ -68,7 +68,7 @@
 #endif
 
 #ifndef CLIP_NEAR
-#define CLIP_NEAR 1.0
+#define CLIP_NEAR 0.1
 #endif
 
 #ifndef CLIP_FAR

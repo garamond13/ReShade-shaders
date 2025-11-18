@@ -2,88 +2,6 @@
 
 #include "Common.h"
 
-class RT_views
-{
-public:
-
-	RT_views(const RT_views&) = delete;
-	RT_views& operator=(const RT_views&) = delete;
-
-public:
-
-	RT_views(RT_views&& other) noexcept
-		: rtv(other.rtv),
-		srv(other.srv)
-	{
-		other.rtv = nullptr;
-		other.srv = nullptr;
-	}
-
-	RT_views(ID3D10Device* device, const D3D10_TEXTURE2D_DESC& tex_desc)
-	{
-		ID3D10Texture2D* tex;
-		ensure(device->CreateTexture2D(&tex_desc, nullptr, &tex), >= 0);
-		ensure(device->CreateShaderResourceView(tex, nullptr, &srv), >= 0);
-		ensure(device->CreateRenderTargetView(tex, nullptr, &rtv), >= 0);
-		tex->Release();
-	}
-
-	~RT_views() noexcept
-	{
-		release();
-	}
-
-public:
-
-	RT_views& operator=(RT_views&& other) noexcept
-	{
-		if (this != &other) {
-			release();
-			rtv = other.rtv;
-			srv = other.srv;
-			other.rtv = nullptr;
-			other.srv = nullptr;
-		}
-		return *this;
-	}
-
-public:
-
-	ID3D10RenderTargetView* get_rtv() const noexcept
-	{
-		return rtv;
-	}
-
-	ID3D10ShaderResourceView* get_srv() const noexcept
-	{
-		return srv;
-	}
-
-	ID3D10RenderTargetView* const* get_rtv_address() const noexcept
-	{
-		return &rtv;
-	}
-
-	ID3D10ShaderResourceView* const* get_srv_address() const noexcept{
-		return &srv;
-	}
-
-private:
-
-	void release() noexcept
-	{
-		if (rtv) {
-			rtv->Release();
-		}
-		if (srv) {
-			srv->Release();
-		}
-	}
-
-	ID3D10RenderTargetView* rtv = nullptr;
-	ID3D10ShaderResourceView* srv = nullptr;
-};
-
 template<typename... Args>
 void log_info(std::string_view fmt, Args&&... args)
 {
@@ -105,9 +23,25 @@ void log_debug(std::string_view fmt, Args&&... args)
 	reshade::log::message(reshade::log::level::debug, msg.c_str());
 }
 
-constexpr D3D10_DEPTH_STENCIL_DESC default_D3D10_DEPTH_STENCIL_DESC() noexcept
+__forceinline [[nodiscard]] constexpr D3D10_SAMPLER_DESC default_D3D10_SAMPLER_DESC() noexcept
 {
-	D3D10_DEPTH_STENCIL_DESC desc = {
+	return D3D10_SAMPLER_DESC {
+		.Filter = D3D10_FILTER_MIN_MAG_MIP_POINT,
+		.AddressU = D3D10_TEXTURE_ADDRESS_CLAMP,
+		.AddressV = D3D10_TEXTURE_ADDRESS_CLAMP,
+		.AddressW = D3D10_TEXTURE_ADDRESS_CLAMP,
+		.MipLODBias = 0.0f,
+		.MaxAnisotropy = 16u,
+		.ComparisonFunc = D3D10_COMPARISON_NEVER,
+		.BorderColor = { 0.0f, 0.0f, 0.0f, 0.0f },
+		.MinLOD = 0.0f,
+		.MaxLOD = D3D10_FLOAT32_MAX
+	};
+}
+
+__forceinline [[nodiscard]] constexpr D3D10_DEPTH_STENCIL_DESC default_D3D10_DEPTH_STENCIL_DESC() noexcept
+{
+	return D3D10_DEPTH_STENCIL_DESC {
 		.DepthEnable = TRUE,
 		.DepthWriteMask = D3D10_DEPTH_WRITE_MASK_ALL,
 		.DepthFunc = D3D10_COMPARISON_LESS,
@@ -127,12 +61,11 @@ constexpr D3D10_DEPTH_STENCIL_DESC default_D3D10_DEPTH_STENCIL_DESC() noexcept
 			.StencilFunc = D3D10_COMPARISON_ALWAYS
 		}
 	};
-	return desc;
 }
 
-constexpr D3D10_BLEND_DESC default_D3D10_BLEND_DESC() noexcept
+__forceinline [[nodiscard]] constexpr D3D10_BLEND_DESC default_D3D10_BLEND_DESC() noexcept
 {
-	D3D10_BLEND_DESC desc = {
+	return D3D10_BLEND_DESC {
 		.AlphaToCoverageEnable = FALSE,
 		.BlendEnable = { FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE },
 		.SrcBlend = D3D10_BLEND_ONE,
@@ -143,7 +76,6 @@ constexpr D3D10_BLEND_DESC default_D3D10_BLEND_DESC() noexcept
 		.BlendOpAlpha = D3D10_BLEND_OP_ADD,
 		.RenderTargetWriteMask = { D3D10_COLOR_WRITE_ENABLE_ALL, D3D10_COLOR_WRITE_ENABLE_ALL, D3D10_COLOR_WRITE_ENABLE_ALL, D3D10_COLOR_WRITE_ENABLE_ALL, D3D10_COLOR_WRITE_ENABLE_ALL, D3D10_COLOR_WRITE_ENABLE_ALL, D3D10_COLOR_WRITE_ENABLE_ALL, D3D10_COLOR_WRITE_ENABLE_ALL }
 	};
-	return desc;
 }
 
 inline auto to_string(reshade::api::format format)

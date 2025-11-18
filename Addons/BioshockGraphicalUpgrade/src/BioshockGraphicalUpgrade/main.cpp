@@ -143,7 +143,7 @@ constexpr GUID g_ps_0x7862AA89_guid = { 0xb012ee87, 0x13a1, 0x4c5f, { 0x8a, 0xc4
 constexpr uint32_t g_ps_0xB51C436B_hash = 0xB51C436B;
 constexpr GUID g_ps_0xB51C436B_guid = { 0xf6b85c15, 0x7efe, 0x4504, { 0x9a, 0xa5, 0xd7, 0xa9, 0x31, 0x7, 0xc, 0xb3 } };
 
-// Tone maping.
+// Tone mapping.
 // The last shader before UI.
 constexpr uint32_t g_ps_0x87A0B43D_hash = 0x87A0B43D;
 constexpr GUID g_ps_0x87A0B43D_guid = { 0x476ef3b9, 0xe14e, 0x49f2, { 0xa6, 0x5c, 0x8c, 0x7a, 0x41, 0xd4, 0xa6, 0x12 } };
@@ -286,44 +286,6 @@ static void update_constant_buffer(ID3D10Buffer* buffer, void* data, size_t size
 	buffer->Unmap();
 }
 
-static void create_srv_smaa_area_tex(ID3D10Device* device, ID3D10ShaderResourceView** srv)
-{
-	D3D10_TEXTURE2D_DESC tex_desc = {};
-	tex_desc.Width = AREATEX_WIDTH;
-	tex_desc.Height = AREATEX_HEIGHT;
-	tex_desc.MipLevels = 1;
-	tex_desc.ArraySize = 1;
-	tex_desc.Format = DXGI_FORMAT_R8G8_UNORM;
-	tex_desc.SampleDesc.Count = 1;
-	tex_desc.Usage = D3D10_USAGE_IMMUTABLE;
-	tex_desc.BindFlags = D3D10_BIND_SHADER_RESOURCE;
-	D3D10_SUBRESOURCE_DATA subresource_data = {};
-	subresource_data.pSysMem = areaTexBytes;
-	subresource_data.SysMemPitch = AREATEX_PITCH;
-	Com_ptr<ID3D10Texture2D> tex;
-	ensure(device->CreateTexture2D(&tex_desc, &subresource_data, &tex), >= 0);
-	ensure(device->CreateShaderResourceView(tex.get(), nullptr, srv), >= 0);
-}
-
-static void create_srv_smaa_search_tex(ID3D10Device* device, ID3D10ShaderResourceView** srv)
-{
-	D3D10_TEXTURE2D_DESC tex_desc = {};
-	tex_desc.Width = SEARCHTEX_WIDTH;
-	tex_desc.Height = SEARCHTEX_HEIGHT;
-	tex_desc.MipLevels = 1;
-	tex_desc.ArraySize = 1;
-	tex_desc.Format = DXGI_FORMAT_R8_UNORM;
-	tex_desc.SampleDesc.Count = 1;
-	tex_desc.Usage = D3D10_USAGE_IMMUTABLE;
-	tex_desc.BindFlags = D3D10_BIND_SHADER_RESOURCE;
-	D3D10_SUBRESOURCE_DATA subresource_data = {};
-	subresource_data.pSysMem = searchTexBytes;
-	subresource_data.SysMemPitch = SEARCHTEX_PITCH;
-	Com_ptr<ID3D10Texture2D> tex;
-	ensure(device->CreateTexture2D(&tex_desc, &subresource_data, &tex), >= 0);
-	ensure(device->CreateShaderResourceView(tex.get(), nullptr, srv), >= 0);
-}
-
 // Used by AMD FFX LFGA.
 static void create_srv_blue_noise_tex(ID3D10Device* device, ID3D10ShaderResourceView** srv)
 {
@@ -349,28 +311,17 @@ static void create_srv_blue_noise_tex(ID3D10Device* device, ID3D10ShaderResource
 // Used by AMD FFX LFGA.
 static void create_sampler_point_wrap(ID3D10Device* device, ID3D10SamplerState** smp)
 {
-	D3D10_SAMPLER_DESC sampler_desc = {};
-	sampler_desc.Filter = D3D10_FILTER_MIN_MAG_MIP_POINT;
+	auto sampler_desc = default_D3D10_SAMPLER_DESC();
 	sampler_desc.AddressU = D3D10_TEXTURE_ADDRESS_WRAP;
 	sampler_desc.AddressV = D3D10_TEXTURE_ADDRESS_WRAP;
 	sampler_desc.AddressW = D3D10_TEXTURE_ADDRESS_WRAP;
-	sampler_desc.MaxLOD = D3D10_FLOAT32_MAX;
-	sampler_desc.MaxAnisotropy = 1;
-	sampler_desc.ComparisonFunc = D3D10_COMPARISON_NEVER;
 	ensure(device->CreateSamplerState(&sampler_desc, smp), >= 0);
 }
 
 // Used by XeGTAO.
 static void create_sampler_point_clamp(ID3D10Device* device, ID3D10SamplerState** smp)
 {
-	D3D10_SAMPLER_DESC sampler_desc = {};
-	sampler_desc.Filter = D3D10_FILTER_MIN_MAG_MIP_POINT;
-	sampler_desc.AddressU = D3D10_TEXTURE_ADDRESS_CLAMP;
-	sampler_desc.AddressV = D3D10_TEXTURE_ADDRESS_CLAMP;
-	sampler_desc.AddressW = D3D10_TEXTURE_ADDRESS_CLAMP;
-	sampler_desc.MaxLOD = D3D10_FLOAT32_MAX;
-	sampler_desc.MaxAnisotropy = 1;
-	sampler_desc.ComparisonFunc = D3D10_COMPARISON_NEVER;
+	auto sampler_desc = default_D3D10_SAMPLER_DESC();
 	ensure(device->CreateSamplerState(&sampler_desc, smp), >= 0);
 }
 
@@ -545,10 +496,14 @@ static void draw_xegtao(ID3D10Device* device, ID3D10RenderTargetView*const* rtv)
 	// Create RT views.
 	tex_desc.MipLevels = 1;
 	tex_desc.Format = DXGI_FORMAT_R8G8_UNORM;
-	RT_views rt_views_working_ao_term_and_edges(device, tex_desc);
+	ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.reset_and_get_address()), >= 0);
+	Com_ptr<ID3D10RenderTargetView> rtv_main_pass;
+	ensure(device->CreateRenderTargetView(tex.get(), nullptr, &rtv_main_pass), >= 0);
+	Com_ptr<ID3D10ShaderResourceView> srv_main_pass;
+	ensure(device->CreateShaderResourceView(tex.get(), nullptr, &srv_main_pass), >= 0);
 
 	// Bindings.
-	device->OMSetRenderTargets(1, rt_views_working_ao_term_and_edges.get_rtv_address(), nullptr);
+	device->OMSetRenderTargets(1, &rtv_main_pass, nullptr);
 	device->PSSetShader(g_ps_xegtao_main_pass.get());
 	device->PSSetShaderResources(0, 1, &srv_working_depth);
 
@@ -579,7 +534,7 @@ static void draw_xegtao(ID3D10Device* device, ID3D10RenderTargetView*const* rtv)
 
 	device->OMSetRenderTargets(1, rtv, nullptr);
 	device->PSSetShader(g_ps_xegtao_denoise_pass.get());
-	device->PSSetShaderResources(1, 1, rt_views_working_ao_term_and_edges.get_srv_address());
+	device->PSSetShaderResources(1, 1, &srv_main_pass);
 
 	#if !(DEV && SHOW_AO)
 	device->OMSetBlendState(g_blend_xegtao.get(), nullptr, UINT_MAX);
@@ -1076,7 +1031,7 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		return true;
 	}
 
-	// 0x87A0B43D tone maping
+	// 0x87A0B43D tone mapping
 	size = sizeof(hash);
 	hr = ps->GetPrivateData(g_ps_0x87A0B43D_guid, &size, &hash);
 	if (SUCCEEDED(hr) && hash == g_ps_0x87A0B43D_hash) {
@@ -1105,18 +1060,41 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		// Create PS.
 		[[unlikely]] if (!g_ps_0x87A0B43D) {
 			const std::string bloom_intensity_str = std::to_string(g_bloom_intensity);
+			const std::string srgb_str = g_trc == TRC_SRGB ? "SRGB" : "";
+			const std::string gamma_str = std::to_string(g_gamma);
 			const D3D10_SHADER_MACRO defines[] = {
 				{ "BLOOM_INTENSITY", bloom_intensity_str.c_str() },
+				{ srgb_str.c_str(), nullptr },
+				{ "GAMMA", gamma_str.c_str() },
 				{ nullptr, nullptr }
 			};
 			create_pixel_shader(device, &g_ps_0x87A0B43D, L"0x87A0B43D_ps.hlsl", "main", defines);
 		}
 
+		// Create RTs and views.
+		////
+
 		tex_desc.Format = DXGI_FORMAT_R16G16B16A16_UNORM;
-		RT_views rt_views_0x87A0B43D(device, tex_desc);
+
+		// Linear.
+		ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.reset_and_get_address()), >= 0);
+		Com_ptr<ID3D10RenderTargetView> rtv_0x87A0B43D_linear;
+		ensure(device->CreateRenderTargetView(tex.get(), nullptr, &rtv_0x87A0B43D_linear), >= 0);
+		Com_ptr<ID3D10ShaderResourceView> srv_0x87A0B43D_linear;
+		ensure(device->CreateShaderResourceView(tex.get(), nullptr, &srv_0x87A0B43D_linear), >= 0);
+
+		// Delinearized.
+		ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.reset_and_get_address()), >= 0);
+		Com_ptr<ID3D10RenderTargetView> rtv_0x87A0B43D_delinearized;
+		ensure(device->CreateRenderTargetView(tex.get(), nullptr, &rtv_0x87A0B43D_delinearized), >= 0);
+		Com_ptr<ID3D10ShaderResourceView> srv_0x87A0B43D_delinearized;
+		ensure(device->CreateShaderResourceView(tex.get(), nullptr, &srv_0x87A0B43D_delinearized), >= 0);
+
+		////
 
 		// Bindings.
-		device->OMSetRenderTargets(1, rt_views_0x87A0B43D.get_rtv_address(), nullptr);
+		const std::array rtvs_0x87A0B43D = { rtv_0x87A0B43D_linear.get(), rtv_0x87A0B43D_delinearized.get() };
+		device->OMSetRenderTargets(rtvs_0x87A0B43D.size(), rtvs_0x87A0B43D.data(), nullptr);
 		device->PSSetShader(g_ps_0x87A0B43D.get());
 
 		cmd_list->draw(vertex_count, instance_count, first_vertex, first_instance);
@@ -1156,38 +1134,6 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		}
 		#endif // DEV
 
-		// Delinearize pass
-		//
-
-		// Create Fullscreen Triangle VS.
-		[[unlikely]] if (!g_vs_fullscreen_triangle) {
-			create_vertex_shader(device, &g_vs_fullscreen_triangle, L"FullscreenTriangle_vs.hlsl");
-		}
-
-		// Create PS.
-		[[unlikely]] if (!g_ps_delinearize) {
-			const std::string srgb_str = g_trc == TRC_SRGB ? "SRGB" : "";
-			const std::string gamma_str = std::to_string(g_gamma);
-			const D3D10_SHADER_MACRO defines[] = {
-				{ srgb_str.c_str(), nullptr },
-				{ "GAMMA", gamma_str.c_str() },
-				{ nullptr, nullptr }
-			};
-			create_pixel_shader(device, &g_ps_delinearize, L"Delinearize_ps.hlsl", "main", defines);
-		}
-
-		RT_views rt_views_delinearize(device, tex_desc);
-
-		// Bindings.
-		device->OMSetRenderTargets(1, rt_views_delinearize.get_rtv_address(), nullptr);
-		device->VSSetShader(g_vs_fullscreen_triangle.get());
-		device->PSSetShader(g_ps_delinearize.get());
-		device->PSSetShaderResources(0, 1, rt_views_0x87A0B43D.get_srv_address());
-
-		device->Draw(3, 0);
-
-		//
-
 		// SMAAEdgeDetection pass
 		//
 
@@ -1204,7 +1150,7 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 
 		// Create DS.
 		[[unlikely]] if (!g_ds_smaa_disable_depth_replace_stencil) {
-			auto desc = default_D3D10_DEPTH_STENCIL_DESC();
+			D3D10_DEPTH_STENCIL_DESC desc = default_D3D10_DEPTH_STENCIL_DESC();
 			desc.DepthEnable = FALSE;
 			desc.StencilEnable = TRUE;
 			desc.FrontFace.StencilPassOp = D3D10_STENCIL_OP_REPLACE;
@@ -1218,19 +1164,24 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		Com_ptr<ID3D10DepthStencilView> dsv;
 		ensure(device->CreateDepthStencilView(tex.get(), nullptr, &dsv), >= 0);
 
+		// Create RT and views.
 		tex_desc.Format = DXGI_FORMAT_R8G8_UNORM;
 		tex_desc.BindFlags = D3D10_BIND_SHADER_RESOURCE | D3D10_BIND_RENDER_TARGET;
-		RT_views rt_views_edges_tex(device, tex_desc);
+		ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.reset_and_get_address()), >= 0);
+		Com_ptr<ID3D10RenderTargetView> rtv_smaa_edge_detection;
+		ensure(device->CreateRenderTargetView(tex.get(), nullptr, &rtv_smaa_edge_detection), >= 0);
+		Com_ptr<ID3D10ShaderResourceView> srv_smaa_edge_detection;
+		ensure(device->CreateShaderResourceView(tex.get(), nullptr, &srv_smaa_edge_detection), >= 0);
 
 		// Bindings.
 		device->OMSetDepthStencilState(g_ds_smaa_disable_depth_replace_stencil.get(), 1);
-		device->OMSetRenderTargets(1, rt_views_edges_tex.get_rtv_address(), dsv.get());
+		device->OMSetRenderTargets(1, &rtv_smaa_edge_detection, dsv.get());
 		device->VSSetShader(g_vs_smaa_edge_detection.get());
 		device->PSSetShader(g_ps_smaa_edge_detection.get());
-		const std::array ps_resources_smaa_edge_detection = { rt_views_delinearize.get_srv(), g_srv_depth.get() };
-		device->PSSetShaderResources(0, ps_resources_smaa_edge_detection.size(), ps_resources_smaa_edge_detection.data());
+		const std::array ps_srvs_smaa_edge_detection = { srv_0x87A0B43D_delinearized.get(), g_srv_depth.get() };
+		device->PSSetShaderResources(0, ps_srvs_smaa_edge_detection.size(), ps_srvs_smaa_edge_detection.data());
 
-		device->ClearRenderTargetView(rt_views_edges_tex.get_rtv(), g_smaa_clear_color);
+		device->ClearRenderTargetView(rtv_smaa_edge_detection.get(), g_smaa_clear_color);
 		device->ClearDepthStencilView(dsv.get(), D3D10_CLEAR_STENCIL, 1.0f, 0);
 		device->Draw(3, 0);
 
@@ -1251,12 +1202,38 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 
 		// Create area texture.
 		[[unlikely]] if (!g_srv_smaa_area_tex) {
-			create_srv_smaa_area_tex(device, &g_srv_smaa_area_tex);
+			D3D10_TEXTURE2D_DESC tex_desc = {};
+			tex_desc.Width = AREATEX_WIDTH;
+			tex_desc.Height = AREATEX_HEIGHT;
+			tex_desc.MipLevels = 1;
+			tex_desc.ArraySize = 1;
+			tex_desc.Format = DXGI_FORMAT_R8G8_UNORM;
+			tex_desc.SampleDesc.Count = 1;
+			tex_desc.Usage = D3D10_USAGE_IMMUTABLE;
+			tex_desc.BindFlags = D3D10_BIND_SHADER_RESOURCE;
+			D3D10_SUBRESOURCE_DATA subresource_data = {};
+			subresource_data.pSysMem = areaTexBytes;
+			subresource_data.SysMemPitch = AREATEX_PITCH;
+			ensure(device->CreateTexture2D(&tex_desc, &subresource_data, tex.reset_and_get_address()), >= 0);
+			ensure(device->CreateShaderResourceView(tex.get(), nullptr, &g_srv_smaa_area_tex), >= 0);
 		}
 
 		// Create search texture.
 		[[unlikely]] if (!g_srv_smaa_search_tex) {
-			create_srv_smaa_search_tex(device, &g_srv_smaa_search_tex);
+			D3D10_TEXTURE2D_DESC tex_desc = {};
+			tex_desc.Width = SEARCHTEX_WIDTH;
+			tex_desc.Height = SEARCHTEX_HEIGHT;
+			tex_desc.MipLevels = 1;
+			tex_desc.ArraySize = 1;
+			tex_desc.Format = DXGI_FORMAT_R8_UNORM;
+			tex_desc.SampleDesc.Count = 1;
+			tex_desc.Usage = D3D10_USAGE_IMMUTABLE;
+			tex_desc.BindFlags = D3D10_BIND_SHADER_RESOURCE;
+			D3D10_SUBRESOURCE_DATA subresource_data = {};
+			subresource_data.pSysMem = searchTexBytes;
+			subresource_data.SysMemPitch = SEARCHTEX_PITCH;
+			ensure(device->CreateTexture2D(&tex_desc, &subresource_data, tex.reset_and_get_address()), >= 0);
+			ensure(device->CreateShaderResourceView(tex.get(), nullptr, &g_srv_smaa_search_tex), >= 0);
 		}
 
 		// Create DS.
@@ -1268,18 +1245,23 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 			ensure(device->CreateDepthStencilState(&desc, &g_ds_smaa_disable_depth_use_stencil), >= 0);
 		}
 
+		// Create RT and views.
 		tex_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-		RT_views rt_views_blend_tex(device, tex_desc);
+		ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.reset_and_get_address()), >= 0);
+		Com_ptr<ID3D10RenderTargetView> rtv_smaa_blending_weight_calculation;
+		ensure(device->CreateRenderTargetView(tex.get(), nullptr, &rtv_smaa_blending_weight_calculation), >= 0);
+		Com_ptr<ID3D10ShaderResourceView> srv_smaa_blending_weight_calculation;
+		ensure(device->CreateShaderResourceView(tex.get(), nullptr, &srv_smaa_blending_weight_calculation), >= 0);
 
 		// Bindings.
 		device->OMSetDepthStencilState(g_ds_smaa_disable_depth_use_stencil.get(), 1);
-		device->OMSetRenderTargets(1, rt_views_blend_tex.get_rtv_address(), dsv.get());
+		device->OMSetRenderTargets(1, &rtv_smaa_blending_weight_calculation, dsv.get());
 		device->VSSetShader(g_vs_smaa_blending_weight_calculation.get());
 		device->PSSetShader(g_ps_smaa_blending_weight_calculation.get());
-		const std::array ps_resources_smaa_blending_weight_calculation = { rt_views_edges_tex.get_srv(), g_srv_smaa_area_tex.get(), g_srv_smaa_search_tex.get() };
-		device->PSSetShaderResources(0, ps_resources_smaa_blending_weight_calculation.size(), ps_resources_smaa_blending_weight_calculation.data());
+		const std::array ps_srvs_smaa_blending_weight_calculation = { srv_smaa_edge_detection.get(), g_srv_smaa_area_tex.get(), g_srv_smaa_search_tex.get() };
+		device->PSSetShaderResources(0, ps_srvs_smaa_blending_weight_calculation.size(), ps_srvs_smaa_blending_weight_calculation.data());
 
-		device->ClearRenderTargetView(rt_views_blend_tex.get_rtv(), g_smaa_clear_color);
+		device->ClearRenderTargetView(rtv_smaa_blending_weight_calculation.get(), g_smaa_clear_color);
 		device->Draw(3, 0);
 
 		//
@@ -1297,15 +1279,20 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 			create_pixel_shader(device, &g_ps_smaa_neighborhood_blending, L"SMAA_impl.hlsl", "smaa_neighborhood_blending_ps", g_smaa_rt_metrics.get());
 		}
 
+		// Create RT and views.
 		tex_desc.Format = DXGI_FORMAT_R16G16B16A16_UNORM;
-		RT_views rt_views_resources_neighborhood_blending(device, tex_desc);
+		ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.reset_and_get_address()), >= 0);
+		Com_ptr<ID3D10RenderTargetView> rtv_smaa_neighborhood_blending;
+		ensure(device->CreateRenderTargetView(tex.get(), nullptr, &rtv_smaa_neighborhood_blending), >= 0);
+		Com_ptr<ID3D10ShaderResourceView> srv_smaa_neighborhood_blending;
+		ensure(device->CreateShaderResourceView(tex.get(), nullptr, &srv_smaa_neighborhood_blending), >= 0);
 
 		// Bindings.
-		device->OMSetRenderTargets(1, rt_views_resources_neighborhood_blending.get_rtv_address(), nullptr);
+		device->OMSetRenderTargets(1, &rtv_smaa_neighborhood_blending, nullptr);
 		device->VSSetShader(g_vs_smaa_neighborhood_blending.get());
 		device->PSSetShader(g_ps_smaa_neighborhood_blending.get());
-		const std::array ps_resources_neighborhood_blending = { rt_views_0x87A0B43D.get_srv(), rt_views_blend_tex.get_srv() };
-		device->PSSetShaderResources(0, ps_resources_neighborhood_blending.size(), ps_resources_neighborhood_blending.data());
+		const std::array ps_srvs_neighborhood_blending = { srv_0x87A0B43D_linear.get(), srv_smaa_blending_weight_calculation.get() };
+		device->PSSetShaderResources(0, ps_srvs_neighborhood_blending.size(), ps_srvs_neighborhood_blending.data());
 
 		device->Draw(3, 0);
 
@@ -1329,13 +1316,18 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 			create_pixel_shader(device, &g_ps_amd_ffx_cas, L"AMD_FFX_CAS_ps.hlsl", "main", defines);
 		}
 
-		RT_views rt_views_amd_ffx_cas(device, tex_desc);
+		// Create RT and views.
+		ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.reset_and_get_address()), >= 0);
+		Com_ptr<ID3D10RenderTargetView> rtv_amd_ffx_cas;
+		ensure(device->CreateRenderTargetView(tex.get(), nullptr, &rtv_amd_ffx_cas), >= 0);
+		Com_ptr<ID3D10ShaderResourceView> srv_amd_ffx_cas;
+		ensure(device->CreateShaderResourceView(tex.get(), nullptr, &srv_amd_ffx_cas), >= 0);
 
 		// Bindings.
-		device->OMSetRenderTargets(1, rt_views_amd_ffx_cas.get_rtv_address(), nullptr);
+		device->OMSetRenderTargets(1, &rtv_amd_ffx_cas, nullptr);
 		device->VSSetShader(g_vs_fullscreen_triangle.get());
 		device->PSSetShader(g_ps_amd_ffx_cas.get());
-		device->PSSetShaderResources(0, 1, rt_views_resources_neighborhood_blending.get_srv_address());
+		device->PSSetShaderResources(0, 1, &srv_smaa_neighborhood_blending);
 
 		device->Draw(3, 0);
 
@@ -1376,7 +1368,7 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		}
 
 		// Update the constant buffer.
-		// We need to limit, otherwise grain will flicker.
+		// We need to limit the temporal grain update rate, otherwise grain will flicker.
 		constexpr auto interval = std::chrono::duration_cast<std::chrono::high_resolution_clock::duration>(std::chrono::duration<double>(1.0 / (double)BLUE_NOISE_TEX_ARRAY_SIZE));
 		static auto last_update = std::chrono::high_resolution_clock::now();
 		const auto now = std::chrono::high_resolution_clock::now();
@@ -1395,8 +1387,8 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		device->OMSetRenderTargets(1, &rtv_original, nullptr);
 		device->PSSetShader(g_ps_amd_ffx_lfga.get());
 		device->PSSetConstantBuffers(13, 1, &g_cb); // The game should never be using CB slot 13.
-		const std::array ps_resources_amd_ffx_lfga = { rt_views_amd_ffx_cas.get_srv(), g_srv_blue_noise_tex.get() };
-		device->PSSetShaderResources(0, ps_resources_amd_ffx_lfga.size(), ps_resources_amd_ffx_lfga.data());
+		const std::array ps_srvs_amd_ffx_lfga = { srv_amd_ffx_cas.get(), g_srv_blue_noise_tex.get() };
+		device->PSSetShaderResources(0, ps_srvs_amd_ffx_lfga.size(), ps_srvs_amd_ffx_lfga.data());
 
 		// Backup the original sampler.
 		Com_ptr<ID3D10SamplerState> smp_original0;
@@ -1472,28 +1464,6 @@ static void on_init_pipeline(reshade::api::device* device, reshade::api::pipelin
 
 static bool on_create_resource(reshade::api::device* device, reshade::api::resource_desc& desc, reshade::api::subresource_data* initial_data, reshade::api::resource_usage initial_state)
 {
-	// Upgrade depth stencil.
-	//
-
-	if (desc.texture.format == reshade::api::format::d24_unorm_s8_uint) {
-		desc.texture.format = reshade::api::format::d32_float_s8_uint;
-		return true;
-	}
-
-	// WORKAROUND: Generic Depth addon is messing with depth fromats,
-	// with it we get r24_g8_typeless instead of d24_unorm_s8_uint.
-	if (desc.texture.format == reshade::api::format::r24_g8_typeless) {
-		desc.texture.format = reshade::api::format::r32_g8_typeless;
-		return true;
-	}
-
-	if (desc.texture.format == reshade::api::format::r24_unorm_x8_uint) {
-		desc.texture.format = reshade::api::format::r32_float_x8_uint;
-		return true;
-	}
-
-	//
-
 	// Upgrade render targets.
 	if (((desc.usage & reshade::api::resource_usage::render_target) != 0)) {
 		if (desc.texture.format == reshade::api::format::r11g11b10_float) {
@@ -1507,7 +1477,7 @@ static bool on_create_resource(reshade::api::device* device, reshade::api::resou
 
 static void on_init_resource(reshade::api::device* device, const reshade::api::resource_desc& desc, const reshade::api::subresource_data* initial_data, reshade::api::resource_usage initial_state, reshade::api::resource resource)
 {
-	if (desc.texture.format == reshade::api::format::r32_float_x8_uint) {
+	if (desc.texture.format == reshade::api::format::r24_unorm_x8_uint) {
 		auto native_device = (ID3D10Device*)device->get_native();
 		ensure(native_device->CreateShaderResourceView((ID3D10Resource*)resource.handle, nullptr, g_srv_depth.reset_and_get_address()), >= 0);
 	}
@@ -1516,16 +1486,6 @@ static void on_init_resource(reshade::api::device* device, const reshade::api::r
 static bool on_create_resource_view(reshade::api::device* device, reshade::api::resource resource, reshade::api::resource_usage usage_type, reshade::api::resource_view_desc& desc)
 {
 	const auto resource_desc = device->get_resource_desc(resource);
-
-	// Depth stencil.
-	if (resource_desc.texture.format == reshade::api::format::d32_float_s8_uint || resource_desc.texture.format == reshade::api::format::r32_g8_typeless) {
-		desc.format = reshade::api::format::d32_float_s8_uint;
-		return true;
-	}
-	if (resource_desc.texture.format == reshade::api::format::r32_float_x8_uint) {
-		desc.format = reshade::api::format::r32_float_x8_uint;
-		return true;
-	}
 
 	// Render targets.
 	if ((resource_desc.usage & reshade::api::resource_usage::render_target) != 0) {
@@ -1555,12 +1515,13 @@ static bool on_create_swapchain(reshade::api::device_api api, reshade::api::swap
 	SetWindowLongPtrW((HWND)hwnd, GWL_STYLE, WS_POPUP);
 	SetWindowPos((HWND)hwnd, HWND_TOP, 0, 0, desc.back_buffer.texture.width, desc.back_buffer.texture.height, SWP_NOZORDER | SWP_FRAMECHANGED | SWP_SHOWWINDOW);
 
+	desc.back_buffer.texture.format = reshade::api::format::r10g10b10a2_unorm;
 	desc.back_buffer_count = 2;
 	desc.present_mode = DXGI_SWAP_EFFECT_FLIP_DISCARD;
 	desc.present_flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
 	desc.fullscreen_state = false;
 	desc.fullscreen_refresh_rate = 0.0;
-	desc.back_buffer.texture.format = reshade::api::format::r10g10b10a2_unorm;
+	desc.sync_interval = 0;
 	return true;
 }
 
@@ -1594,7 +1555,6 @@ static void on_init_swapchain(reshade::api::swapchain* swapchain, bool resize)
 static void on_init_device(reshade::api::device* device)
 {
 	// Set maximum frame latency to 1, the game is not setting this already to 1.
-	// It reduces input latecy massivly if GPU bound.
 	auto native_device = (IUnknown*)device->get_native();
 	Com_ptr<IDXGIDevice1> device1;
 	auto hr = native_device->QueryInterface(&device1);
@@ -1709,7 +1669,7 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 }
 
 extern "C" __declspec(dllexport) const char* NAME = "BioshockGrapicalUpgrade";
-extern "C" __declspec(dllexport) const char* DESCRIPTION = "BioshockGrapicalUpgrade v3.0.1";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "BioshockGrapicalUpgrade v3.1.0";
 extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/BioshockGraphicalUpgrade";
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)

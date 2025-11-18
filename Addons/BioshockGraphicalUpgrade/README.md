@@ -10,7 +10,6 @@
 - Adjustable bloom intensity.
 - Accurate FPS limiter.
 - Upgraded render targets (greatly reduces color banding).
-- Upgraded depth precision.
 - 10bit color output.
 - Greatly reduced input lag.
 
