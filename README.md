@@ -69,3 +69,6 @@ Graphical upgrade for Hades. See Addons/HadesGraphicalUpgrade for details.
 
 **HollowKnightGraphicalUpgrade**  
 Graphical upgrade for Hollow Knight. See Addons/HollowKnightGraphicalUpgrade for details.
+
+**SlayTheSpireGraphicalUpgrade**  
+Graphical upgrade for Slay the Spire. See Addons/SlayTheSpireGraphicalUpgrade for details.
