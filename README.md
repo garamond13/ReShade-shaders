@@ -61,6 +61,9 @@ Graphical upgrade for Disco Elysium. See Addons/DiscoElysiumGraphicalUpgrade for
 **FarCry2GraphicalUpgrade**  
 Graphical upgrade for Far Cry 2. See Addons/FarCry2GraphicalUpgrade for details.
 
+**FrostpunkGraphicalUpgrade**  
+Graphical upgrade for Frostpunk. See Addons/FrostpunkGraphicalUpgrade for details.
+
 **GrisGraphicalUpgrade**  
 Graphical upgrade for Gris. See Addons/GrisGraphicalUpgrade for details.
 
