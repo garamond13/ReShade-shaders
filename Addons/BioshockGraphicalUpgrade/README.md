@@ -7,6 +7,7 @@
 - Sharpening filter (Modified AMD FFX CAS).
 - Temporal blue noise film grain (AMD FFX LFGA).
 - Adjustable Tone Responce Curve (TRC) (sRGB, gamma).
+- Reduced blurriness caused by the bloom.
 - Adjustable bloom intensity.
 - Accurate FPS limiter.
 - Upgraded render targets (greatly reduces color banding).
