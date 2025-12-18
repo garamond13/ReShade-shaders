@@ -264,7 +264,7 @@ static void compile_shader(ID3DBlob** code, const wchar_t* file, const char* tar
 
 	#if DEV && OUTPUT_ASSEMBLY
 	Com_ptr<ID3DBlob> disassembly;
-	D3DDisassemble((*code)->GetBufferPointer(), (*code)->GetBufferSize(), 0, nullptr, &disassembly);
+	D3DDisassemble((*code)->GetBufferPointer(), (*code)->GetBufferSize(), 0, nullptr, disassembly.put());
 	std::ofstream assembly(path.replace_filename(path.filename().string() + "_" + entry_point + ".asm"));
 	assembly.write((const char*)disassembly->GetBufferPointer(), disassembly->GetBufferSize());
 	#endif

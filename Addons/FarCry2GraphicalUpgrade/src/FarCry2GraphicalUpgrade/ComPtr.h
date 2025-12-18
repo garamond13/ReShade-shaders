@@ -89,19 +89,14 @@ public:
 		return ptr;
 	}
 
-	T* const* operator&() const noexcept
-	{
-		return &ptr;
-	}
-
-	T** operator&() noexcept
-	{
-		return &ptr;
-	}
-
 	T& operator*() const noexcept
 	{
 		return *ptr;
+	}
+
+	T*const* operator&() const noexcept
+	{
+		return &ptr;
 	}
 
 	explicit operator bool() const noexcept
@@ -116,17 +111,12 @@ public:
 		return ptr;
 	}
 
-	T* const* get_address() const noexcept
+	T*const* get_address() const noexcept
 	{
 		return &ptr;
 	}
 
-	T** get_address() noexcept
-	{
-		return &ptr;
-	}
-
-	T** reset_and_get_address() noexcept
+	T** put() noexcept
 	{
 		if (ptr) {
 			ptr->Release();
@@ -215,6 +205,12 @@ template<typename T>
 bool operator!=(const Com_ptr<T>& left, std::nullptr_t) noexcept
 {
 	return left.get() != nullptr;
+}
+
+template<typename T>
+bool operator!=(std::nullptr_t, const Com_ptr<T>& right) noexcept
+{
+	return nullptr != right.get();
 }
 
 template<typename T, typename U>
