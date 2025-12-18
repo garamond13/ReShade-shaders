@@ -10,6 +10,10 @@ static std::filesystem::path g_graphical_upgrade_path;
 // Do we have a LUT.CUBE file in the GraphicalUpgrade folder.
 static bool g_has_lut;
 
+// Sun.
+static uintptr_t g_ps_0x493F3086_hash;
+static Com_ptr<ID3D10PixelShader> g_ps_0x493F3086;
+
 // Bloom.
 static uintptr_t g_ps_0xC5143189_hash;
 static Com_ptr<ID3D10PixelShader> g_ps_0xC5143189;
@@ -190,7 +194,6 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 	const auto hash = (uintptr_t)ps.get();
 
 	if (hash == g_ps_0xC5143189_hash) {
-		
 		// Create PS.
 		[[unlikely]] if (!g_ps_0xC5143189) {
 			create_pixel_shader(device, g_ps_0xC5143189.put(), L"0xC5143189_ps.hlsl");
@@ -200,6 +203,7 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		device->PSSetShader(g_ps_0xC5143189.get());
 
 		cmd_list->draw(vertex_count, instance_count, first_vertex, first_instance);
+		return true;
 	}
 
 	if (hash == g_ps_0x8B2AB983_hash) {
@@ -272,7 +276,6 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		Com_ptr<ID3D10ShaderResourceView> srv_srgb_to_linear;
 		ensure(device->CreateShaderResourceView(tex.get(), nullptr, srv_srgb_to_linear.put()), >= 0);
 
-
 		// Bindings
 		device->OMSetRenderTargets(1, &rtv_srgb_to_linear, nullptr);
 		device->VSSetShader(g_vs_fullscreen_triangle.get());
@@ -314,7 +317,8 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 	// The malaria attack effect 0x12A5247D gets rendered after this,
 	// so apply our post proccess to it as well?
 	if (g_has_lut && hash == g_ps_0xDBF8FCBD_hash) {
-		// We expect RTV to be a back buffer, unless we are having malaria attack.
+		// We expect RTV to be the back buffer,
+		// unless we are having malaria attack.
 		Com_ptr<ID3D10RenderTargetView> rtv_original;
 		device->OMGetRenderTargets(1, rtv_original.put(), nullptr);
 
@@ -394,6 +398,34 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 	return false;
 }
 
+static bool on_draw_indexed(reshade::api::command_list *cmd_list, uint32_t index_count, uint32_t instance_count, uint32_t first_index, int32_t vertex_offset, uint32_t first_instance)
+{
+	auto device = (ID3D10Device*)cmd_list->get_native();
+
+	// We are using PS as hash for draw calls.
+	Com_ptr<ID3D10PixelShader> ps;
+	device->PSGetShader(ps.put());
+	if (!ps) {
+		return false;
+	}
+	const auto hash = (uintptr_t)ps.get();
+
+	if (hash == g_ps_0x493F3086_hash) {
+		// Create PS.
+		[[unlikely]] if (!g_ps_0x493F3086) {
+			create_pixel_shader(device, g_ps_0x493F3086.put(), L"0x493F3086_ps.hlsl");
+		}
+
+		// Bindings.
+		device->PSSetShader(g_ps_0x493F3086.get());
+
+		cmd_list->draw_indexed(index_count, instance_count, first_index, vertex_offset, first_instance);
+		return true;
+	}
+
+	return false;
+}
+
 static void on_init_pipeline(reshade::api::device* device, reshade::api::pipeline_layout layout, uint32_t subobject_count, const reshade::api::pipeline_subobject* subobjects, reshade::api::pipeline pipeline)
 {
 	for (uint32_t i = 0; i < subobject_count; ++i) {
@@ -410,6 +442,9 @@ static void on_init_pipeline(reshade::api::device* device, reshade::api::pipelin
 				case 0xC5143189:
 					g_ps_0xC5143189_hash = pipeline.handle;
 					break;
+				case 0x493F3086:
+					g_ps_0x493F3086_hash = pipeline.handle;
+					break;
 			}
 		}
 	}
@@ -419,11 +454,7 @@ static bool on_create_resource(reshade::api::device* device, reshade::api::resou
 {
 	// Upgrade render targets.
 	if (((desc.usage & reshade::api::resource_usage::render_target) != 0)) {
-		if (desc.texture.format == reshade::api::format::r8g8b8a8_unorm) {
-			desc.texture.format = reshade::api::format::r16g16b16a16_unorm;
-			return true;
-		}
-		if (desc.texture.format == reshade::api::format::r11g11b10_float) {
+		if (desc.texture.format == reshade::api::format::r8g8b8a8_unorm || desc.texture.format == reshade::api::format::r11g11b10_float) {
 			desc.texture.format = reshade::api::format::r16g16b16a16_float;
 			return true;
 		}
@@ -532,6 +563,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)
 			g_has_lut = lut_exists();
 			read_config();
 			reshade::register_event<reshade::addon_event::draw>(on_draw);
+			reshade::register_event<reshade::addon_event::draw_indexed>(on_draw_indexed);
 			reshade::register_event<reshade::addon_event::init_pipeline>(on_init_pipeline);
 			reshade::register_event<reshade::addon_event::create_resource>(on_create_resource);
 			reshade::register_event<reshade::addon_event::create_resource_view>(on_create_resource_view);

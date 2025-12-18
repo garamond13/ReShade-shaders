@@ -1,7 +1,3 @@
-// Bloom
-//
-// Fix for the black square bug.
-
 cbuffer _Globals : register(b0)
 {
   float4 _UserClipPlane : packoffset(c0);
@@ -45,20 +41,20 @@ void main(
   uint4 bitmask, uiDest;
   float4 fDest;
 
-  r0 = AdaptedLuminanceSampler.Sample(AdaptedLuminanceSampler_s, float2(0.5,0.5));
+  r0.x = AdaptedLuminanceSampler.Sample(AdaptedLuminanceSampler_s, float2(0.5,0.5)).x;
   r0.y = max(LuminanceRange.x, r0.x);
   r0.y = min(LuminanceRange.y, r0.y);
   r0.x = r0.y / r0.x;
   r0.x = max(LuminanceAdaptationRange.x, r0.x);
   r0.x = min(LuminanceAdaptationRange.y, r0.x);
-  r1 = LinearTextureSampler.Sample(LinearTextureSampler_s, v1.zw);
+  r1.xyz = LinearTextureSampler.Sample(LinearTextureSampler_s, v1.zw).xyz;
   r0.yzw = r1.xyz * r0.xxx;
   r1.x = dot(r1.xyz, float3(0.298900008,0.587000012,0.114));
   r1.y = dot(r0.yzw, float3(0.298900008,0.587000012,0.114));
   r1.z = -BloomParams.y + r1.y;
   r1.y = saturate(r1.z / r1.y);
   r0.yzw = r1.yyy * r0.yzw;
-  r2 = LinearTextureSampler.Sample(LinearTextureSampler_s, v1.xy);
+  r2.xyz = LinearTextureSampler.Sample(LinearTextureSampler_s, v1.xy).xyz;
   r1.yzw = r2.xyz * r0.xxx;
   r2.x = dot(r2.xyz, float3(0.298900008,0.587000012,0.114));
   r1.x = r2.x + r1.x;
@@ -66,7 +62,7 @@ void main(
   r2.y = -BloomParams.y + r2.x;
   r2.x = saturate(r2.y / r2.x);
   r0.yzw = r1.yzw * r2.xxx + r0.yzw;
-  r2 = LinearTextureSampler.Sample(LinearTextureSampler_s, v2.xy);
+  r2.xyz = LinearTextureSampler.Sample(LinearTextureSampler_s, v2.xy).xyz;
   r1.yzw = r2.xyz * r0.xxx;
   r2.x = dot(r2.xyz, float3(0.298900008,0.587000012,0.114));
   r1.x = r2.x + r1.x;
@@ -74,7 +70,7 @@ void main(
   r2.y = -BloomParams.y + r2.x;
   r2.x = saturate(r2.y / r2.x);
   r0.yzw = r1.yzw * r2.xxx + r0.yzw;
-  r2 = LinearTextureSampler.Sample(LinearTextureSampler_s, v2.zw);
+  r2.xyz = LinearTextureSampler.Sample(LinearTextureSampler_s, v2.zw).xyz;
   r1.yzw = r2.xyz * r0.xxx;
   r0.x = dot(r2.xyz, float3(0.298900008,0.587000012,0.114));
   r2.w = r0.x + r1.x;
@@ -82,19 +78,17 @@ void main(
   r1.x = -BloomParams.y + r0.x;
   r0.x = saturate(r1.x / r0.x);
   r2.xyz = r1.yzw * r0.xxx + r0.yzw;
+  r0.xy = (int2)r2.xz & int2(0x7fffffff,0x7fffffff);
+  r0.xy = cmp((int2)r0.xy == int2(0x7f800000,0x7f800000));
+  r0.x = (int)r0.y | (int)r0.x;
+  r0.xyzw = r0.xxxx ? float4(0,0,0,0) : r2.xyzw;
 
-  // The original set inf to 0.
-  //r0.xy = (int2)r2.xz & int2(0x7fffffff,0x7fffffff);
-  //r0.xy = cmp((int2)r0.xy == int2(0x7f800000,0x7f800000));
-  //r0.x = (int)r0.y | (int)r0.x;
-  //r0.xyzw = r0.xxxx ? float4(0,0,0,0) : r2.xyzw;
-
-  // Set inf and NaN to 0.
-  r0 = any(isinf(r2.xz)) ? 0.0 : r2;
+  // Clamp NaNs.
+  // Fixes the black sqaure bug.
   r0 = max(0.0, r0);
 
   r1.x = 0.25 * r0.w;
-  r2 = VignetteSampler.Sample(VignetteSampler_s, v3.xy);
+  r2.x = VignetteSampler.Sample(VignetteSampler_s, v3.xy).x;
   r1.y = VignetteTextureAverage.y * r2.x;
   r0.w = r1.y * r1.x;
   o0.xyzw = float4(0.25,0.25,0.25,1) * r0.xyzw;
