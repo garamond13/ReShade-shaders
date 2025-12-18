@@ -531,6 +531,8 @@ static void on_destroy_device(reshade::api::device *device)
 	g_ps_srgb_to_linear.reset();
 	g_srv_lut.reset();
 	g_ps_sample_lut.reset();
+	g_ps_0x493F3086.reset();
+	g_ps_0xC5143189.reset();
 }
 
 static void read_config()
@@ -549,7 +551,7 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 }
 
 extern "C" __declspec(dllexport) const char* NAME = "FarCry2GraphicalUpgrade";
-extern "C" __declspec(dllexport) const char* DESCRIPTION = "FarCry2GraphicalUpgrade v2.4.0";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "FarCry2GraphicalUpgrade v2.4.1";
 extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/FarCry2GraphicalUpgrade";
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)
