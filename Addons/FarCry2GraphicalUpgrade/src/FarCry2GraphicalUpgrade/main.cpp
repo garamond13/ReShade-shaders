@@ -469,10 +469,6 @@ static bool on_create_resource_view(reshade::api::device* device, reshade::api::
 
 	// Render targets.
 	if ((resource_desc.usage & reshade::api::resource_usage::render_target) != 0) {
-		if (resource_desc.texture.format == reshade::api::format::r16g16b16a16_unorm) {
-			desc.format = reshade::api::format::r16g16b16a16_unorm;
-			return true;
-		}
 		if (resource_desc.texture.format == reshade::api::format::r16g16b16a16_float) {
 			desc.format = reshade::api::format::r16g16b16a16_float;
 			return true;
@@ -551,7 +547,7 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 }
 
 extern "C" __declspec(dllexport) const char* NAME = "FarCry2GraphicalUpgrade";
-extern "C" __declspec(dllexport) const char* DESCRIPTION = "FarCry2GraphicalUpgrade v2.4.1";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "FarCry2GraphicalUpgrade v2.4.2";
 extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/FarCry2GraphicalUpgrade";
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)
