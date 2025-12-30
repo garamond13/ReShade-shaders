@@ -160,6 +160,18 @@ constexpr uint32_t g_ps_0xB51C436B_hash = 0xB51C436B;
 constexpr GUID g_ps_0xB51C436B_guid = { 0xf6b85c15, 0x7efe, 0x4504, { 0x9a, 0xa5, 0xd7, 0xa9, 0x31, 0x7, 0xc, 0xb3 } };
 static Com_ptr<ID3D10PixelShader> g_ps_0xB51C436B;
 
+// Bloom (1).
+constexpr uint32_t g_ps_0xB1DCCAE7_hash = 0xB1DCCAE7;
+constexpr GUID g_ps_0xB1DCCAE7_guid = { 0x83883084, 0x9396, 0x4368, { 0xac, 0x72, 0x12, 0x74, 0xe9, 0x65, 0x25, 0x2a } };
+
+// Bloom (2).
+constexpr uint32_t g_ps_0x1A782DB1_hash = 0x1A782DB1;
+constexpr GUID g_ps_0x1A782DB1_guid = { 0x7f42b436, 0x268d, 0x4967, { 0xa5, 0xf, 0x0, 0x4b, 0x9f, 0x47, 0x5d, 0x45 } };
+
+// Bloom (3).
+constexpr uint32_t g_ps_0xBD24CC87_hash = 0xBD24CC87;
+constexpr GUID g_ps_0xBD24CC87_guid = { 0x96e8e31a, 0x856c, 0x4044, { 0xa6, 0xc2, 0xda, 0x22, 0xfe, 0x9b, 0xe2, 0xd5 } };
+
 // Tone mapping.
 // The last shader before UI.
 constexpr uint32_t g_ps_0x87A0B43D_hash = 0x87A0B43D;
@@ -207,6 +219,16 @@ static float g_xegtao_fov_y = 47.0f; // in degrees
 static float g_xegtao_radius = 0.4f;
 static int g_xegtao_quality = 2; // 0 - Low, 1 - Medium, 2 - High, 3 - Very High, 4 - Ultra
 static bool is_xegtao_drawn;
+
+// Bloom
+static Com_ptr<ID3D10PixelShader> g_ps_bloom_prefilter;
+static Com_ptr<ID3D10PixelShader> g_ps_bloom_downsample;
+static Com_ptr<ID3D10PixelShader> g_ps_bloom_upsample;
+static Com_ptr<ID3D10BlendState> g_blend_bloom;
+static Com_ptr<ID3D10Buffer> g_cb_bloom;
+static int g_bloom_nmips = 5;
+static float g_user_set_bloom_attenuation = 0.75f; // Exposed to user.
+static float g_bloom_attenuation = 1.0f - g_user_set_bloom_attenuation;
 
 // enum TRC_
 static int g_trc = TRC_GAMMA;
@@ -618,7 +640,7 @@ static HRESULT __stdcall detour_present(IDXGISwapChain* swapchain, UINT sync_int
 
 	//
 
-	flags |= DXGI_PRESENT_ALLOW_TEARING;
+	flags |= sync_interval ? 0 : DXGI_PRESENT_ALLOW_TEARING;
 	auto hr = g_original_present(swapchain, sync_interval, flags);
 
 	// Rebind back buffer and DS.
@@ -1042,22 +1064,28 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 			draw_xegtao(device, &rtv);
 			is_xegtao_drawn = true;
 		}
+		device->PSGetConstantBuffers(0, 1, g_cb_bloom.put());
+		return true;
+	}
 
-		// 0xB51C436B pass
-		//
+	// Bloom (1)
+	size = sizeof(hash);
+	hr = ps->GetPrivateData(g_ps_0xB1DCCAE7_guid, &size, &hash);
+	if (SUCCEEDED(hr) && hash == g_ps_0xB1DCCAE7_hash) {
+		return true;
+	}
 
-		// Create PS.
-		[[unlikely]] if (!g_ps_0xB51C436B) {
-			create_pixel_shader(device, g_ps_0xB51C436B.put(), L"0xB51C436B_ps.hlsl");
-		}
+	// Bloom (2)
+	size = sizeof(hash);
+	hr = ps->GetPrivateData(g_ps_0x1A782DB1_guid, &size, &hash);
+	if (SUCCEEDED(hr) && hash == g_ps_0x1A782DB1_hash) {
+		return true;
+	}
 
-		// Bindings.
-		device->PSSetShader(g_ps_0xB51C436B.get());
-
-		cmd_list->draw(vertex_count, instance_count, first_vertex, first_instance);
-
-		//
-
+	// Bloom (3)
+	size = sizeof(hash);
+	hr = ps->GetPrivateData(g_ps_0xBD24CC87_guid, &size, &hash);
+	if (SUCCEEDED(hr) && hash == g_ps_0xBD24CC87_hash) {
 		return true;
 	}
 
@@ -1066,70 +1094,29 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 	hr = ps->GetPrivateData(g_ps_0x87A0B43D_guid, &size, &hash);
 	if (SUCCEEDED(hr) && hash == g_ps_0x87A0B43D_hash) {
 
+		Com_ptr<ID3D10VertexShader> vs_original;
+		device->VSGetShader(vs_original.put());
+
 		// We expect RTV to be a back buffer.
 		Com_ptr<ID3D10RenderTargetView> rtv_original;
 		device->OMGetRenderTargets(1, rtv_original.put(), nullptr);
-
-		// Get RT resource (texture) and texture description.
-		// Maybe we should skip all this and just make some assumptions?
-		Com_ptr<ID3D10Resource> resource;
-		rtv_original->GetResource(resource.put());
-		Com_ptr<ID3D10Texture2D> tex;
-		ensure(resource->QueryInterface(tex.put()), >= 0);
-		D3D10_TEXTURE2D_DESC tex_desc;
-		tex->GetDesc(&tex_desc);
 
 		#if DEV && SHOW_AO
 		draw_xegtao(device, &rtv_original);
 		return true;
 		#endif
 
-		// 0x87A0B43D pass
-		//
+		// We expect SRV0 to be the scene.
+		Com_ptr<ID3D10ShaderResourceView> srv_scene;
+		device->PSGetShaderResources(0, 1, srv_scene.put());
 
-		// Create PS.
-		[[unlikely]] if (!g_ps_0x87A0B43D) {
-			const std::string bloom_intensity_str = std::to_string(g_bloom_intensity);
-			const std::string srgb_str = g_trc == TRC_SRGB ? "SRGB" : "";
-			const std::string gamma_str = std::to_string(g_gamma);
-			const D3D10_SHADER_MACRO defines[] = {
-				{ "BLOOM_INTENSITY", bloom_intensity_str.c_str() },
-				{ srgb_str.c_str(), nullptr },
-				{ "GAMMA", gamma_str.c_str() },
-				{ nullptr, nullptr }
-			};
-			create_pixel_shader(device, g_ps_0x87A0B43D.put(), L"0x87A0B43D_ps.hlsl", "main", defines);
-		}
-
-		// Create RTs and views.
-		////
-
-		tex_desc.Format = DXGI_FORMAT_R16G16B16A16_UNORM;
-
-		// Linear.
-		ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
-		Com_ptr<ID3D10RenderTargetView> rtv_0x87A0B43D_linear;
-		ensure(device->CreateRenderTargetView(tex.get(), nullptr, rtv_0x87A0B43D_linear.put()), >= 0);
-		Com_ptr<ID3D10ShaderResourceView> srv_0x87A0B43D_linear;
-		ensure(device->CreateShaderResourceView(tex.get(), nullptr, srv_0x87A0B43D_linear.put()), >= 0);
-
-		// Delinearized.
-		ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
-		Com_ptr<ID3D10RenderTargetView> rtv_0x87A0B43D_delinearized;
-		ensure(device->CreateRenderTargetView(tex.get(), nullptr, rtv_0x87A0B43D_delinearized.put()), >= 0);
-		Com_ptr<ID3D10ShaderResourceView> srv_0x87A0B43D_delinearized;
-		ensure(device->CreateShaderResourceView(tex.get(), nullptr, srv_0x87A0B43D_delinearized.put()), >= 0);
-
-		////
-
-		// Bindings.
-		const std::array rtvs_0x87A0B43D = { rtv_0x87A0B43D_linear.get(), rtv_0x87A0B43D_delinearized.get() };
-		device->OMSetRenderTargets(rtvs_0x87A0B43D.size(), rtvs_0x87A0B43D.data(), nullptr);
-		device->PSSetShader(g_ps_0x87A0B43D.get());
-
-		cmd_list->draw(vertex_count, instance_count, first_vertex, first_instance);
-
-		//
+		// Get scenes texture description.
+		Com_ptr<ID3D10Resource> resource;
+		srv_scene->GetResource(resource.put());
+		Com_ptr<ID3D10Texture2D> tex;
+		ensure(resource->QueryInterface(tex.put()), >= 0);
+		D3D10_TEXTURE2D_DESC tex_desc;
+		tex->GetDesc(&tex_desc);
 
 		#if DEV
 		// Primitive topology should be D3D10_PRIMITIVE_TOPOLOGY_TRIANGLELIST.
@@ -1163,6 +1150,186 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 			log_debug("The expected sampler in the slot 1 wasn't what we expected it to be!");
 		}
 		#endif // DEV
+
+		// Bloom
+		//
+
+		// Create MIPs and views.
+		tex_desc.Width /= 2;
+		tex_desc.Height /= 2;
+		tex_desc.MipLevels = g_bloom_nmips;
+		tex_desc.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+		tex_desc.BindFlags = D3D10_BIND_SHADER_RESOURCE | D3D10_BIND_RENDER_TARGET;
+		ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
+		std::vector<ID3D10RenderTargetView*> rtv_mips(g_bloom_nmips);
+		std::vector<ID3D10ShaderResourceView*> srv_mips(g_bloom_nmips);
+		D3D10_RENDER_TARGET_VIEW_DESC rtv_desc = {};
+		rtv_desc.Format = tex_desc.Format;
+		rtv_desc.ViewDimension = D3D10_RTV_DIMENSION_TEXTURE2D;
+		D3D10_SHADER_RESOURCE_VIEW_DESC srv_desc = {};
+		srv_desc.Format = tex_desc.Format;
+		srv_desc.ViewDimension = D3D10_SRV_DIMENSION_TEXTURE2D;
+		srv_desc.Texture2D.MipLevels = 1;
+		for (int i = 0; i < g_bloom_nmips; ++i) {
+		    rtv_desc.Texture2D.MipSlice = i;
+		    ensure(device->CreateRenderTargetView(tex.get(), &rtv_desc, &rtv_mips[i]), >= 0);
+		    srv_desc.Texture2D.MostDetailedMip = i;
+		    ensure(device->CreateShaderResourceView(tex.get(), &srv_desc, &srv_mips[i]), >= 0);
+		}
+
+		// Prefilter + downsample pass
+		////
+
+		// Create VS.
+		[[unlikely]] if (!g_vs_fullscreen_triangle) {
+			create_vertex_shader(device, g_vs_fullscreen_triangle.put(), L"FullscreenTriangle_vs.hlsl");
+		}
+
+		// Create PS.
+		[[unlikely]] if (!g_ps_bloom_prefilter) {
+			create_pixel_shader(device, g_ps_bloom_prefilter.put(), L"Bloom_ps.hlsl", "bloom_prefilter_ps");
+		}
+
+		std::vector<D3D10_VIEWPORT> viewports(g_bloom_nmips);
+		viewports[0].Width = tex_desc.Width;
+		viewports[0].Height = tex_desc.Height;
+
+		// Bindings.
+		device->OMSetRenderTargets(1, &rtv_mips[0], nullptr);
+		device->VSSetShader(g_vs_fullscreen_triangle.get());
+		device->PSSetShader(g_ps_bloom_prefilter.get());
+		device->PSSetConstantBuffers(13, 1, &g_cb_bloom);
+		device->PSSetShaderResources(0, 1, &srv_scene);
+		device->RSSetViewports(1, &viewports[0]);
+
+		device->Draw(3, 0);
+
+		////
+
+		// Downsample passes
+		////
+
+		// Create PS.
+		[[unlikely]] if (!g_ps_bloom_downsample) {
+			create_pixel_shader(device, g_ps_bloom_downsample.put(), L"Bloom_ps.hlsl", "bloom_downsample_ps");
+		}
+
+		// Common bindings.
+		device->PSSetShader(g_ps_bloom_downsample.get());
+
+		// Render downsample passes.
+		for (int i = 1; i < g_bloom_nmips; ++i) {
+		    viewports[i].Width = std::max(1.0f, (float)(tex_desc.Width >> i));
+		    viewports[i].Height = std::max(1.0f, (float)(tex_desc.Height >> i));
+
+			// Bindings.
+		    device->OMSetRenderTargets(1, &rtv_mips[i], nullptr);
+		    device->PSSetShaderResources(0, 1, &srv_mips[i - 1]);
+		    device->RSSetViewports(1, &viewports[i]);
+
+		    device->Draw(3, 0);
+		}
+
+		////
+
+		// Upsample passes
+		////
+
+		// Create PS.
+		[[unlikely]] if (!g_ps_bloom_upsample) {
+			create_pixel_shader(device, g_ps_bloom_upsample.put(), L"Bloom_ps.hlsl", "bloom_upsample_ps");
+		}
+
+		// Create blend.
+		[[unlikely]] if (!g_blend_bloom) {
+			auto blend_desc = default_D3D10_BLEND_DESC();
+			blend_desc.BlendEnable[0] = TRUE;
+			blend_desc.SrcBlend = D3D10_BLEND_BLEND_FACTOR;
+			blend_desc.DestBlend = D3D10_BLEND_ONE;
+			ensure(device->CreateBlendState(&blend_desc, g_blend_bloom.put()), >= 0);
+		}
+
+		// Common bindings.
+		device->PSSetShader(g_ps_bloom_upsample.get());
+
+		// Render upsample passes.
+		for (int i = g_bloom_nmips - 1; i > 0; --i) {
+			// Calculate the blend factor.
+			float t = (float)(g_bloom_nmips - 1 - i) / std::max(1e-6f, (float)g_bloom_nmips - 2); // Normalize to [0, 1].
+			t = std::sqrt(t); // Falloff.
+			const float f = std::lerp(g_bloom_attenuation, 1.0f, t);
+			const float blend_factor[4] = { f, f, f, 1.0f };
+
+			// Bindings.
+			device->OMSetRenderTargets(1, &rtv_mips[i - 1], nullptr);
+		    device->PSSetShaderResources(0, 1, &srv_mips[i]);
+		    device->RSSetViewports(1, &viewports[i - 1]);
+			device->OMSetBlendState(g_blend_bloom.get(), blend_factor, UINT_MAX);
+
+		    device->Draw(3, 0);
+		}
+
+		////
+
+		//
+
+		// 0x87A0B43D pass
+		//
+
+		// Create PS.
+		[[unlikely]] if (!g_ps_0x87A0B43D) {
+			const std::string bloom_intensity_str = std::to_string(g_bloom_intensity);
+			const std::string srgb_str = g_trc == TRC_SRGB ? "SRGB" : "";
+			const std::string gamma_str = std::to_string(g_gamma);
+			const D3D10_SHADER_MACRO defines[] = {
+				{ "BLOOM_INTENSITY", bloom_intensity_str.c_str() },
+				{ srgb_str.c_str(), nullptr },
+				{ "GAMMA", gamma_str.c_str() },
+				{ nullptr, nullptr }
+			};
+			create_pixel_shader(device, g_ps_0x87A0B43D.put(), L"0x87A0B43D_ps.hlsl", "main", defines);
+		}
+
+		// Create RTs and views.
+		////
+
+		tex_desc.Width = g_swapchain_width;
+		tex_desc.Height = g_swapchain_height;
+		tex_desc.MipLevels = 1;
+
+		// Linear.
+		ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
+		Com_ptr<ID3D10RenderTargetView> rtv_0x87A0B43D_linear;
+		ensure(device->CreateRenderTargetView(tex.get(), nullptr, rtv_0x87A0B43D_linear.put()), >= 0);
+		Com_ptr<ID3D10ShaderResourceView> srv_0x87A0B43D_linear;
+		ensure(device->CreateShaderResourceView(tex.get(), nullptr, srv_0x87A0B43D_linear.put()), >= 0);
+
+		// Delinearized.
+		ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
+		Com_ptr<ID3D10RenderTargetView> rtv_0x87A0B43D_delinearized;
+		ensure(device->CreateRenderTargetView(tex.get(), nullptr, rtv_0x87A0B43D_delinearized.put()), >= 0);
+		Com_ptr<ID3D10ShaderResourceView> srv_0x87A0B43D_delinearized;
+		ensure(device->CreateShaderResourceView(tex.get(), nullptr, srv_0x87A0B43D_delinearized.put()), >= 0);
+
+		////
+
+		D3D10_VIEWPORT viewport = {};
+		viewport.Width = tex_desc.Width;
+		viewport.Height = tex_desc.Height;
+
+		// Bindings.
+		const std::array rtvs_0x87A0B43D = { rtv_0x87A0B43D_linear.get(), rtv_0x87A0B43D_delinearized.get() };
+		device->OMSetRenderTargets(rtvs_0x87A0B43D.size(), rtvs_0x87A0B43D.data(), nullptr);
+		device->VSSetShader(vs_original.get());
+		device->PSSetShader(g_ps_0x87A0B43D.get());
+		const std::array srvs_0x87A0B43D = { srv_scene.get(), srv_mips[0] };
+		device->PSSetShaderResources(0, srvs_0x87A0B43D.size(), srvs_0x87A0B43D.data());
+		device->RSSetViewports(1, &viewport);
+		device->OMSetBlendState(nullptr, nullptr, UINT_MAX);
+
+		cmd_list->draw(vertex_count, instance_count, first_vertex, first_instance);
+
+		//
 
 		// SMAAEdgeDetection pass
 		//
@@ -1435,6 +1602,11 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		// Restore original states.
 		device->PSSetSamplers(0, 1, &smp_original0);
 
+		// Release com arrays.
+		auto release_com_array = [](auto& array){ for (auto* p : array) if (p) p->Release(); };
+		release_com_array(rtv_mips);
+		release_com_array(srv_mips);
+
 		return true;
 	}
 
@@ -1486,6 +1658,15 @@ static void on_init_pipeline(reshade::api::device* device, reshade::api::pipelin
 					break;
 				case g_ps_0x7862AA89_hash:
 					ensure(((ID3D10PixelShader*)pipeline.handle)->SetPrivateData(g_ps_0x7862AA89_guid, sizeof(g_ps_0x7862AA89_hash), &g_ps_0x7862AA89_hash), >= 0);
+					break;
+				case g_ps_0xB1DCCAE7_hash:
+					ensure(((ID3D10PixelShader*)pipeline.handle)->SetPrivateData(g_ps_0xB1DCCAE7_guid, sizeof(g_ps_0xB1DCCAE7_hash), &g_ps_0xB1DCCAE7_hash), >= 0);
+					break;
+				case g_ps_0x1A782DB1_hash:
+					ensure(((ID3D10PixelShader*)pipeline.handle)->SetPrivateData(g_ps_0x1A782DB1_guid, sizeof(g_ps_0x1A782DB1_hash), &g_ps_0x1A782DB1_hash), >= 0);
+					break;
+				case g_ps_0xBD24CC87_hash:
+					ensure(((ID3D10PixelShader*)pipeline.handle)->SetPrivateData(g_ps_0xBD24CC87_guid, sizeof(g_ps_0xBD24CC87_hash), &g_ps_0xBD24CC87_hash), >= 0);
 					break;
 			}
 		}
@@ -1550,8 +1731,6 @@ static bool on_create_swapchain(reshade::api::device_api api, reshade::api::swap
 	desc.present_mode = DXGI_SWAP_EFFECT_FLIP_DISCARD;
 	desc.present_flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
 	desc.fullscreen_state = false;
-	desc.fullscreen_refresh_rate = 0.0;
-	desc.sync_interval = 0;
 	return true;
 }
 
@@ -1629,6 +1808,12 @@ static void on_destroy_device(reshade::api::device *device)
 	g_ps_xegtao_main_pass.reset();
 	g_ps_xegtao_denoise_pass.reset();
 	g_blend_xegtao.reset();
+
+	// Bloom.
+	g_ps_bloom_prefilter.reset();
+	g_ps_bloom_downsample.reset();
+	g_ps_bloom_upsample.reset();
+	g_blend_bloom.reset();
 }
 
 static void read_config()
@@ -1653,6 +1838,13 @@ static void read_config()
 	}
 	if (!reshade::get_config_value(nullptr, "BioshockGraphicalUpgrade", "BloomIntensity", g_bloom_intensity)) {
 		reshade::set_config_value(nullptr, "BioshockGraphicalUpgrade", "BloomIntensity", g_bloom_intensity);
+	}
+	if (!reshade::get_config_value(nullptr, "BioshockGraphicalUpgrade", "BloomRadius", g_bloom_nmips)) {
+		reshade::set_config_value(nullptr, "BioshockGraphicalUpgrade", "BloomRadius", g_bloom_nmips);
+	}
+	if (!reshade::get_config_value(nullptr, "BioshockGraphicalUpgrade", "BloomAttenuation", g_user_set_bloom_attenuation)) {
+		reshade::set_config_value(nullptr, "BioshockGraphicalUpgrade", "BloomAttenuation", g_user_set_bloom_attenuation);
+		g_bloom_attenuation = 1.0f - g_user_set_bloom_attenuation;
 	}
 	if (!reshade::get_config_value(nullptr, "BioshockGraphicalUpgrade", "Sharpness", g_amd_ffx_cas_sharpness)) {
 		reshade::set_config_value(nullptr, "BioshockGraphicalUpgrade", "Sharpness", g_amd_ffx_cas_sharpness);
@@ -1709,6 +1901,13 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 	if (ImGui::SliderFloat("Bloom Intensity", &g_bloom_intensity, 0.0f, 3.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp)) {
 		reshade::set_config_value(nullptr, "BioshockGraphicalUpgrade", "BloomIntensity", g_bloom_intensity);
 		g_ps_0x87A0B43D.reset();
+	}
+	if (ImGui::SliderInt("Bloom Radius", &g_bloom_nmips, 1.0f, 10.0f, "%d", ImGuiSliderFlags_AlwaysClamp)) {
+		reshade::set_config_value(nullptr, "BioshockGraphicalUpgrade", "BloomRadius", g_bloom_nmips);
+	}
+	if (ImGui::SliderFloat("Bloom Attennuation", &g_user_set_bloom_attenuation, 0.0f, 1.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp)) {
+		reshade::set_config_value(nullptr, "BioshockGraphicalUpgrade", "BloomAttenuation", g_user_set_bloom_attenuation);
+		g_bloom_attenuation = 1.0f - g_user_set_bloom_attenuation;
 	}
 	ImGui::Spacing();
 	if (ImGui::SliderFloat("Sharpness", &g_amd_ffx_cas_sharpness, 0.0f, 1.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp)) {

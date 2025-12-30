@@ -3,12 +3,11 @@
 - Modern borderless window (flip mod, tearing).
 - XeGTAO ambient occlusion.
 - SMAA anti aliasing.
+- Replaced bloom.
 - 16x anisotropic filtering.
 - Sharpening filter (Modified AMD FFX CAS).
 - Temporal blue noise film grain (AMD FFX LFGA).
 - Adjustable Tone Responce Curve (TRC) (sRGB, gamma).
-- Reduced blurriness caused by the bloom.
-- Adjustable bloom intensity.
 - Accurate FPS limiter.
 - Upgraded render targets (greatly reduces color banding).
 - 10bit color output.
