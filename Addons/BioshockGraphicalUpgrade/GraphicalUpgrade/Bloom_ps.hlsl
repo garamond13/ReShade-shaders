@@ -33,26 +33,32 @@ cbuffer _Globals : register(b13)
 SamplerState smp : register(s1); // Should be linear clamp.
 Texture2D tex : register(t0);
 
-// User configurable
-//
 
-#ifndef BLOOM_THRESHOLD
 #define BLOOM_THRESHOLD PWLThreshold
-#endif
-
-#ifndef BLOOM_SOFT_KNEE
 #define BLOOM_SOFT_KNEE BLOOM_THRESHOLD
-#endif
+#define BLOOM_TINT float3(1.0, 1.35, 1.0)
 
-//
 
 // Prefilter + downsample PS.
 //
 
-float karis_average(float3 color)
+float get_luma(float3 color)
 {
-	const float luma = dot(color, float3(0.2126f, 0.7152f, 0.0722f));
-	return rcp(1.0 + luma);
+	return dot(color, float3(0.2126f, 0.7152f, 0.0722f));
+}
+
+float get_karis_weight(float3 color)
+{
+	return rcp(1.0 + get_luma(color));
+}
+
+float3 karis_average(float3 a, float3 b, float3 c, float3 d)
+{
+	float4 sum = float4(a.rgb, 1.0) * get_karis_weight(a);
+	sum += float4(b.rgb, 1.0) * get_karis_weight(b);
+	sum += float4(c.rgb, 1.0) * get_karis_weight(c);
+	sum += float4(d.rgb, 1.0) * get_karis_weight(d);
+	return sum.rgb / sum.a;
 }
 
 float3 quadratic_threshold(float3 color)
@@ -95,24 +101,25 @@ float4 bloom_prefilter_ps(float4 pos : SV_Position, float2 texcoord : TEXCOORD) 
 	const float3 l = tex.SampleLevel(smp, texcoord, 0.0, int2(0, 2)).rgb;
 	const float3 m = tex.SampleLevel(smp, texcoord, 0.0, int2(2, 2)).rgb;
 
-	// Partial Karis average.
-	// Apply the Karis average in blocks of 4 samples,
-	// and additionaly apply weighted distribution.
+	// Apply partial Karis average in blocks of 4 samples.
 	float3 groups[5];
-	groups[0] = (d + e + i + j);
-	groups[1] = (a + b + g + f);
-	groups[2] = (b + c + h + g);
-	groups[3] = (f + g + l + k);
-	groups[4] = (g + h + m + l);
-	float weights[5];
-	weights[0] = karis_average(groups[0]);
-	weights[1] = karis_average(groups[1]);
-	weights[2] = karis_average(groups[2]);
-	weights[3] = karis_average(groups[3]);
-	weights[4] = karis_average(groups[4]);
-	float3 color = (groups[0] * weights[0] * 0.125 + groups[1] * weights[1] * 0.03125 + groups[2] * weights[2] * 0.03125 + groups[3] * weights[3] * 0.03125 + groups[4] * weights[4] * 0.03125) * rcp(weights[0] + weights[1] + weights[2] + weights[3] + weights[4]);
+	groups[0] = karis_average(d, e, i, j);
+	groups[1] = karis_average(a, b, g, f);
+	groups[2] = karis_average(b, c, h, g);
+	groups[3] = karis_average(f, g, l, k);
+	groups[4] = karis_average(g, h, m, l);
 
+	// Apply weighted distribution.
+	float3 color = groups[0] * 0.125 + groups[1] * 0.03125 + groups[2] * 0.03125 + groups[3] * 0.03125 + groups[4] * 0.03125;
+
+	// Apply threshold.
 	color = quadratic_threshold(color);
+
+	// Apply tint.
+	const float luma = get_luma(color);
+	color *= BLOOM_TINT;
+	color *= luma * rcp(max(1e-6, get_luma(color)));
+
 	return float4(color, 1.0);
 }
 
