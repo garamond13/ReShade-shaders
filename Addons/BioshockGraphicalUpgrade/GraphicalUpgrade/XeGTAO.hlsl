@@ -4,8 +4,26 @@
 //
 // Source: https://github.com/GameTechDev/XeGTAO
 
-#ifndef __XE_GTAO_HLSLI__
-#define __XE_GTAO_HLSLI__
+cbuffer _Globals : register(b13)
+{
+  float4 fogColor : packoffset(c0);
+  float3 fogTransform : packoffset(c1);
+  float4x3 screenDataToCamera : packoffset(c2);
+  float globalScale : packoffset(c5);
+  float sceneDepthAlphaMask : packoffset(c5.y);
+  float globalOpacity : packoffset(c5.z);
+  float distortionBufferScale : packoffset(c5.w);
+  float2 wToZScaleAndBias : packoffset(c6);
+  float4 screenTransform[2] : packoffset(c7);
+  float4 textureToPixel : packoffset(c9);
+  float4 pixelToTexture : packoffset(c10);
+  float maxScale : packoffset(c11);
+  float bloomAlpha : packoffset(c11.y);
+  float sceneBias : packoffset(c11.z);
+  float exposure : packoffset(c11.w);
+  float deltaExposure : packoffset(c12);
+  float4 ColorFill : packoffset(c13);
+}
 
 // THESE MUST BE DEFINED!
 //
@@ -26,53 +44,47 @@
 
 // User configurable
 //
+// Some of these are configured from C++.
+//
 
 #ifndef EFFECT_RADIUS
-#define EFFECT_RADIUS 0.5
+#define EFFECT_RADIUS 0.5 // Default 0.5
 #endif
 
 #ifndef RADIUS_MULTIPLIER
-#define RADIUS_MULTIPLIER 1.457
+#define RADIUS_MULTIPLIER 1.457 // Default 1.457
 #endif
 
 #ifndef EFFECT_FALLOFF_RANGE
-#define EFFECT_FALLOFF_RANGE 0.615
+#define EFFECT_FALLOFF_RANGE 0.005 // Default 0.615
 #endif
 
 #ifndef SAMPLE_DISTRIBUTION_POWER
-#define SAMPLE_DISTRIBUTION_POWER 2.0
+#define SAMPLE_DISTRIBUTION_POWER 2.0 // Default 2.0
 #endif
 
 #ifndef THIN_OCCLUDER_COMPENSATION
-#define THIN_OCCLUDER_COMPENSATION 0.0
+#define THIN_OCCLUDER_COMPENSATION 0.0 // Default 0.0
 #endif
 
 #ifndef FINAL_VALUE_POWER
-#define FINAL_VALUE_POWER 2.2
+#define FINAL_VALUE_POWER 1.0 // Default 2.2
 #endif
 
 #ifndef DEPTH_MIP_SAMPLING_OFFSET
-#define DEPTH_MIP_SAMPLING_OFFSET 3.3
+#define DEPTH_MIP_SAMPLING_OFFSET 3.3 // Default 3.3
 #endif
 
 #ifndef SLICE_COUNT
-#define SLICE_COUNT 3.0
+#define SLICE_COUNT 3.0 // Default 3.0
 #endif
 
 #ifndef STEPS_PER_SLICE
-#define STEPS_PER_SLICE 3.0
+#define STEPS_PER_SLICE 3.0 // Default 3.0
 #endif
 
 #ifndef DENOISE_BLUR_BETA
-#define DENOISE_BLUR_BETA 1.2
-#endif
-
-#ifndef CLIP_NEAR
-#define CLIP_NEAR 0.1
-#endif
-
-#ifndef CLIP_FAR
-#define CLIP_FAR 1000.0
+#define DENOISE_BLUR_BETA 1.2 // Default 1.2
 #endif
 
 //
@@ -89,16 +101,7 @@
 
 float XeGTAO_ScreenSpaceToViewSpaceDepth(float screenDepth)
 {
-	float depthLinearizeMul = CLIP_FAR * CLIP_NEAR / (CLIP_FAR - CLIP_NEAR);
-	float depthLinearizeAdd = CLIP_FAR / (CLIP_FAR - CLIP_NEAR);
-
-	// correct the handedness issue. need to make sure this below is correct, but I think it is.
-	if (depthLinearizeMul * depthLinearizeAdd < 0.0) {
-		depthLinearizeAdd = -depthLinearizeAdd;
-	}
-
-	// Optimised version of "-cameraClipNear / (cameraClipFar - projDepth * (cameraClipFar - cameraClipNear)) * cameraClipFar"
-	return depthLinearizeMul / (depthLinearizeAdd - screenDepth);
+	return wToZScaleAndBias.y / (screenDepth - wToZScaleAndBias.x) / 100.0; // Dividing by 100 makes AO look right.
 }
 
 // This is also a good place to do non-linear depth conversion for cases where one wants the 'radius' (effectively the threshold between near-field and far-field GI), 
@@ -165,7 +168,7 @@ float XeGTAO_PackEdges(float4 edgesLRTB)
 	// integer version:
 	// edgesLRTB = saturate(edgesLRTB) * 2.9.xxxx + 0.5.xxxx;
 	// return (((uint)edgesLRTB.x) << 6) + (((uint)edgesLRTB.y) << 4) + (((uint)edgesLRTB.z) << 2) + (((uint)edgesLRTB.w));
-	// 
+	//
 	// optimized, should be same as above
 	edgesLRTB = round(saturate(edgesLRTB) * 2.9);
 	return dot(edgesLRTB, float4(64.0 / 255.0, 16.0 / 255.0, 4.0 / 255.0, 1.0 / 255.0));
@@ -251,7 +254,7 @@ void XeGTAO_MainPass(uint2 pixCoord, float2 localNoise, Texture2D<float> sourceV
 	const float3 viewVec = normalize(-pixCenterPos);
 
 	// prevents normals that are facing away from the view vector - xeGTAO struggles with extreme cases, but in Vanilla it seems rare so it's disabled by default
-	// viewspaceNormal = normalize( viewspaceNormal + max( 0, -dot( viewspaceNormal, viewVec ) ) * viewVec );
+	viewspaceNormal = normalize(viewspaceNormal + max(0, -dot(viewspaceNormal, viewVec)) * viewVec);
 
 	const float effectRadius = EFFECT_RADIUS * RADIUS_MULTIPLIER;
 	const float sampleDistributionPower = SAMPLE_DISTRIBUTION_POWER;
@@ -449,22 +452,33 @@ void XeGTAO_AddSample(float ssaoValue, float edgeValue, inout float sum, inout f
 	sumWeight += weight;
 }
 
-void XeGTAO_Denoise(int2 pixCoordBase, Texture2D<float2> sourceAOTermAndEdges, out float aoTerm, const uniform bool finalApply)
+void XeGTAO_Denoise(int2 pixCoordBase, Texture2D<float2> sourceAOTermAndEdges,
+#ifdef FINAL_APPLY
+out float4 o
+#else
+out float2 o
+#endif
+)
 {
-	const float blurAmount = finalApply ? DENOISE_BLUR_BETA : DENOISE_BLUR_BETA / 5.0;
+	#ifdef FINAL_APPLY
+	const float blurAmount = DENOISE_BLUR_BETA;
+	#else
+	const float blurAmount = DENOISE_BLUR_BETA / 5.0;
+	#endif
+	
 	const float diagWeight = 0.85 * 0.5;
 
 	// Get AOTerm and Edges.
 	// Originally they are in 2 separate textures.
 	float2 C = sourceAOTermAndEdges.Load(int3(pixCoordBase, 0));
-	float2 L = sourceAOTermAndEdges.Load(int3(pixCoordBase + int2(-1, 0), 0));
-	float2 R = sourceAOTermAndEdges.Load(int3(pixCoordBase + int2(1, 0), 0));
-	float2 T = sourceAOTermAndEdges.Load(int3(pixCoordBase + int2(0, -1), 0));
-	float2 B = sourceAOTermAndEdges.Load(int3(pixCoordBase + int2(0, 1), 0));
-	float TL = sourceAOTermAndEdges.Load(int3(pixCoordBase + int2(-1, -1), 0)).x;
-	float TR = sourceAOTermAndEdges.Load(int3(pixCoordBase + int2(1, -1), 0)).x;
-	float BL = sourceAOTermAndEdges.Load(int3(pixCoordBase + int2(-1, 1), 0)).x;
-	float BR = sourceAOTermAndEdges.Load(int3(pixCoordBase + int2(1, 1), 0)).x;
+	float2 L = sourceAOTermAndEdges.Load(int3(pixCoordBase, 0), int2(-1, 0));
+	float2 R = sourceAOTermAndEdges.Load(int3(pixCoordBase, 0), int2(1, 0));
+	float2 T = sourceAOTermAndEdges.Load(int3(pixCoordBase, 0), int2(0, -1));
+	float2 B = sourceAOTermAndEdges.Load(int3(pixCoordBase, 0), int2(0, 1));
+	float TL = sourceAOTermAndEdges.Load(int3(pixCoordBase, 0), int2(-1, -1)).x;
+	float TR = sourceAOTermAndEdges.Load(int3(pixCoordBase, 0), int2(1, -1)).x;
+	float BL = sourceAOTermAndEdges.Load(int3(pixCoordBase, 0), int2(-1, 1)).x;
+	float BR = sourceAOTermAndEdges.Load(int3(pixCoordBase, 0), int2(1, 1)).x;
 
 	float4 edgesC_LRTB = XeGTAO_UnpackEdges(C.y);
 	float4 edgesL_LRTB = XeGTAO_UnpackEdges(L.y);
@@ -511,9 +525,94 @@ void XeGTAO_Denoise(int2 pixCoordBase, Texture2D<float2> sourceAOTermAndEdges, o
 	XeGTAO_AddSample(ssaoValueBL, weightBL, sum, sumWeight);
 	XeGTAO_AddSample(ssaoValueBR, weightBR, sum, sumWeight);
 
-	aoTerm = sum / sumWeight;
+	float aoTerm = sum / sumWeight;
 
-	aoTerm *= finalApply ? XE_GTAO_OCCLUSION_TERM_SCALE : 1.0;
+	#ifdef FINAL_APPLY
+	o = float4(aoTerm.xxx * XE_GTAO_OCCLUSION_TERM_SCALE, 1.0);
+	#else
+	o = float2(aoTerm, C.y);
+	#endif
 }
 
-#endif // __XE_GTAO_HLSLI__
+// Implementation
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+Texture2D<float> tex0 : register(t0);
+Texture2D<float2> tex1 : register(t1);
+SamplerState smp : register(s0);
+
+// From https://www.shadertoy.com/view/3tB3z3 - except we're using R2 here
+#define XE_HILBERT_LEVEL 6U
+#define XE_HILBERT_WIDTH (1U << XE_HILBERT_LEVEL)
+#define XE_HILBERT_AREA (XE_HILBERT_WIDTH * XE_HILBERT_WIDTH)
+uint HilbertIndex(uint posX, uint posY)
+{
+	uint index = 0U;
+	[unroll]
+	for (uint curLevel = XE_HILBERT_WIDTH / 2U; curLevel > 0U; curLevel /= 2U) {
+		uint regionX = (posX & curLevel) > 0U;
+		uint regionY = (posY & curLevel) > 0U;
+		index += curLevel * curLevel * ((3U * regionX) ^ regionY);
+		if (regionY == 0U) {
+			if (regionX == 1U) {
+				posX = XE_HILBERT_WIDTH - 1U - posX;
+				posY = XE_HILBERT_WIDTH - 1U - posY;
+			}
+			uint temp = posX;
+			posX = posY;
+			posY = temp;
+		}
+	}
+	return index;
+}
+
+// without TAA, temporalIndex is always 0
+float2 SpatioTemporalNoise(uint2 pixCoord, uint temporalIndex)
+{
+	float2 noise;
+
+	// Hilbert curve driving R2 (see https://www.shadertoy.com/view/3tB3z3)
+	#ifdef XE_GTAO_HILBERT_LUT_AVAILABLE // load from lookup texture...
+	uint index = g_srcHilbertLUT.Load(uint3(pixCoord % 64, 0)).x;
+	#else // ...or generate in-place?
+	uint index = HilbertIndex(pixCoord.x, pixCoord.y);
+	#endif
+
+	index += 288 * (temporalIndex % 64); // why 288? tried out a few and that's the best so far (with XE_HILBERT_LEVEL 6U) - but there's probably better :)
+
+	// R2 sequence - see http://extremelearning.com.au/unreasonable-effectiveness-of-quasirandom-sequences/
+	return float2(frac(0.5 + index * float2(0.75487766624669276005, 0.5698402909980532659114)));
+}
+
+// For the mip0.
+void prefilter_depths_mip0_ps(float4 pos : SV_Position, out float out_working_depth_mip0 : SV_Target)
+{
+	// tex0 = g_srcRawDepth
+	XeGTAO_PrefilterDepths_mip0(pos.xy, tex0, out_working_depth_mip0);
+}
+
+// For mips 1 to 4.
+void prefilter_depths_ps(float4 pos : SV_Position, float2 texcoord : TEXCOORD, out float out_working_depth : SV_Target)
+{
+	// tex0 = out_working_depth_mip[N]
+	XeGTAO_PrefilterDepths(texcoord, tex0, smp, out_working_depth);
+}
+
+void main_pass_ps(float4 pos : SV_Position, out float2 out_working_ao_term_and_edges : SV_Target)
+{
+	// tex0 = g_srcWorkingDepth
+	// smp = g_samplerPointClamp
+	XeGTAO_MainPass(pos.xy, SpatioTemporalNoise(pos.xy, 0), tex0, smp, out_working_ao_term_and_edges);
+}
+
+void denoise_pass_ps(float4 pos : SV_Position,
+#ifdef FINAL_APPLY
+out float4 o : SV_Target
+#else
+out float2 o : SV_Target
+#endif
+)
+{
+	// tex1 = g_srcWorkingAOTerm and g_srcWorkingEdges, packed.
+	XeGTAO_Denoise(pos.xy, tex1, o);
+}

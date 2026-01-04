@@ -20,7 +20,7 @@ struct alignas(16) Constant_buffer_data
 	float tex_noise_index = 0.0f;
 };
 
-// We need to pass this to all XeGTAO PSes on resolution change or XeGTAO user settings change.
+// We need to pass this to XeGTAO PSes on resolution change or XeGTAO user settings change.
 class XeGTAO_defines
 {
 public:
@@ -58,13 +58,13 @@ private:
 			case 0:
 				return 4.0f;
 			case 1:
-				return 9.0f;
+				return 7.0f;
 			case 2:
-				return 14.0f;
+				return 10.0f;
 			case 3:
-				return 19.0f;
+				return 13.0f;
 			case 4:
-				return 24.0f;
+				return 16.0f;
 		}
 	}
 
@@ -212,8 +212,10 @@ static XeGTAO_defines g_xegtao_defines;
 static Com_ptr<ID3D10PixelShader> g_ps_xegtao_prefilter_depth_mip0;
 static Com_ptr<ID3D10PixelShader> g_ps_xegtao_prefilter_depths;
 static Com_ptr<ID3D10PixelShader> g_ps_xegtao_main_pass;
-static Com_ptr<ID3D10PixelShader> g_ps_xegtao_denoise_pass;
-Com_ptr<ID3D10BlendState> g_blend_xegtao;
+static Com_ptr<ID3D10PixelShader> g_ps_xegtao_denoise1_pass;
+static Com_ptr<ID3D10PixelShader> g_ps_xegtao_denoise2_pass;
+static Com_ptr<ID3D10BlendState> g_blend_xegtao;
+static Com_ptr<ID3D10Buffer> g_cb_tonemap; // We only need depth linearization.
 static bool g_xegtao_enable = true;
 static float g_xegtao_fov_y = 47.0f; // in degrees
 static float g_xegtao_radius = 0.4f;
@@ -368,7 +370,8 @@ static void reset_xegtao()
 	g_ps_xegtao_prefilter_depth_mip0.reset();
 	g_ps_xegtao_prefilter_depths.reset();
 	g_ps_xegtao_main_pass.reset();
-	g_ps_xegtao_denoise_pass.reset();
+	g_ps_xegtao_denoise1_pass.reset();
+	g_ps_xegtao_denoise2_pass.reset();
 }
 
 static void draw_xegtao(ID3D10Device* device, ID3D10RenderTargetView*const* rtv)
@@ -428,6 +431,7 @@ static void draw_xegtao(ID3D10Device* device, ID3D10RenderTargetView*const* rtv)
 	device->VSSetShader(g_vs_fullscreen_triangle.get());
 
 	device->RSSetState(nullptr);
+	device->PSSetConstantBuffers(13, 1, &g_cb_tonemap);
 
 	// Create and bind point clamp sampler.
 	[[unlikely]] if (!g_smp_point_clamp) {
@@ -485,7 +489,7 @@ static void draw_xegtao(ID3D10Device* device, ID3D10RenderTargetView*const* rtv)
 	// Create prefilter depths PS, for mip0.
 	[[unlikely]] if (!g_ps_xegtao_prefilter_depth_mip0) {
 		g_xegtao_defines.set(g_swapchain_width, g_swapchain_height, g_xegtao_fov_y, g_xegtao_radius, g_xegtao_quality);
-		create_pixel_shader(device, g_ps_xegtao_prefilter_depth_mip0.put(), L"XeGTAO_impl.hlsl", "prefilter_depths_mip0_ps", g_xegtao_defines.get());
+		create_pixel_shader(device, g_ps_xegtao_prefilter_depth_mip0.put(), L"XeGTAO.hlsl", "prefilter_depths_mip0_ps", g_xegtao_defines.get());
 	}
 
 	// Bindings.
@@ -499,7 +503,7 @@ static void draw_xegtao(ID3D10Device* device, ID3D10RenderTargetView*const* rtv)
 
 	// Create prefilter depths PS, for mips 1 to 4.
 	[[unlikely]] if (!g_ps_xegtao_prefilter_depths) {
-		create_pixel_shader(device, g_ps_xegtao_prefilter_depths.put(), L"XeGTAO_impl.hlsl", "prefilter_depths_ps", g_xegtao_defines.get());
+		create_pixel_shader(device, g_ps_xegtao_prefilter_depths.put(), L"XeGTAO.hlsl", "prefilter_depths_ps", g_xegtao_defines.get());
 	}
 	device->PSSetShader(g_ps_xegtao_prefilter_depths.get());
 
@@ -528,7 +532,7 @@ static void draw_xegtao(ID3D10Device* device, ID3D10RenderTargetView*const* rtv)
 
 	// Create PS.
 	[[unlikely]] if (!g_ps_xegtao_main_pass) {
-		create_pixel_shader(device, g_ps_xegtao_main_pass.put(), L"XeGTAO_impl.hlsl", "main_pass_ps", g_xegtao_defines.get());
+		create_pixel_shader(device, g_ps_xegtao_main_pass.put(), L"XeGTAO.hlsl", "main_pass_ps", g_xegtao_defines.get());
 	}
 
 	// Create RT views.
@@ -549,14 +553,42 @@ static void draw_xegtao(ID3D10Device* device, ID3D10RenderTargetView*const* rtv)
 
 	//
 
-	// DenoisePass pass
-	//
-	// Doing only one DenoisePass pass (as last/final pass) correspond to "Denoising level: Sharp" from the XeGTAO demo.
+	// Doing 2 XeGTAODenoisePass passes correspond to "Denoising level: Medium" from the XeGTAO demo.
+
+	// DenoisePass1 pass.
 	//
 
 	// Create PS.
-	[[unlikely]] if (!g_ps_xegtao_denoise_pass) {
-		create_pixel_shader(device, g_ps_xegtao_denoise_pass.put(), L"XeGTAO_impl.hlsl", "denoise_pass_ps", g_xegtao_defines.get());
+	[[unlikely]] if (!g_ps_xegtao_denoise1_pass) {
+		create_pixel_shader(device, g_ps_xegtao_denoise1_pass.put(), L"XeGTAO.hlsl", "denoise_pass_ps");
+	}
+
+	// Create RT views.
+	ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
+	Com_ptr<ID3D10RenderTargetView> rtv_denoise1_pass;
+	ensure(device->CreateRenderTargetView(tex.get(), nullptr, rtv_denoise1_pass.put()), >= 0);
+	Com_ptr<ID3D10ShaderResourceView> srv_denoise1_pass;
+	ensure(device->CreateShaderResourceView(tex.get(), nullptr, srv_denoise1_pass.put()), >= 0);
+
+	// Bindings.
+	device->OMSetRenderTargets(1, &rtv_denoise1_pass, nullptr);
+	device->PSSetShader(g_ps_xegtao_denoise1_pass.get());
+	device->PSSetShaderResources(1, 1, &srv_main_pass);
+
+	device->Draw(3, 0);
+
+	//
+
+	// DenoisePass2 pass
+	//
+
+	// Create PS.
+	[[unlikely]] if (!g_ps_xegtao_denoise2_pass) {
+		const D3D10_SHADER_MACRO defines[] = {
+			{ "FINAL_APPLY", "" },
+			{ nullptr, nullptr }
+		};
+		create_pixel_shader(device, g_ps_xegtao_denoise2_pass.put(), L"XeGTAO.hlsl", "denoise_pass_ps", defines);
 	}
 
 	// Create blend.
@@ -571,8 +603,8 @@ static void draw_xegtao(ID3D10Device* device, ID3D10RenderTargetView*const* rtv)
 	////
 
 	device->OMSetRenderTargets(1, rtv, nullptr);
-	device->PSSetShader(g_ps_xegtao_denoise_pass.get());
-	device->PSSetShaderResources(1, 1, &srv_main_pass);
+	device->PSSetShader(g_ps_xegtao_denoise2_pass.get());
+	device->PSSetShaderResources(1, 1, &srv_denoise1_pass);
 
 	#if !(DEV && SHOW_AO)
 	device->OMSetBlendState(g_blend_xegtao.get(), nullptr, UINT_MAX);
@@ -1094,8 +1126,7 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 	hr = ps->GetPrivateData(g_ps_0x87A0B43D_guid, &size, &hash);
 	if (SUCCEEDED(hr) && hash == g_ps_0x87A0B43D_hash) {
 
-		Com_ptr<ID3D10VertexShader> vs_original;
-		device->VSGetShader(vs_original.put());
+		device->PSGetConstantBuffers(0, 1, g_cb_tonemap.put());
 
 		// We expect RTV to be a back buffer.
 		Com_ptr<ID3D10RenderTargetView> rtv_original;
@@ -1105,6 +1136,9 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		draw_xegtao(device, &rtv_original);
 		return true;
 		#endif
+		
+		Com_ptr<ID3D10VertexShader> vs_original;
+		device->VSGetShader(vs_original.put());
 
 		// We expect SRV0 to be the scene.
 		Com_ptr<ID3D10ShaderResourceView> srv_scene;
@@ -1806,7 +1840,8 @@ static void on_destroy_device(reshade::api::device *device)
 	g_ps_xegtao_prefilter_depth_mip0.reset();
 	g_ps_xegtao_prefilter_depths.reset();
 	g_ps_xegtao_main_pass.reset();
-	g_ps_xegtao_denoise_pass.reset();
+	g_ps_xegtao_denoise1_pass.reset();
+	g_ps_xegtao_denoise2_pass.reset();
 	g_blend_xegtao.reset();
 
 	// Bloom.
@@ -1935,7 +1970,7 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 }
 
 extern "C" __declspec(dllexport) const char* NAME = "BioshockGrapicalUpgrade";
-extern "C" __declspec(dllexport) const char* DESCRIPTION = "BioshockGrapicalUpgrade v4.0.0";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "BioshockGrapicalUpgrade v5.0.0";
 extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/BioshockGraphicalUpgrade";
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)
