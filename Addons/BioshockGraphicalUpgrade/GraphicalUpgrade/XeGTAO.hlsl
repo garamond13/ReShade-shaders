@@ -4,7 +4,7 @@
 //
 // Source: https://github.com/GameTechDev/XeGTAO
 
-cbuffer _Globals : register(b13)
+cbuffer _Globals : register(b12)
 {
   float4 fogColor : packoffset(c0);
   float3 fogTransform : packoffset(c1);

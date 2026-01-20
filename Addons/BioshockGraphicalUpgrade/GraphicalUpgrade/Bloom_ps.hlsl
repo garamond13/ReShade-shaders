@@ -1,10 +1,7 @@
 // Bloom
 //
-// Based on:
-// https://www.iryoku.com/next-generation-post-processing-in-call-of-duty-advanced-warfare/
-// https://learnopengl.com/Guest-Articles/2022/Phys.-Based-Bloom
 
-cbuffer _Globals : register(b13)
+cbuffer _Globals : register(b12)
 {
 	float4 fogColor : packoffset(c0);
 	float3 fogTransform : packoffset(c1);
@@ -30,35 +27,25 @@ cbuffer _Globals : register(b13)
 	float4 ColorFill : packoffset(c39);
 }
 
+cbuffer graphical_upgrade : register(b13)
+{
+	float2 src_size;
+	float2 inv_src_size;
+	float2 axis;
+	float sigma;
+	float tex_noise_index;
+}
+
 SamplerState smp : register(s1); // Should be linear clamp.
 Texture2D tex : register(t0);
 
-
 #define BLOOM_THRESHOLD PWLThreshold
 #define BLOOM_SOFT_KNEE BLOOM_THRESHOLD
-#define BLOOM_TINT float3(1.0, 1.35, 1.0)
-
-
-// Prefilter + downsample PS.
-//
+#define BLOOM_TINT float3(1.0, 1.3, 1.0)
 
 float get_luma(float3 color)
 {
 	return dot(color, float3(0.2126f, 0.7152f, 0.0722f));
-}
-
-float get_karis_weight(float3 color)
-{
-	return rcp(1.0 + get_luma(color));
-}
-
-float3 karis_average(float3 a, float3 b, float3 c, float3 d)
-{
-	float4 sum = float4(a.rgb, 1.0) * get_karis_weight(a);
-	sum += float4(b.rgb, 1.0) * get_karis_weight(b);
-	sum += float4(c.rgb, 1.0) * get_karis_weight(c);
-	sum += float4(d.rgb, 1.0) * get_karis_weight(d);
-	return sum.rgb / sum.a;
 }
 
 float3 quadratic_threshold(float3 color)
@@ -80,40 +67,36 @@ float3 quadratic_threshold(float3 color)
 	return color * max(rq, br - BLOOM_THRESHOLD) * rcp(br);
 }
 
+float get_gaussian_weight(float x)
+{
+	return exp(-x * x * rcp(2.0 * sigma * sigma));
+}
+
+// Prefilter should only be used as the second axis pass on the first MIP.
+// Samples one axis at a time.
 float4 bloom_prefilter_ps(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 {
-	// a - b - c
-	// - d - e -
-	// f - g - h
-	// - i - j -
-	// k - l - m
-	const float3 a = tex.SampleLevel(smp, texcoord, 0.0, int2(-2, -2)).rgb;
-	const float3 b = tex.SampleLevel(smp, texcoord, 0.0, int2(0, -2)).rgb;
-	const float3 c = tex.SampleLevel(smp, texcoord, 0.0, int2(2, -2)).rgb;
-	const float3 d = tex.SampleLevel(smp, texcoord, 0.0, int2(-1, -1)).rgb;
-	const float3 e = tex.SampleLevel(smp, texcoord, 0.0, int2(1, -1)).rgb;
-	const float3 f = tex.SampleLevel(smp, texcoord, 0.0, int2(-2, 0)).rgb;
-	const float3 g = tex.SampleLevel(smp, texcoord, 0.0).rgb;
-	const float3 h = tex.SampleLevel(smp, texcoord, 0.0, int2(2, 0)).rgb;
-	const float3 i = tex.SampleLevel(smp, texcoord, 0.0, int2(-1, 1)).rgb;
-	const float3 j = tex.SampleLevel(smp, texcoord, 0.0, int2(1, 1)).rgb;
-	const float3 k = tex.SampleLevel(smp, texcoord, 0.0, int2(-2, 2)).rgb;
-	const float3 l = tex.SampleLevel(smp, texcoord, 0.0, int2(0, 2)).rgb;
-	const float3 m = tex.SampleLevel(smp, texcoord, 0.0, int2(2, 2)).rgb;
+	// Calculate fractional part and texel center.
+	const float f = dot(frac(texcoord * src_size - 0.5), axis);
+	const float2 tc = texcoord - f * inv_src_size * axis;
 
-	// Apply partial Karis average in blocks of 4 samples.
-	float3 groups[5];
-	groups[0] = karis_average(d, e, i, j);
-	groups[1] = karis_average(a, b, g, f);
-	groups[2] = karis_average(b, c, h, g);
-	groups[3] = karis_average(f, g, l, k);
-	groups[4] = karis_average(g, h, m, l);
+	float3 csum = 0.0;
+	float wsum = 0.0;
 
-	// Apply weighted distribution.
-	float3 color = groups[0] * 0.125 + groups[1] * 0.03125 + groups[2] * 0.03125 + groups[3] * 0.03125 + groups[4] * 0.03125;
+	// Calculate kernel radius.
+	const float radius = ceil(sigma * 3.0);
+
+	for (float i = 1.0 - radius; i <= radius; ++i) {
+		const float weight = get_gaussian_weight(i - f);
+		csum += tex.SampleLevel(smp, tc + i * inv_src_size * axis, 0.0).rgb * weight;
+		wsum += weight;
+	}
+
+	// Normalize.
+	csum *= rcp(wsum);
 
 	// Apply threshold.
-	color = quadratic_threshold(color);
+	float3 color = quadratic_threshold(csum);
 
 	// Apply tint.
 	const float luma = get_luma(color);
@@ -123,40 +106,31 @@ float4 bloom_prefilter_ps(float4 pos : SV_Position, float2 texcoord : TEXCOORD) 
 	return float4(color, 1.0);
 }
 
-//
-
-// Downsample PS.
+// Samples one axis at a time.
 float4 bloom_downsample_ps(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 {
-	// a - b - c
-	// - d - e -
-	// f - g - h
-	// - i - j -
-	// k - l - m
-	const float3 a = tex.SampleLevel(smp, texcoord, 0.0, int2(-2, -2)).rgb;
-	const float3 b = tex.SampleLevel(smp, texcoord, 0.0, int2(0, -2)).rgb;
-	const float3 c = tex.SampleLevel(smp, texcoord, 0.0, int2(2, -2)).rgb;
-	const float3 d = tex.SampleLevel(smp, texcoord, 0.0, int2(-1, -1)).rgb;
-	const float3 e = tex.SampleLevel(smp, texcoord, 0.0, int2(1, -1)).rgb;
-	const float3 f = tex.SampleLevel(smp, texcoord, 0.0, int2(-2, 0)).rgb;
-	const float3 g = tex.SampleLevel(smp, texcoord, 0.0).rgb;
-	const float3 h = tex.SampleLevel(smp, texcoord, 0.0, int2(2, 0)).rgb;
-	const float3 i = tex.SampleLevel(smp, texcoord, 0.0, int2(-1, 1)).rgb;
-	const float3 j = tex.SampleLevel(smp, texcoord, 0.0, int2(1, 1)).rgb;
-	const float3 k = tex.SampleLevel(smp, texcoord, 0.0, int2(-2, 2)).rgb;
-	const float3 l = tex.SampleLevel(smp, texcoord, 0.0, int2(0, 2)).rgb;
-	const float3 m = tex.SampleLevel(smp, texcoord, 0.0, int2(2, 2)).rgb;
+	// Calculate fractional part and texel center.
+	const float f = dot(frac(texcoord * src_size - 0.5), axis);
+	const float2 tc = texcoord - f * inv_src_size * axis;
 
-	// Apply weighted distribution.
-	float3 color = g * 0.125;
-	color += (a + c + k + m) * 0.03125;
-	color += (b + f + h + l) * 0.0625;
-	color += (d + e + i + j) * 0.125;
+	float3 csum = 0.0;
+	float wsum = 0.0;
 
-	return float4(color, 1.0);
+	// Calculate kernel radius.
+	const float radius = ceil(sigma * 3.0);
+
+	for (float i = 1.0 - radius; i <= radius; ++i) {
+		const float weight = get_gaussian_weight(i - f);
+		csum += tex.SampleLevel(smp, tc + i * inv_src_size * axis, 0.0).rgb * weight;
+		wsum += weight;
+	}
+
+	// Normalize.
+	csum *= rcp(wsum);
+
+	return float4(csum, 1.0);
 }
 
-// Upsample PS.
 float4 bloom_upsample_ps(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 {
 	// a - b - c

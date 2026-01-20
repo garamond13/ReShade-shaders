@@ -15,9 +15,13 @@ enum TRC_
 	TRC_GAMMA
 };
 
-struct alignas(16) Constant_buffer_data
+struct alignas(16) CB_graphical_upgrade_data
 {
-	float tex_noise_index = 0.0f;
+	float2 src_size;
+	float2 inv_src_size;
+	float2 axis;
+	float sigma;
+	float tex_noise_index;
 };
 
 // We need to pass this to XeGTAO PSes on resolution change or XeGTAO user settings change.
@@ -106,8 +110,8 @@ static UINT g_swapchain_width;
 static UINT g_swapchain_height;
 
 // Constant buffer.
-static Constant_buffer_data g_cb_data;
-static Com_ptr<ID3D10Buffer> g_cb;
+static CB_graphical_upgrade_data g_cb_garphical_upgrade_data;
+static Com_ptr<ID3D10Buffer> g_cb_graphical_upgrade;
 
 static Com_ptr<ID3D10VertexShader> g_vs_fullscreen_triangle;
 
@@ -228,9 +232,8 @@ static Com_ptr<ID3D10PixelShader> g_ps_bloom_downsample;
 static Com_ptr<ID3D10PixelShader> g_ps_bloom_upsample;
 static Com_ptr<ID3D10BlendState> g_blend_bloom;
 static Com_ptr<ID3D10Buffer> g_cb_bloom;
-static int g_bloom_nmips = 5;
-static float g_user_set_bloom_attenuation = 0.75f; // Exposed to user.
-static float g_bloom_attenuation = 1.0f - g_user_set_bloom_attenuation;
+static int g_bloom_nmips = 6;
+static std::vector<float> g_bloom_sigmas;
 
 // enum TRC_
 static int g_trc = TRC_GAMMA;
@@ -431,7 +434,7 @@ static void draw_xegtao(ID3D10Device* device, ID3D10RenderTargetView*const* rtv)
 	device->VSSetShader(g_vs_fullscreen_triangle.get());
 
 	device->RSSetState(nullptr);
-	device->PSSetConstantBuffers(13, 1, &g_cb_tonemap);
+	device->PSSetConstantBuffers(12, 1, &g_cb_tonemap);
 
 	// Create and bind point clamp sampler.
 	[[unlikely]] if (!g_smp_point_clamp) {
@@ -509,8 +512,8 @@ static void draw_xegtao(ID3D10Device* device, ID3D10RenderTargetView*const* rtv)
 
 	// Prefilter depths, mips 1 to 4.
 	for (UINT i = 1; i < 5; ++i) {
-		viewport.Width = std::max(1u, viewport.Width / 2u);
-		viewport.Height = std::max(1u, viewport.Height / 2u);
+		viewport.Width = std::max(1u, g_swapchain_width >> i);
+		viewport.Height = std::max(1u, g_swapchain_height >> i);
 
 		// Bindings.
 		device->OMSetRenderTargets(1, &rtv_working_depth_mips[i], nullptr);
@@ -1188,15 +1191,15 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		// Bloom
 		//
 
-		// Create MIPs and views.
+		// Create Y MIPs and views.
 		tex_desc.Width /= 2;
 		tex_desc.Height /= 2;
 		tex_desc.MipLevels = g_bloom_nmips;
 		tex_desc.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
 		tex_desc.BindFlags = D3D10_BIND_SHADER_RESOURCE | D3D10_BIND_RENDER_TARGET;
 		ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
-		std::vector<ID3D10RenderTargetView*> rtv_mips(g_bloom_nmips);
-		std::vector<ID3D10ShaderResourceView*> srv_mips(g_bloom_nmips);
+		std::vector<ID3D10RenderTargetView*> rtv_mips_y(g_bloom_nmips);
+		std::vector<ID3D10ShaderResourceView*> srv_mips_y(g_bloom_nmips);
 		D3D10_RENDER_TARGET_VIEW_DESC rtv_desc = {};
 		rtv_desc.Format = tex_desc.Format;
 		rtv_desc.ViewDimension = D3D10_RTV_DIMENSION_TEXTURE2D;
@@ -1206,9 +1209,35 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		srv_desc.Texture2D.MipLevels = 1;
 		for (int i = 0; i < g_bloom_nmips; ++i) {
 		    rtv_desc.Texture2D.MipSlice = i;
-		    ensure(device->CreateRenderTargetView(tex.get(), &rtv_desc, &rtv_mips[i]), >= 0);
+		    ensure(device->CreateRenderTargetView(tex.get(), &rtv_desc, &rtv_mips_y[i]), >= 0);
 		    srv_desc.Texture2D.MostDetailedMip = i;
-		    ensure(device->CreateShaderResourceView(tex.get(), &srv_desc, &srv_mips[i]), >= 0);
+		    ensure(device->CreateShaderResourceView(tex.get(), &srv_desc, &srv_mips_y[i]), >= 0);
+		}
+
+		const UINT y_mip0_width = tex_desc.Width;
+		const UINT y_mip0_height = tex_desc.Height;
+
+		std::vector<ID3D10RenderTargetView*> rtv_mips_x(g_bloom_nmips);
+		std::vector<ID3D10ShaderResourceView*> srv_mips_x(g_bloom_nmips);
+		
+		// Create X MIP0 and views.
+		tex_desc.Width = g_swapchain_width / 2;
+		tex_desc.Height = g_swapchain_height;
+		tex_desc.MipLevels = 1;
+		ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
+		ensure(device->CreateRenderTargetView(tex.get(), nullptr, &rtv_mips_x[0]), >= 0);
+		ensure(device->CreateShaderResourceView(tex.get(), nullptr, &srv_mips_x[0]), >= 0);
+
+		const UINT x_mip0_width = tex_desc.Width;
+		const UINT x_mip0_height = tex_desc.Height;
+
+		// Create rest of the X MIPs and views.
+		for (UINT i = 1; i < g_bloom_nmips; ++i) {
+			tex_desc.Width = std::max(1u, x_mip0_width >> i);
+			tex_desc.Height = std::max(1u, x_mip0_height >> i);
+			ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
+			ensure(device->CreateRenderTargetView(tex.get(), nullptr, &rtv_mips_x[i]), >= 0);
+			ensure(device->CreateShaderResourceView(tex.get(), nullptr, &srv_mips_x[i]), >= 0);
 		}
 
 		// Prefilter + downsample pass
@@ -1219,23 +1248,63 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 			create_vertex_shader(device, g_vs_fullscreen_triangle.put(), L"FullscreenTriangle_vs.hlsl");
 		}
 
-		// Create PS.
+		// Create downsample PS.
+		[[unlikely]] if (!g_ps_bloom_downsample) {
+			create_pixel_shader(device, g_ps_bloom_downsample.put(), L"Bloom_ps.hlsl", "bloom_downsample_ps");
+		}
+
+		// Create prefilter PS.
 		[[unlikely]] if (!g_ps_bloom_prefilter) {
 			create_pixel_shader(device, g_ps_bloom_prefilter.put(), L"Bloom_ps.hlsl", "bloom_prefilter_ps");
 		}
 
-		std::vector<D3D10_VIEWPORT> viewports(g_bloom_nmips);
-		viewports[0].Width = tex_desc.Width;
-		viewports[0].Height = tex_desc.Height;
+		// Create constant buffer.
+		[[unlikely]] if (!g_cb_graphical_upgrade) {
+			create_constant_buffer(device, g_cb_graphical_upgrade.put(), sizeof(g_cb_garphical_upgrade_data));
+		}
+
+		D3D10_VIEWPORT viewport_x = {};
+		viewport_x.Width = g_swapchain_width / 2;
+		viewport_x.Height = g_swapchain_height;
+
+		// Update CB.
+		g_cb_garphical_upgrade_data.src_size = float2(viewport_x.Width, viewport_x.Height);
+		g_cb_garphical_upgrade_data.inv_src_size.x = 1.0f / g_cb_garphical_upgrade_data.src_size.x;
+		g_cb_garphical_upgrade_data.inv_src_size.y = 1.0f / g_cb_garphical_upgrade_data.src_size.y;
+		g_cb_garphical_upgrade_data.axis = float2(1.0f, 0.0f);
+		g_cb_garphical_upgrade_data.sigma = g_bloom_sigmas[0];
+		update_constant_buffer(g_cb_graphical_upgrade.get(), &g_cb_garphical_upgrade_data, sizeof(g_cb_garphical_upgrade_data));
 
 		// Bindings.
-		device->OMSetRenderTargets(1, &rtv_mips[0], nullptr);
+		device->OMSetRenderTargets(1, &rtv_mips_x[0], nullptr);
 		device->VSSetShader(g_vs_fullscreen_triangle.get());
-		device->PSSetShader(g_ps_bloom_prefilter.get());
-		device->PSSetConstantBuffers(13, 1, &g_cb_bloom);
+		device->PSSetShader(g_ps_bloom_downsample.get());
+		device->PSSetConstantBuffers(12, 1, &g_cb_bloom);
+		device->PSSetConstantBuffers(13, 1, &g_cb_graphical_upgrade);
 		device->PSSetShaderResources(0, 1, &srv_scene);
-		device->RSSetViewports(1, &viewports[0]);
+		device->RSSetViewports(1, &viewport_x);
 
+		// Draw X pass.
+		device->Draw(3, 0);
+
+		std::vector<D3D10_VIEWPORT> viewports_y(g_bloom_nmips);
+		viewports_y[0].Width = g_swapchain_width / 2;
+		viewports_y[0].Height = g_swapchain_height / 2;
+
+		// Update CB.
+		g_cb_garphical_upgrade_data.src_size = float2(viewports_y[0].Width, viewports_y[0].Height);
+		g_cb_garphical_upgrade_data.axis = float2(0.0f, 1.0f);
+		g_cb_garphical_upgrade_data.inv_src_size.x = 1.0f / g_cb_garphical_upgrade_data.src_size.x;
+		g_cb_garphical_upgrade_data.inv_src_size.y = 1.0f / g_cb_garphical_upgrade_data.src_size.y;
+		update_constant_buffer(g_cb_graphical_upgrade.get(), &g_cb_garphical_upgrade_data, sizeof(g_cb_garphical_upgrade_data));
+
+		// Bindings.
+		device->OMSetRenderTargets(1, &rtv_mips_y[0], nullptr);
+		device->PSSetShader(g_ps_bloom_prefilter.get());
+		device->PSSetShaderResources(0, 1, &srv_mips_x[0]);
+		device->RSSetViewports(1, &viewports_y[0]);
+
+		// Draw Y pass.
 		device->Draw(3, 0);
 
 		////
@@ -1243,24 +1312,46 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		// Downsample passes
 		////
 
-		// Create PS.
-		[[unlikely]] if (!g_ps_bloom_downsample) {
-			create_pixel_shader(device, g_ps_bloom_downsample.put(), L"Bloom_ps.hlsl", "bloom_downsample_ps");
-		}
-
 		// Common bindings.
 		device->PSSetShader(g_ps_bloom_downsample.get());
 
 		// Render downsample passes.
-		for (int i = 1; i < g_bloom_nmips; ++i) {
-		    viewports[i].Width = std::max(1.0f, (float)(tex_desc.Width >> i));
-		    viewports[i].Height = std::max(1.0f, (float)(tex_desc.Height >> i));
+		for (UINT i = 1; i < g_bloom_nmips; ++i) {
+			viewport_x.Width = std::max(1u, y_mip0_width >> i);
+			viewport_x.Height = std::max(1u, y_mip0_height >> (i - 1));
+
+			// Update CB.
+			g_cb_garphical_upgrade_data.src_size = float2(viewport_x.Width, viewport_x.Height);
+			g_cb_garphical_upgrade_data.axis = float2(1.0f, 0.0f);
+			g_cb_garphical_upgrade_data.inv_src_size.x = 1.0f / g_cb_garphical_upgrade_data.src_size.x;
+			g_cb_garphical_upgrade_data.inv_src_size.y = 1.0f / g_cb_garphical_upgrade_data.src_size.y;
+			g_cb_garphical_upgrade_data.sigma = g_bloom_sigmas[i];
+			update_constant_buffer(g_cb_graphical_upgrade.get(), &g_cb_garphical_upgrade_data, sizeof(g_cb_garphical_upgrade_data));
 
 			// Bindings.
-		    device->OMSetRenderTargets(1, &rtv_mips[i], nullptr);
-		    device->PSSetShaderResources(0, 1, &srv_mips[i - 1]);
-		    device->RSSetViewports(1, &viewports[i]);
+		    device->OMSetRenderTargets(1, &rtv_mips_x[i], nullptr);
+		    device->PSSetShaderResources(0, 1, &srv_mips_y[i - 1]);
+		    device->RSSetViewports(1, &viewport_x);
 
+			// Draw X pass.
+		    device->Draw(3, 0);
+
+			viewports_y[i].Width = std::max(1u, y_mip0_width >> i);
+			viewports_y[i].Height = std::max(1u, y_mip0_height >> i);
+
+			// Update CB.
+			g_cb_garphical_upgrade_data.src_size = float2(viewports_y[i].Width, viewports_y[i].Height);
+			g_cb_garphical_upgrade_data.axis = float2(0.0f, 1.0f);
+			g_cb_garphical_upgrade_data.inv_src_size.x = 1.0f / g_cb_garphical_upgrade_data.src_size.x;
+			g_cb_garphical_upgrade_data.inv_src_size.y = 1.0f / g_cb_garphical_upgrade_data.src_size.y;
+			update_constant_buffer(g_cb_graphical_upgrade.get(), &g_cb_garphical_upgrade_data, sizeof(g_cb_garphical_upgrade_data));
+
+			// Bindings.
+		    device->OMSetRenderTargets(1, &rtv_mips_y[i], nullptr);
+		    device->PSSetShaderResources(0, 1, &srv_mips_x[i]);
+		    device->RSSetViewports(1, &viewports_y[i]);
+
+			// Draw Y pass.
 		    device->Draw(3, 0);
 		}
 
@@ -1279,7 +1370,7 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 			auto blend_desc = default_D3D10_BLEND_DESC();
 			blend_desc.BlendEnable[0] = TRUE;
 			blend_desc.SrcBlend = D3D10_BLEND_BLEND_FACTOR;
-			blend_desc.DestBlend = D3D10_BLEND_ONE;
+			blend_desc.DestBlend = D3D10_BLEND_BLEND_FACTOR;
 			ensure(device->CreateBlendState(&blend_desc, g_blend_bloom.put()), >= 0);
 		}
 
@@ -1288,16 +1379,15 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 
 		// Render upsample passes.
 		for (int i = g_bloom_nmips - 1; i > 0; --i) {
-			// Calculate the blend factor.
-			float t = (float)(g_bloom_nmips - 1 - i) / std::max(1e-6f, (float)g_bloom_nmips - 2); // Normalize to [0, 1].
-			t = std::sqrt(t); // Falloff.
-			const float f = std::lerp(g_bloom_attenuation, 1.0f, t);
-			const float blend_factor[4] = { f, f, f, 1.0f };
+
+			// If both dst and src are D3D10_BLEND_BLEND_FACTOR
+			// factor of 0.5 is enegrgy preserving.
+			const float blend_factor[4] = { 0.5, 0.5, 0.5, 0.0f };
 
 			// Bindings.
-			device->OMSetRenderTargets(1, &rtv_mips[i - 1], nullptr);
-		    device->PSSetShaderResources(0, 1, &srv_mips[i]);
-		    device->RSSetViewports(1, &viewports[i - 1]);
+			device->OMSetRenderTargets(1, &rtv_mips_y[i - 1], nullptr);
+		    device->PSSetShaderResources(0, 1, &srv_mips_y[i]);
+		    device->RSSetViewports(1, &viewports_y[i - 1]);
 			device->OMSetBlendState(g_blend_bloom.get(), blend_factor, UINT_MAX);
 
 		    device->Draw(3, 0);
@@ -1356,7 +1446,7 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		device->OMSetRenderTargets(rtvs_0x87A0B43D.size(), rtvs_0x87A0B43D.data(), nullptr);
 		device->VSSetShader(vs_original.get());
 		device->PSSetShader(g_ps_0x87A0B43D.get());
-		const std::array srvs_0x87A0B43D = { srv_scene.get(), srv_mips[0] };
+		const std::array srvs_0x87A0B43D = { srv_scene.get(), srv_mips_y[0] };
 		device->PSSetShaderResources(0, srvs_0x87A0B43D.size(), srvs_0x87A0B43D.data());
 		device->RSSetViewports(1, &viewport);
 		device->OMSetBlendState(nullptr, nullptr, UINT_MAX);
@@ -1584,8 +1674,8 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		}
 
 		// Create constant buffer.
-		[[unlikely]] if (!g_cb) {
-			create_constant_buffer(device, g_cb.put(), sizeof(g_cb_data));
+		[[unlikely]] if (!g_cb_graphical_upgrade) {
+			create_constant_buffer(device, g_cb_graphical_upgrade.put(), sizeof(g_cb_garphical_upgrade_data));
 		}
 
 		// Create blue noise texture.
@@ -1604,11 +1694,11 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		static auto last_update = std::chrono::high_resolution_clock::now();
 		const auto now = std::chrono::high_resolution_clock::now();
 		if (now - last_update >= interval) {
-			g_cb_data.tex_noise_index += 1.0f;
-			if (g_cb_data.tex_noise_index >= (float)BLUE_NOISE_TEX_ARRAY_SIZE) {
-				g_cb_data.tex_noise_index = 0.0f;
+			g_cb_garphical_upgrade_data.tex_noise_index += 1.0f;
+			if (g_cb_garphical_upgrade_data.tex_noise_index >= (float)BLUE_NOISE_TEX_ARRAY_SIZE) {
+				g_cb_garphical_upgrade_data.tex_noise_index = 0.0f;
 			}
-			update_constant_buffer(g_cb.get(), &g_cb_data, sizeof(g_cb_data));
+			update_constant_buffer(g_cb_graphical_upgrade.get(), &g_cb_garphical_upgrade_data, sizeof(g_cb_garphical_upgrade_data));
 			last_update += interval;
 		}
 
@@ -1617,7 +1707,7 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 
 		device->OMSetRenderTargets(1, &rtv_original, nullptr);
 		device->PSSetShader(g_ps_amd_ffx_lfga.get());
-		device->PSSetConstantBuffers(13, 1, &g_cb); // The game should never be using CB slot 13.
+		device->PSSetConstantBuffers(13, 1, &g_cb_graphical_upgrade); // The game should never be using CB slot 13.
 		const std::array ps_srvs_amd_ffx_lfga = { srv_amd_ffx_cas.get(), g_srv_blue_noise_tex.get() };
 		device->PSSetShaderResources(0, ps_srvs_amd_ffx_lfga.size(), ps_srvs_amd_ffx_lfga.data());
 
@@ -1638,8 +1728,10 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 
 		// Release com arrays.
 		auto release_com_array = [](auto& array){ for (auto* p : array) if (p) p->Release(); };
-		release_com_array(rtv_mips);
-		release_com_array(srv_mips);
+		release_com_array(rtv_mips_y);
+		release_com_array(srv_mips_y);
+		release_com_array(rtv_mips_x);
+		release_com_array(srv_mips_x);
 
 		return true;
 	}
@@ -1808,7 +1900,7 @@ static void on_init_device(reshade::api::device* device)
 
 static void on_destroy_device(reshade::api::device *device)
 {
-	g_cb.reset();
+	g_cb_graphical_upgrade.reset();
 	g_vs_fullscreen_triangle.reset();
 	g_ps_0xB51C436B.reset();
 	g_ps_0x87A0B43D.reset();
@@ -1874,13 +1966,6 @@ static void read_config()
 	if (!reshade::get_config_value(nullptr, "BioshockGraphicalUpgrade", "BloomIntensity", g_bloom_intensity)) {
 		reshade::set_config_value(nullptr, "BioshockGraphicalUpgrade", "BloomIntensity", g_bloom_intensity);
 	}
-	if (!reshade::get_config_value(nullptr, "BioshockGraphicalUpgrade", "BloomRadius", g_bloom_nmips)) {
-		reshade::set_config_value(nullptr, "BioshockGraphicalUpgrade", "BloomRadius", g_bloom_nmips);
-	}
-	if (!reshade::get_config_value(nullptr, "BioshockGraphicalUpgrade", "BloomAttenuation", g_user_set_bloom_attenuation)) {
-		reshade::set_config_value(nullptr, "BioshockGraphicalUpgrade", "BloomAttenuation", g_user_set_bloom_attenuation);
-		g_bloom_attenuation = 1.0f - g_user_set_bloom_attenuation;
-	}
 	if (!reshade::get_config_value(nullptr, "BioshockGraphicalUpgrade", "Sharpness", g_amd_ffx_cas_sharpness)) {
 		reshade::set_config_value(nullptr, "BioshockGraphicalUpgrade", "Sharpness", g_amd_ffx_cas_sharpness);
 	}
@@ -1899,6 +1984,16 @@ static void read_config()
 
 static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 {
+	#if DEV
+	if (ImGui::SliderInt("Bloom nmips", &g_bloom_nmips, 1.0, 10.0)) {
+		g_bloom_sigmas.resize(g_bloom_nmips);
+	}
+	for (int i = 0; i < g_bloom_nmips; ++i) {
+		const std::string name = "Sigma" + std::to_string(i);
+		ImGui::SliderFloat(name.c_str(), &g_bloom_sigmas[i], 0.0f, 10.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp);
+	}
+	#endif
+
 	if (ImGui::Checkbox("XeGTAO enable", &g_xegtao_enable)) {
 		reshade::set_config_value(nullptr, "BioshockGraphicalUpgrade", "XeGTAOEnable", g_xegtao_enable);
 		reset_xegtao();
@@ -1937,13 +2032,6 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 		reshade::set_config_value(nullptr, "BioshockGraphicalUpgrade", "BloomIntensity", g_bloom_intensity);
 		g_ps_0x87A0B43D.reset();
 	}
-	if (ImGui::SliderInt("Bloom Radius", &g_bloom_nmips, 1.0f, 10.0f, "%d", ImGuiSliderFlags_AlwaysClamp)) {
-		reshade::set_config_value(nullptr, "BioshockGraphicalUpgrade", "BloomRadius", g_bloom_nmips);
-	}
-	if (ImGui::SliderFloat("Bloom Attennuation", &g_user_set_bloom_attenuation, 0.0f, 1.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp)) {
-		reshade::set_config_value(nullptr, "BioshockGraphicalUpgrade", "BloomAttenuation", g_user_set_bloom_attenuation);
-		g_bloom_attenuation = 1.0f - g_user_set_bloom_attenuation;
-	}
 	ImGui::Spacing();
 	if (ImGui::SliderFloat("Sharpness", &g_amd_ffx_cas_sharpness, 0.0f, 1.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp)) {
 		reshade::set_config_value(nullptr, "BioshockGraphicalUpgrade", "Sharpness", g_amd_ffx_cas_sharpness);
@@ -1970,7 +2058,7 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 }
 
 extern "C" __declspec(dllexport) const char* NAME = "BioshockGrapicalUpgrade";
-extern "C" __declspec(dllexport) const char* DESCRIPTION = "BioshockGrapicalUpgrade v5.0.0";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "BioshockGrapicalUpgrade v6.0.0";
 extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/BioshockGraphicalUpgrade";
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)
@@ -1982,6 +2070,14 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)
 			}
 			g_graphical_upgrade_path = get_shaders_path();
 			read_config();
+			g_bloom_sigmas.resize(g_bloom_nmips);
+			assert(g_bloom_nmips == 6);
+			g_bloom_sigmas[0] = 1.5f;
+			g_bloom_sigmas[1] = 1.0f;
+			g_bloom_sigmas[2] = 1.0f;
+			g_bloom_sigmas[3] = 1.0f;
+			g_bloom_sigmas[4] = 1.0f;
+			g_bloom_sigmas[5] = 1.0f;
 			reshade::register_event<reshade::addon_event::draw_indexed>(on_draw_indexed);
 			reshade::register_event<reshade::addon_event::draw>(on_draw);
 			reshade::register_event<reshade::addon_event::init_pipeline>(on_init_pipeline);

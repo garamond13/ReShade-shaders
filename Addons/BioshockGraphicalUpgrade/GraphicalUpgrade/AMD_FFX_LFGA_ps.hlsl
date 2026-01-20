@@ -4,8 +4,12 @@
 
 #include "Color.hlsli"
 
-cbuffer cb : register(b13)
+cbuffer graphical_upgrade : register(b13)
 {
+	float2 src_size;
+	float2 inv_src_size;
+	float2 axis;
+	float sigma;
 	float tex_noise_index;
 }
 
