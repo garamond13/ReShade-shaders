@@ -1264,11 +1264,11 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		}
 
 		D3D10_VIEWPORT viewport_x = {};
-		viewport_x.Width = g_swapchain_width / 2;
-		viewport_x.Height = g_swapchain_height;
+		viewport_x.Width = x_mip0_width;
+		viewport_x.Height = x_mip0_height;
 
 		// Update CB.
-		g_cb_garphical_upgrade_data.src_size = float2(viewport_x.Width, viewport_x.Height);
+		g_cb_garphical_upgrade_data.src_size = float2(g_swapchain_width, g_swapchain_height);
 		g_cb_garphical_upgrade_data.inv_src_size.x = 1.0f / g_cb_garphical_upgrade_data.src_size.x;
 		g_cb_garphical_upgrade_data.inv_src_size.y = 1.0f / g_cb_garphical_upgrade_data.src_size.y;
 		g_cb_garphical_upgrade_data.axis = float2(1.0f, 0.0f);
@@ -1288,11 +1288,11 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		device->Draw(3, 0);
 
 		std::vector<D3D10_VIEWPORT> viewports_y(g_bloom_nmips);
-		viewports_y[0].Width = g_swapchain_width / 2;
-		viewports_y[0].Height = g_swapchain_height / 2;
+		viewports_y[0].Width = y_mip0_width;
+		viewports_y[0].Height = y_mip0_height;
 
 		// Update CB.
-		g_cb_garphical_upgrade_data.src_size = float2(viewports_y[0].Width, viewports_y[0].Height);
+		g_cb_garphical_upgrade_data.src_size = float2(x_mip0_width, x_mip0_height);
 		g_cb_garphical_upgrade_data.axis = float2(0.0f, 1.0f);
 		g_cb_garphical_upgrade_data.inv_src_size.x = 1.0f / g_cb_garphical_upgrade_data.src_size.x;
 		g_cb_garphical_upgrade_data.inv_src_size.y = 1.0f / g_cb_garphical_upgrade_data.src_size.y;
@@ -1317,11 +1317,11 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 
 		// Render downsample passes.
 		for (UINT i = 1; i < g_bloom_nmips; ++i) {
-			viewport_x.Width = std::max(1u, y_mip0_width >> i);
-			viewport_x.Height = std::max(1u, y_mip0_height >> (i - 1));
+			viewport_x.Width = std::max(1u, x_mip0_width >> i);
+			viewport_x.Height = std::max(1u, x_mip0_height >> i);
 
 			// Update CB.
-			g_cb_garphical_upgrade_data.src_size = float2(viewport_x.Width, viewport_x.Height);
+			g_cb_garphical_upgrade_data.src_size = float2(viewports_y[i - 1].Width, viewports_y[i - 1].Height);
 			g_cb_garphical_upgrade_data.axis = float2(1.0f, 0.0f);
 			g_cb_garphical_upgrade_data.inv_src_size.x = 1.0f / g_cb_garphical_upgrade_data.src_size.x;
 			g_cb_garphical_upgrade_data.inv_src_size.y = 1.0f / g_cb_garphical_upgrade_data.src_size.y;
@@ -1340,7 +1340,7 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 			viewports_y[i].Height = std::max(1u, y_mip0_height >> i);
 
 			// Update CB.
-			g_cb_garphical_upgrade_data.src_size = float2(viewports_y[i].Width, viewports_y[i].Height);
+			g_cb_garphical_upgrade_data.src_size = float2(viewport_x.Width, viewport_x.Height);
 			g_cb_garphical_upgrade_data.axis = float2(0.0f, 1.0f);
 			g_cb_garphical_upgrade_data.inv_src_size.x = 1.0f / g_cb_garphical_upgrade_data.src_size.x;
 			g_cb_garphical_upgrade_data.inv_src_size.y = 1.0f / g_cb_garphical_upgrade_data.src_size.y;
@@ -1382,7 +1382,7 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 
 			// If both dst and src are D3D10_BLEND_BLEND_FACTOR
 			// factor of 0.5 is enegrgy preserving.
-			const float blend_factor[4] = { 0.5, 0.5, 0.5, 0.0f };
+			static constexpr float blend_factor[] = { 0.5, 0.5, 0.5, 0.0f };
 
 			// Bindings.
 			device->OMSetRenderTargets(1, &rtv_mips_y[i - 1], nullptr);
@@ -2058,7 +2058,7 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 }
 
 extern "C" __declspec(dllexport) const char* NAME = "BioshockGrapicalUpgrade";
-extern "C" __declspec(dllexport) const char* DESCRIPTION = "BioshockGrapicalUpgrade v6.0.0";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "BioshockGrapicalUpgrade v6.0.1";
 extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/BioshockGraphicalUpgrade";
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)
