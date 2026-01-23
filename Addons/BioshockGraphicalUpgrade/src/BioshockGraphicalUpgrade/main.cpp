@@ -1382,7 +1382,13 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 
 			// If both dst and src are D3D10_BLEND_BLEND_FACTOR
 			// factor of 0.5 is enegrgy preserving.
-			static constexpr float blend_factor[] = { 0.5, 0.5, 0.5, 0.0f };
+			static constexpr float blend_factor[] = { 0.5f, 0.5f, 0.5f, 0.0f };
+
+			// Update CB.
+			g_cb_garphical_upgrade_data.src_size = float2(viewports_y[i].Width, viewports_y[i].Height);
+			g_cb_garphical_upgrade_data.inv_src_size.x = 1.0f / g_cb_garphical_upgrade_data.src_size.x;
+			g_cb_garphical_upgrade_data.inv_src_size.y = 1.0f / g_cb_garphical_upgrade_data.src_size.y;
+			update_constant_buffer(g_cb_graphical_upgrade.get(), &g_cb_garphical_upgrade_data, sizeof(g_cb_garphical_upgrade_data));
 
 			// Bindings.
 			device->OMSetRenderTargets(1, &rtv_mips_y[i - 1], nullptr);
@@ -2058,7 +2064,7 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 }
 
 extern "C" __declspec(dllexport) const char* NAME = "BioshockGrapicalUpgrade";
-extern "C" __declspec(dllexport) const char* DESCRIPTION = "BioshockGrapicalUpgrade v6.0.1";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "BioshockGrapicalUpgrade v6.1.0";
 extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/BioshockGraphicalUpgrade";
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)
