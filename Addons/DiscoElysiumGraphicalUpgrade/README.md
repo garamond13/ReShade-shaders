@@ -1,6 +1,7 @@
 # DiscoElysiumGraphicalUpgrade
 
 - Modern borderless window (flip mod, tearing).
+- SMAA anti aliasing.
 - Accurate FPS limiter.
 - Upgraded render targets.
 - 10bit color output.
@@ -9,7 +10,7 @@
 ## Usage
 
 - Install ReShade 6.6.0+ with full add-on support.
-- Copy **DiscoElysiumGraphicalUpgrade.addon64** the games folder where **disco.exe** is (ReShade should be installed in the same folder).
+- Copy **DiscoElysiumGraphicalUpgrade.addon64** and **GraphicalUpgrade** folder in the game folder where **disco.exe** is (ReShade should be installed in the same folder).
 
 # Known issues
 
