@@ -1,4 +1,4 @@
-# BioshockGraphicalUpgrade
+# BioShockInfiniteGraphicalUpgrade
 
 - Modern borderless window (flip mod, tearing).
 - Replaced ambient occlusion (AMBIENT OCCLUSION: HIGH and ULTRA) with XeGTAO.
