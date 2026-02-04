@@ -55,6 +55,9 @@ Graphical upgrade for Bioshock. See Addons/BioshockGraphicalUpgrade for details.
 **Bioshock2GraphicalUpgrade**  
 Graphical upgrade for Bioshock 2. See Addons/Bioshock2GraphicalUpgrade for details.
 
+**BioShockInfiniteGraphicalUpgrade**  
+Graphical upgrade for BioShock Infinite. See Addons/BioShockInfiniteGraphicalUpgrade for details.
+
 **DiscoElysiumGraphicalUpgrade**  
 Graphical upgrade for Disco Elysium. See Addons/DiscoElysiumGraphicalUpgrade for details.
 
