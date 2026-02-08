@@ -2051,7 +2051,7 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 	ImGui::Spacing();
 	ImGui::InputFloat("FPS limit", &g_user_set_fps_limit);
 	if (ImGui::IsItemDeactivatedAfterEdit()) {
-		g_user_set_fps_limit = std::clamp(g_user_set_fps_limit, 10.0f, 1000.0f);
+		g_user_set_fps_limit = std::clamp(g_user_set_fps_limit, 20.0f, 1000.0f);
 		reshade::set_config_value(nullptr, "BioshockGraphicalUpgrade", "FPSLimit", g_user_set_fps_limit);
 		g_frame_interval = std::chrono::duration<double>(1.0 / (double)g_user_set_fps_limit);
 	}
@@ -2064,7 +2064,7 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 }
 
 extern "C" __declspec(dllexport) const char* NAME = "BioshockGrapicalUpgrade";
-extern "C" __declspec(dllexport) const char* DESCRIPTION = "BioshockGrapicalUpgrade v6.1.0";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "BioshockGrapicalUpgrade v7.0.0";
 extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/BioshockGraphicalUpgrade";
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)
