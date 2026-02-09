@@ -1,5 +1,3 @@
-// Tone mapping
-
 #include "Color.hlsli"
 
 cbuffer _Globals : register(b0)

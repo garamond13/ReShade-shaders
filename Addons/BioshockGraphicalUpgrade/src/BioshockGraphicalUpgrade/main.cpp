@@ -14,6 +14,7 @@ enum TRC_
 	TRC_SRGB,
 	TRC_GAMMA
 };
+typedef int TRC;
 
 struct alignas(16) CB_graphical_upgrade_data
 {
@@ -106,82 +107,65 @@ private:
 // Path to the GraphicalUpgrade folder.
 static std::filesystem::path g_graphical_upgrade_path;
 
+// Shader hooks and replacemnt shaders.
+//
+
+constexpr uint32_t g_ps_fog_0xB69D6558_hash = 0xB69D6558;
+constexpr GUID g_ps_fog_0xB69D6558_guid = { 0x6920fbb, 0xcfa4, 0x48b8, { 0x94, 0xf9, 0x80, 0x7, 0x83, 0xe2, 0xbc, 0xfb } };
+
+constexpr uint32_t g_ps_fog_0xE2683E33_hash = 0xE2683E33;
+constexpr GUID g_ps_fog_0xE2683E33_guid = { 0x7bc430f7, 0x5db5, 0x4b25, { 0x83, 0x90, 0xc8, 0x9c, 0x74, 0xc5, 0xa7, 0xf } };
+
+constexpr uint32_t g_ps_fog_0xC907CF9A_hash = 0xC907CF9A;
+constexpr GUID g_ps_fog_0xC907CF9A_guid = { 0x4875f184, 0xadee, 0x4f40, { 0xb6, 0xf5, 0xfa, 0xf8, 0x54, 0xcd, 0xb4, 0x15 } };
+
+constexpr uint32_t g_ps_fog_0x9CFB96DA_hash = 0x9CFB96DA;
+constexpr GUID g_ps_fog_0x9CFB96DA_guid = { 0xfd87086, 0xb29a, 0x4c23, { 0xa9, 0x30, 0x8e, 0x9a, 0x98, 0x59, 0x15, 0x88 } };
+
+constexpr uint32_t g_ps_fog_0x3B177042_hash = 0x3B177042;
+constexpr GUID g_ps_fog_0x3B177042_guid = { 0x3897d2ee, 0xb12, 0x4dfc, { 0xa8, 0xa0, 0xae, 0x50, 0x1e, 0x17, 0x3c, 0x3 } };
+
+constexpr uint32_t g_ps_fog_0xEB7BE1D6_hash = 0xEB7BE1D6;
+constexpr GUID g_ps_fog_0xEB7BE1D6_guid = { 0x9eaab4f0, 0x8224, 0x4a26, { 0xa4, 0x11, 0x2a, 0x98, 0x9f, 0x7d, 0xb8, 0xaf } };
+
+constexpr uint32_t g_ps_fog_0xF5E21918_hash = 0xF5E21918;
+constexpr GUID g_ps_fog_0xF5E21918_guid = { 0x973eae08, 0x71f3, 0x492a, { 0x94, 0xe7, 0x94, 0xb, 0x15, 0xe8, 0x7b, 0xbc } };
+
+constexpr uint32_t g_ps_ceiling_debris_0xDC232D31_hash = 0xDC232D31;
+constexpr GUID g_ps_ceiling_debris_0xDC232D31_guid = { 0xa7cc6654, 0xa644, 0x4908, { 0xb1, 0xf4, 0x6a, 0x9e, 0x59, 0x84, 0xf8, 0xb5 } };
+
+constexpr uint32_t g_ps_r_glass_door_0x59018C97_hash = 0x59018C97;
+constexpr GUID g_ps_r_glass_door_0x59018C97_guid = { 0x83c202f5, 0x2883, 0x4f24, { 0x83, 0xdb, 0x1c, 0x6e, 0xb3, 0x72, 0x6, 0x7 } };
+
+constexpr uint32_t g_ps_godrays_0xE689FDF8_hash = 0xE689FDF8;
+constexpr GUID g_ps_godrays_0xE689FDF8_guid = { 0xeda804e9, 0xb9ab, 0x487e, { 0xa9, 0x45, 0x6a, 0xf2, 0x6e, 0xd5, 0x81, 0xef } };
+
+constexpr uint32_t g_ps_flashing_images_0x7862AA89_hash = 0x7862AA89;
+constexpr GUID g_ps_flashing_images_0x7862AA89_guid = { 0xb012ee87, 0x13a1, 0x4c5f, { 0x8a, 0xc4, 0x5b, 0x14, 0x70, 0xc4, 0x66, 0x65 } };
+
+constexpr uint32_t g_ps_bloom_downsample_0xB51C436B_hash = 0xB51C436B;
+constexpr GUID g_ps_bloom_downsample_0xB51C436B_guid = { 0xf6b85c15, 0x7efe, 0x4504, { 0x9a, 0xa5, 0xd7, 0xa9, 0x31, 0x7, 0xc, 0xb3 } };
+
+constexpr uint32_t g_ps_bloom_0xB1DCCAE7_hash = 0xB1DCCAE7;
+constexpr GUID g_ps_bloom_0xB1DCCAE7_guid = { 0x83883084, 0x9396, 0x4368, { 0xac, 0x72, 0x12, 0x74, 0xe9, 0x65, 0x25, 0x2a } };
+
+constexpr uint32_t g_ps_bloom_0x1A782DB1_hash = 0x1A782DB1;
+constexpr GUID g_ps_bloom_0x1A782DB1_guid = { 0x7f42b436, 0x268d, 0x4967, { 0xa5, 0xf, 0x0, 0x4b, 0x9f, 0x47, 0x5d, 0x45 } };
+
+constexpr uint32_t g_ps_bloom_0xBD24CC87_hash = 0xBD24CC87;
+constexpr GUID g_ps_bloom_0xBD24CC87_guid = { 0x96e8e31a, 0x856c, 0x4044, { 0xa6, 0xc2, 0xda, 0x22, 0xfe, 0x9b, 0xe2, 0xd5 } };
+
+constexpr uint32_t g_ps_tonemap_0x87A0B43D_hash = 0x87A0B43D;
+constexpr GUID g_ps_tonemap_0x87A0B43D_guid = { 0x476ef3b9, 0xe14e, 0x49f2, { 0xa6, 0x5c, 0x8c, 0x7a, 0x41, 0xd4, 0xa6, 0x12 } };
+static Com_ptr<ID3D10PixelShader> g_ps_tonemap_0x87A0B43D;
+
+//
+
 static UINT g_swapchain_width;
 static UINT g_swapchain_height;
-
-// Constant buffer.
-static CB_graphical_upgrade_data g_cb_garphical_upgrade_data;
-static Com_ptr<ID3D10Buffer> g_cb_graphical_upgrade;
-
+static CB_graphical_upgrade_data g_cb_data;
+static Com_ptr<ID3D10Buffer> g_cb;
 static Com_ptr<ID3D10VertexShader> g_vs_fullscreen_triangle;
-
-// Fog (1).
-constexpr uint32_t g_ps_0xB69D6558_hash = 0xB69D6558;
-constexpr GUID g_ps_0xB69D6558_guid = { 0x6920fbb, 0xcfa4, 0x48b8, { 0x94, 0xf9, 0x80, 0x7, 0x83, 0xe2, 0xbc, 0xfb } };
-
-// Fog (2).
-constexpr uint32_t g_ps_0xE2683E33_hash = 0xE2683E33;
-constexpr GUID g_ps_0xE2683E33_guid = { 0x7bc430f7, 0x5db5, 0x4b25, { 0x83, 0x90, 0xc8, 0x9c, 0x74, 0xc5, 0xa7, 0xf } };
-
-// Fog (3).
-constexpr uint32_t g_ps_0xC907CF9A_hash = 0xC907CF9A;
-constexpr GUID g_ps_0xC907CF9A_guid = { 0x4875f184, 0xadee, 0x4f40, { 0xb6, 0xf5, 0xfa, 0xf8, 0x54, 0xcd, 0xb4, 0x15 } };
-
-// Fog (4).
-constexpr uint32_t g_ps_0x9CFB96DA_hash = 0x9CFB96DA;
-constexpr GUID g_ps_0x9CFB96DA_guid = { 0xfd87086, 0xb29a, 0x4c23, { 0xa9, 0x30, 0x8e, 0x9a, 0x98, 0x59, 0x15, 0x88 } };
-
-// Fog (5).
-constexpr uint32_t g_ps_0x3B177042_hash = 0x3B177042;
-constexpr GUID g_ps_0x3B177042_guid = { 0x3897d2ee, 0xb12, 0x4dfc, { 0xa8, 0xa0, 0xae, 0x50, 0x1e, 0x17, 0x3c, 0x3 } };
-
-// Fog (6).
-constexpr uint32_t g_ps_0xEB7BE1D6_hash = 0xEB7BE1D6;
-constexpr GUID g_ps_0xEB7BE1D6_guid = { 0x9eaab4f0, 0x8224, 0x4a26, { 0xa4, 0x11, 0x2a, 0x98, 0x9f, 0x7d, 0xb8, 0xaf } };
-
-// Fog (7).
-constexpr uint32_t g_ps_0xF5E21918_hash = 0xF5E21918;
-constexpr GUID g_ps_0xF5E21918_guid = { 0x973eae08, 0x71f3, 0x492a, { 0x94, 0xe7, 0x94, 0xb, 0x15, 0xe8, 0x7b, 0xbc } };
-
-// Ceiling debris.
-constexpr uint32_t g_ps_0xDC232D31_hash = 0xDC232D31;
-constexpr GUID g_ps_0xDC232D31_guid = { 0xa7cc6654, 0xa644, 0x4908, { 0xb1, 0xf4, 0x6a, 0x9e, 0x59, 0x84, 0xf8, 0xb5 } };
-
-// "R" glass door.
-constexpr uint32_t g_ps_0x59018C97_hash = 0x59018C97;
-constexpr GUID g_ps_0x59018C97_guid = { 0x83c202f5, 0x2883, 0x4f24, { 0x83, 0xdb, 0x1c, 0x6e, 0xb3, 0x72, 0x6, 0x7 } };
-
-// Godrays.
-constexpr uint32_t g_ps_0xE689FDF8_hash = 0xE689FDF8;
-constexpr GUID g_ps_0xE689FDF8_guid = { 0xeda804e9, 0xb9ab, 0x487e, { 0xa9, 0x45, 0x6a, 0xf2, 0x6e, 0xd5, 0x81, 0xef } };
-
-// Flashing images.
-constexpr uint32_t g_ps_0x7862AA89_hash = 0x7862AA89;
-constexpr GUID g_ps_0x7862AA89_guid = { 0xb012ee87, 0x13a1, 0x4c5f, { 0x8a, 0xc4, 0x5b, 0x14, 0x70, 0xc4, 0x66, 0x65 } };
-
-// Bloom downsample.
-constexpr uint32_t g_ps_0xB51C436B_hash = 0xB51C436B;
-constexpr GUID g_ps_0xB51C436B_guid = { 0xf6b85c15, 0x7efe, 0x4504, { 0x9a, 0xa5, 0xd7, 0xa9, 0x31, 0x7, 0xc, 0xb3 } };
-static Com_ptr<ID3D10PixelShader> g_ps_0xB51C436B;
-
-// Bloom (1).
-constexpr uint32_t g_ps_0xB1DCCAE7_hash = 0xB1DCCAE7;
-constexpr GUID g_ps_0xB1DCCAE7_guid = { 0x83883084, 0x9396, 0x4368, { 0xac, 0x72, 0x12, 0x74, 0xe9, 0x65, 0x25, 0x2a } };
-
-// Bloom (2).
-constexpr uint32_t g_ps_0x1A782DB1_hash = 0x1A782DB1;
-constexpr GUID g_ps_0x1A782DB1_guid = { 0x7f42b436, 0x268d, 0x4967, { 0xa5, 0xf, 0x0, 0x4b, 0x9f, 0x47, 0x5d, 0x45 } };
-
-// Bloom (3).
-constexpr uint32_t g_ps_0xBD24CC87_hash = 0xBD24CC87;
-constexpr GUID g_ps_0xBD24CC87_guid = { 0x96e8e31a, 0x856c, 0x4044, { 0xa6, 0xc2, 0xda, 0x22, 0xfe, 0x9b, 0xe2, 0xd5 } };
-
-// Tone mapping.
-// The last shader before UI.
-constexpr uint32_t g_ps_0x87A0B43D_hash = 0x87A0B43D;
-constexpr GUID g_ps_0x87A0B43D_guid = { 0x476ef3b9, 0xe14e, 0x49f2, { 0xa6, 0x5c, 0x8c, 0x7a, 0x41, 0xd4, 0xa6, 0x12 } };
-static Com_ptr<ID3D10PixelShader> g_ps_0x87A0B43D;
-
 static Com_ptr<ID3D10ShaderResourceView> g_srv_depth;
 
 // SMAA
@@ -234,13 +218,10 @@ static Com_ptr<ID3D10BlendState> g_blend_bloom;
 static Com_ptr<ID3D10Buffer> g_cb_bloom;
 static int g_bloom_nmips = 6;
 static std::vector<float> g_bloom_sigmas;
-
-// enum TRC_
-static int g_trc = TRC_GAMMA;
-
-static float g_gamma = 2.2f;
-
 static float g_bloom_intensity = 1.0f;
+
+static TRC g_trc = TRC_GAMMA;
+static float g_gamma = 2.2f;
 
 // FPS Limiter
 //
@@ -707,11 +688,10 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 	//
 	// The order doesn't matter, this will be equivalent to the logical OR.
 
-	// 0xB69D6558 fog (1)
 	uint32_t hash;
 	UINT size = sizeof(hash);
-	auto hr = ps->GetPrivateData(g_ps_0xB69D6558_guid, &size, &hash);
-	if (SUCCEEDED(hr) && hash == g_ps_0xB69D6558_hash) {
+	auto hr = ps->GetPrivateData(g_ps_fog_0xB69D6558_guid, &size, &hash);
+	if (SUCCEEDED(hr) && hash == g_ps_fog_0xB69D6558_hash) {
 		// We expect RTV to be the main scene.
 		Com_ptr<ID3D10RenderTargetView> rtv_original;
 		device->OMGetRenderTargets(1, rtv_original.put(), nullptr);
@@ -731,16 +711,12 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 		draw_xegtao(device, &rtv_original);
 		is_xegtao_drawn = true;
 
-		// Draw the original shader.
-		cmd_list->draw_indexed(index_count, instance_count, first_index, vertex_offset, first_instance);
-
-		return true;
+		return false;
 	}
 
-	// 0xE2683E33 fog (2)
 	size = sizeof(hash);
-	hr = ps->GetPrivateData(g_ps_0xE2683E33_guid, &size, &hash);
-	if (SUCCEEDED(hr) && hash == g_ps_0xE2683E33_hash) {
+	hr = ps->GetPrivateData(g_ps_fog_0xE2683E33_guid, &size, &hash);
+	if (SUCCEEDED(hr) && hash == g_ps_fog_0xE2683E33_hash) {
 		// We expect RTV to be the main scene.
 		Com_ptr<ID3D10RenderTargetView> rtv_original;
 		device->OMGetRenderTargets(1, rtv_original.put(), nullptr);
@@ -760,16 +736,12 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 		draw_xegtao(device, &rtv_original);
 		is_xegtao_drawn = true;
 
-		// Draw the original shader.
-		cmd_list->draw_indexed(index_count, instance_count, first_index, vertex_offset, first_instance);
-
-		return true;
+		return false;
 	}
 
-	// 0xC907CF9A fog (3)
 	size = sizeof(hash);
-	hr = ps->GetPrivateData(g_ps_0xC907CF9A_guid, &size, &hash);
-	if (SUCCEEDED(hr) && hash == g_ps_0xC907CF9A_hash) {
+	hr = ps->GetPrivateData(g_ps_fog_0xC907CF9A_guid, &size, &hash);
+	if (SUCCEEDED(hr) && hash == g_ps_fog_0xC907CF9A_hash) {
 		// We expect RTV to be the main scene.
 		Com_ptr<ID3D10RenderTargetView> rtv_original;
 		device->OMGetRenderTargets(1, rtv_original.put(), nullptr);
@@ -789,16 +761,12 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 		draw_xegtao(device, &rtv_original);
 		is_xegtao_drawn = true;
 
-		// Draw the original shader.
-		cmd_list->draw_indexed(index_count, instance_count, first_index, vertex_offset, first_instance);
-
-		return true;
+		return false;
 	}
 
-	// 0x9CFB96DA fog (4)
 	size = sizeof(hash);
-	hr = ps->GetPrivateData(g_ps_0x9CFB96DA_guid, &size, &hash);
-	if (SUCCEEDED(hr) && hash == g_ps_0x9CFB96DA_hash) {
+	hr = ps->GetPrivateData(g_ps_fog_0x9CFB96DA_guid, &size, &hash);
+	if (SUCCEEDED(hr) && hash == g_ps_fog_0x9CFB96DA_hash) {
 		// We expect RTV to be the main scene.
 		Com_ptr<ID3D10RenderTargetView> rtv_original;
 		device->OMGetRenderTargets(1, rtv_original.put(), nullptr);
@@ -818,16 +786,12 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 		draw_xegtao(device, &rtv_original);
 		is_xegtao_drawn = true;
 
-		// Draw the original shader.
-		cmd_list->draw_indexed(index_count, instance_count, first_index, vertex_offset, first_instance);
-
-		return true;
+		return false;
 	}
 
-	// 0x3B177042 fog (5)
 	size = sizeof(hash);
-	hr = ps->GetPrivateData(g_ps_0x3B177042_guid, &size, &hash);
-	if (SUCCEEDED(hr) && hash == g_ps_0x3B177042_hash) {
+	hr = ps->GetPrivateData(g_ps_fog_0x3B177042_guid, &size, &hash);
+	if (SUCCEEDED(hr) && hash == g_ps_fog_0x3B177042_hash) {
 		// We expect RTV to be the main scene.
 		Com_ptr<ID3D10RenderTargetView> rtv_original;
 		device->OMGetRenderTargets(1, rtv_original.put(), nullptr);
@@ -847,16 +811,12 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 		draw_xegtao(device, &rtv_original);
 		is_xegtao_drawn = true;
 
-		// Draw the original shader.
-		cmd_list->draw_indexed(index_count, instance_count, first_index, vertex_offset, first_instance);
-
-		return true;
+		return false;
 	}
 
-	// 0xEB7BE1D6 fog (6)
 	size = sizeof(hash);
-	hr = ps->GetPrivateData(g_ps_0xEB7BE1D6_guid, &size, &hash);
-	if (SUCCEEDED(hr) && hash == g_ps_0xEB7BE1D6_hash) {
+	hr = ps->GetPrivateData(g_ps_fog_0xEB7BE1D6_guid, &size, &hash);
+	if (SUCCEEDED(hr) && hash == g_ps_fog_0xEB7BE1D6_hash) {
 		// We expect RTV to be the main scene.
 		Com_ptr<ID3D10RenderTargetView> rtv_original;
 		device->OMGetRenderTargets(1, rtv_original.put(), nullptr);
@@ -876,16 +836,12 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 		draw_xegtao(device, &rtv_original);
 		is_xegtao_drawn = true;
 
-		// Draw the original shader.
-		cmd_list->draw_indexed(index_count, instance_count, first_index, vertex_offset, first_instance);
-
-		return true;
+		return false;
 	}
 
-	// 0xF5E21918 fog (7)
 	size = sizeof(hash);
-	hr = ps->GetPrivateData(g_ps_0xF5E21918_guid, &size, &hash);
-	if (SUCCEEDED(hr) && hash == g_ps_0xF5E21918_hash) {
+	hr = ps->GetPrivateData(g_ps_fog_0xF5E21918_guid, &size, &hash);
+	if (SUCCEEDED(hr) && hash == g_ps_fog_0xF5E21918_hash) {
 		// We expect RTV to be the main scene.
 		Com_ptr<ID3D10RenderTargetView> rtv_original;
 		device->OMGetRenderTargets(1, rtv_original.put(), nullptr);
@@ -905,16 +861,12 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 		draw_xegtao(device, &rtv_original);
 		is_xegtao_drawn = true;
 
-		// Draw the original shader.
-		cmd_list->draw_indexed(index_count, instance_count, first_index, vertex_offset, first_instance);
-
-		return true;
+		return false;
 	}
 
-	// 0xDC232D31 ceiling debris
 	size = sizeof(hash);
-	hr = ps->GetPrivateData(g_ps_0xDC232D31_guid, &size, &hash);
-	if (SUCCEEDED(hr) && hash == g_ps_0xDC232D31_hash) {
+	hr = ps->GetPrivateData(g_ps_ceiling_debris_0xDC232D31_guid, &size, &hash);
+	if (SUCCEEDED(hr) && hash == g_ps_ceiling_debris_0xDC232D31_hash) {
 		// We expect RTV to be the main scene.
 		Com_ptr<ID3D10RenderTargetView> rtv_original;
 		device->OMGetRenderTargets(1, rtv_original.put(), nullptr);
@@ -934,16 +886,12 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 		draw_xegtao(device, rtv_original.put());
 		is_xegtao_drawn = true;
 
-		// Draw the original shader.
-		cmd_list->draw_indexed(index_count, instance_count, first_index, vertex_offset, first_instance);
-
-		return true;
+		return false;
 	}
 
-	// 0x59018C97 "R" glass door
 	size = sizeof(hash);
-	hr = ps->GetPrivateData(g_ps_0x59018C97_guid, &size, &hash);
-	if (SUCCEEDED(hr) && hash == g_ps_0x59018C97_hash) {
+	hr = ps->GetPrivateData(g_ps_r_glass_door_0x59018C97_guid, &size, &hash);
+	if (SUCCEEDED(hr) && hash == g_ps_r_glass_door_0x59018C97_hash) {
 		// We expect RTV to be the main scene.
 		Com_ptr<ID3D10RenderTargetView> rtv_original;
 		device->OMGetRenderTargets(1, rtv_original.put(), nullptr);
@@ -963,16 +911,12 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 		draw_xegtao(device, &rtv_original);
 		is_xegtao_drawn = true;
 
-		// Draw the original shader.
-		cmd_list->draw_indexed(index_count, instance_count, first_index, vertex_offset, first_instance);
-
-		return true;
+		return false;
 	}
 
-	// 0xE689FDF8 godrays
 	size = sizeof(hash);
-	hr = ps->GetPrivateData(g_ps_0xE689FDF8_guid, &size, &hash);
-	if (SUCCEEDED(hr) && hash == g_ps_0xE689FDF8_hash) {
+	hr = ps->GetPrivateData(g_ps_godrays_0xE689FDF8_guid, &size, &hash);
+	if (SUCCEEDED(hr) && hash == g_ps_godrays_0xE689FDF8_hash) {
 		// We expect RTV to be the main scene.
 		Com_ptr<ID3D10RenderTargetView> rtv_original;
 		device->OMGetRenderTargets(1, rtv_original.put(), nullptr);
@@ -992,16 +936,12 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 		draw_xegtao(device, &rtv_original);
 		is_xegtao_drawn = true;
 
-		// Draw the original shader.
-		cmd_list->draw_indexed(index_count, instance_count, first_index, vertex_offset, first_instance);
-
-		return true;
+		return false;
 	}
 
-	// 0x7862AA89 flashing images
 	size = sizeof(hash);
-	hr = ps->GetPrivateData(g_ps_0x7862AA89_guid, &size, &hash);
-	if (SUCCEEDED(hr) && hash == g_ps_0x7862AA89_hash) {
+	hr = ps->GetPrivateData(g_ps_flashing_images_0x7862AA89_guid, &size, &hash);
+	if (SUCCEEDED(hr) && hash == g_ps_flashing_images_0x7862AA89_hash) {
 		// We expect RTV to be the main scene.
 		Com_ptr<ID3D10RenderTargetView> rtv_original;
 		device->OMGetRenderTargets(1, rtv_original.put(), nullptr);
@@ -1024,10 +964,7 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 		draw_xegtao(device, &rtv_original);
 		is_xegtao_drawn = true;
 
-		// Draw the original shader.
-		cmd_list->draw_indexed(index_count, instance_count, first_index, vertex_offset, first_instance);
-
-		return true;
+		return false;
 	}
 
 	return false;
@@ -1051,11 +988,10 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 	//
 	// The order doesn't matter, this will be equivalent to the logical OR.
 
-	// 0xE2683E33 fog (2)
 	uint32_t hash;
 	UINT size = sizeof(hash);
-	auto hr = ps->GetPrivateData(g_ps_0xE2683E33_guid, &size, &hash);
-	if (g_xegtao_enable && !is_xegtao_drawn && SUCCEEDED(hr) && hash == g_ps_0xE2683E33_hash) {
+	auto hr = ps->GetPrivateData(g_ps_fog_0xE2683E33_guid, &size, &hash);
+	if (g_xegtao_enable && !is_xegtao_drawn && SUCCEEDED(hr) && hash == g_ps_fog_0xE2683E33_hash) {
 		// We expect RTV to be the main scene.
 		Com_ptr<ID3D10RenderTargetView> rtv_original;
 		device->OMGetRenderTargets(1, rtv_original.put(), nullptr);
@@ -1075,16 +1011,13 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		draw_xegtao(device, &rtv_original);
 		is_xegtao_drawn = true;
 
-		// Draw the original shader.
-		cmd_list->draw(vertex_count, instance_count, first_vertex, first_instance);
-
-		return true;
+		return false;
 	}
 
-	// 0xB51C436B bloom downsample
 	size = sizeof(hash);
-	hr = ps->GetPrivateData(g_ps_0xB51C436B_guid, &size, &hash);
-	if (SUCCEEDED(hr) && hash == g_ps_0xB51C436B_hash) {
+	hr = ps->GetPrivateData(g_ps_bloom_downsample_0xB51C436B_guid, &size, &hash);
+	if (SUCCEEDED(hr) && hash == g_ps_bloom_downsample_0xB51C436B_hash) {
+		// Draw XeGTAO.
 		if (g_xegtao_enable && !is_xegtao_drawn) {
 			// We expect SRV to be the main scene.
 			Com_ptr<ID3D10ShaderResourceView> srv_original;
@@ -1099,35 +1032,33 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 			draw_xegtao(device, &rtv);
 			is_xegtao_drawn = true;
 		}
+
 		device->PSGetConstantBuffers(0, 1, g_cb_bloom.put());
+		
+		return false;
+	}
+
+	size = sizeof(hash);
+	hr = ps->GetPrivateData(g_ps_bloom_0xB1DCCAE7_guid, &size, &hash);
+	if (SUCCEEDED(hr) && hash == g_ps_bloom_0xB1DCCAE7_hash) {
 		return true;
 	}
 
-	// Bloom (1)
 	size = sizeof(hash);
-	hr = ps->GetPrivateData(g_ps_0xB1DCCAE7_guid, &size, &hash);
-	if (SUCCEEDED(hr) && hash == g_ps_0xB1DCCAE7_hash) {
+	hr = ps->GetPrivateData(g_ps_bloom_0x1A782DB1_guid, &size, &hash);
+	if (SUCCEEDED(hr) && hash == g_ps_bloom_0x1A782DB1_hash) {
 		return true;
 	}
 
-	// Bloom (2)
 	size = sizeof(hash);
-	hr = ps->GetPrivateData(g_ps_0x1A782DB1_guid, &size, &hash);
-	if (SUCCEEDED(hr) && hash == g_ps_0x1A782DB1_hash) {
+	hr = ps->GetPrivateData(g_ps_bloom_0xBD24CC87_guid, &size, &hash);
+	if (SUCCEEDED(hr) && hash == g_ps_bloom_0xBD24CC87_hash) {
 		return true;
 	}
 
-	// Bloom (3)
 	size = sizeof(hash);
-	hr = ps->GetPrivateData(g_ps_0xBD24CC87_guid, &size, &hash);
-	if (SUCCEEDED(hr) && hash == g_ps_0xBD24CC87_hash) {
-		return true;
-	}
-
-	// 0x87A0B43D tone mapping
-	size = sizeof(hash);
-	hr = ps->GetPrivateData(g_ps_0x87A0B43D_guid, &size, &hash);
-	if (SUCCEEDED(hr) && hash == g_ps_0x87A0B43D_hash) {
+	hr = ps->GetPrivateData(g_ps_tonemap_0x87A0B43D_guid, &size, &hash);
+	if (SUCCEEDED(hr) && hash == g_ps_tonemap_0x87A0B43D_hash) {
 
 		device->PSGetConstantBuffers(0, 1, g_cb_tonemap.put());
 
@@ -1259,8 +1190,8 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		}
 
 		// Create constant buffer.
-		[[unlikely]] if (!g_cb_graphical_upgrade) {
-			create_constant_buffer(device, g_cb_graphical_upgrade.put(), sizeof(g_cb_garphical_upgrade_data));
+		[[unlikely]] if (!g_cb) {
+			create_constant_buffer(device, g_cb.put(), sizeof(g_cb_data));
 		}
 
 		D3D10_VIEWPORT viewport_x = {};
@@ -1268,19 +1199,19 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		viewport_x.Height = x_mip0_height;
 
 		// Update CB.
-		g_cb_garphical_upgrade_data.src_size = float2(g_swapchain_width, g_swapchain_height);
-		g_cb_garphical_upgrade_data.inv_src_size.x = 1.0f / g_cb_garphical_upgrade_data.src_size.x;
-		g_cb_garphical_upgrade_data.inv_src_size.y = 1.0f / g_cb_garphical_upgrade_data.src_size.y;
-		g_cb_garphical_upgrade_data.axis = float2(1.0f, 0.0f);
-		g_cb_garphical_upgrade_data.sigma = g_bloom_sigmas[0];
-		update_constant_buffer(g_cb_graphical_upgrade.get(), &g_cb_garphical_upgrade_data, sizeof(g_cb_garphical_upgrade_data));
+		g_cb_data.src_size = float2(g_swapchain_width, g_swapchain_height);
+		g_cb_data.inv_src_size.x = 1.0f / g_cb_data.src_size.x;
+		g_cb_data.inv_src_size.y = 1.0f / g_cb_data.src_size.y;
+		g_cb_data.axis = float2(1.0f, 0.0f);
+		g_cb_data.sigma = g_bloom_sigmas[0];
+		update_constant_buffer(g_cb.get(), &g_cb_data, sizeof(g_cb_data));
 
 		// Bindings.
 		device->OMSetRenderTargets(1, &rtv_mips_x[0], nullptr);
 		device->VSSetShader(g_vs_fullscreen_triangle.get());
 		device->PSSetShader(g_ps_bloom_downsample.get());
 		device->PSSetConstantBuffers(12, 1, &g_cb_bloom);
-		device->PSSetConstantBuffers(13, 1, &g_cb_graphical_upgrade);
+		device->PSSetConstantBuffers(13, 1, &g_cb);
 		device->PSSetShaderResources(0, 1, &srv_scene);
 		device->RSSetViewports(1, &viewport_x);
 
@@ -1292,11 +1223,11 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		viewports_y[0].Height = y_mip0_height;
 
 		// Update CB.
-		g_cb_garphical_upgrade_data.src_size = float2(x_mip0_width, x_mip0_height);
-		g_cb_garphical_upgrade_data.axis = float2(0.0f, 1.0f);
-		g_cb_garphical_upgrade_data.inv_src_size.x = 1.0f / g_cb_garphical_upgrade_data.src_size.x;
-		g_cb_garphical_upgrade_data.inv_src_size.y = 1.0f / g_cb_garphical_upgrade_data.src_size.y;
-		update_constant_buffer(g_cb_graphical_upgrade.get(), &g_cb_garphical_upgrade_data, sizeof(g_cb_garphical_upgrade_data));
+		g_cb_data.src_size = float2(x_mip0_width, x_mip0_height);
+		g_cb_data.axis = float2(0.0f, 1.0f);
+		g_cb_data.inv_src_size.x = 1.0f / g_cb_data.src_size.x;
+		g_cb_data.inv_src_size.y = 1.0f / g_cb_data.src_size.y;
+		update_constant_buffer(g_cb.get(), &g_cb_data, sizeof(g_cb_data));
 
 		// Bindings.
 		device->OMSetRenderTargets(1, &rtv_mips_y[0], nullptr);
@@ -1321,12 +1252,12 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 			viewport_x.Height = std::max(1u, x_mip0_height >> i);
 
 			// Update CB.
-			g_cb_garphical_upgrade_data.src_size = float2(viewports_y[i - 1].Width, viewports_y[i - 1].Height);
-			g_cb_garphical_upgrade_data.axis = float2(1.0f, 0.0f);
-			g_cb_garphical_upgrade_data.inv_src_size.x = 1.0f / g_cb_garphical_upgrade_data.src_size.x;
-			g_cb_garphical_upgrade_data.inv_src_size.y = 1.0f / g_cb_garphical_upgrade_data.src_size.y;
-			g_cb_garphical_upgrade_data.sigma = g_bloom_sigmas[i];
-			update_constant_buffer(g_cb_graphical_upgrade.get(), &g_cb_garphical_upgrade_data, sizeof(g_cb_garphical_upgrade_data));
+			g_cb_data.src_size = float2(viewports_y[i - 1].Width, viewports_y[i - 1].Height);
+			g_cb_data.axis = float2(1.0f, 0.0f);
+			g_cb_data.inv_src_size.x = 1.0f / g_cb_data.src_size.x;
+			g_cb_data.inv_src_size.y = 1.0f / g_cb_data.src_size.y;
+			g_cb_data.sigma = g_bloom_sigmas[i];
+			update_constant_buffer(g_cb.get(), &g_cb_data, sizeof(g_cb_data));
 
 			// Bindings.
 		    device->OMSetRenderTargets(1, &rtv_mips_x[i], nullptr);
@@ -1340,11 +1271,11 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 			viewports_y[i].Height = std::max(1u, y_mip0_height >> i);
 
 			// Update CB.
-			g_cb_garphical_upgrade_data.src_size = float2(viewport_x.Width, viewport_x.Height);
-			g_cb_garphical_upgrade_data.axis = float2(0.0f, 1.0f);
-			g_cb_garphical_upgrade_data.inv_src_size.x = 1.0f / g_cb_garphical_upgrade_data.src_size.x;
-			g_cb_garphical_upgrade_data.inv_src_size.y = 1.0f / g_cb_garphical_upgrade_data.src_size.y;
-			update_constant_buffer(g_cb_graphical_upgrade.get(), &g_cb_garphical_upgrade_data, sizeof(g_cb_garphical_upgrade_data));
+			g_cb_data.src_size = float2(viewport_x.Width, viewport_x.Height);
+			g_cb_data.axis = float2(0.0f, 1.0f);
+			g_cb_data.inv_src_size.x = 1.0f / g_cb_data.src_size.x;
+			g_cb_data.inv_src_size.y = 1.0f / g_cb_data.src_size.y;
+			update_constant_buffer(g_cb.get(), &g_cb_data, sizeof(g_cb_data));
 
 			// Bindings.
 		    device->OMSetRenderTargets(1, &rtv_mips_y[i], nullptr);
@@ -1385,10 +1316,10 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 			static constexpr float blend_factor[] = { 0.5f, 0.5f, 0.5f, 0.0f };
 
 			// Update CB.
-			g_cb_garphical_upgrade_data.src_size = float2(viewports_y[i].Width, viewports_y[i].Height);
-			g_cb_garphical_upgrade_data.inv_src_size.x = 1.0f / g_cb_garphical_upgrade_data.src_size.x;
-			g_cb_garphical_upgrade_data.inv_src_size.y = 1.0f / g_cb_garphical_upgrade_data.src_size.y;
-			update_constant_buffer(g_cb_graphical_upgrade.get(), &g_cb_garphical_upgrade_data, sizeof(g_cb_garphical_upgrade_data));
+			g_cb_data.src_size = float2(viewports_y[i].Width, viewports_y[i].Height);
+			g_cb_data.inv_src_size.x = 1.0f / g_cb_data.src_size.x;
+			g_cb_data.inv_src_size.y = 1.0f / g_cb_data.src_size.y;
+			update_constant_buffer(g_cb.get(), &g_cb_data, sizeof(g_cb_data));
 
 			// Bindings.
 			device->OMSetRenderTargets(1, &rtv_mips_y[i - 1], nullptr);
@@ -1403,11 +1334,11 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 
 		//
 
-		// 0x87A0B43D pass
+		// Tonemap_0x87A0B43D pass
 		//
 
 		// Create PS.
-		[[unlikely]] if (!g_ps_0x87A0B43D) {
+		[[unlikely]] if (!g_ps_tonemap_0x87A0B43D) {
 			const std::string bloom_intensity_str = std::to_string(g_bloom_intensity);
 			const std::string srgb_str = g_trc == TRC_SRGB ? "SRGB" : "";
 			const std::string gamma_str = std::to_string(g_gamma);
@@ -1417,7 +1348,7 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 				{ "GAMMA", gamma_str.c_str() },
 				{ nullptr, nullptr }
 			};
-			create_pixel_shader(device, g_ps_0x87A0B43D.put(), L"0x87A0B43D_ps.hlsl", "main", defines);
+			create_pixel_shader(device, g_ps_tonemap_0x87A0B43D.put(), L"Tonemap_0x87A0B43D_ps.hlsl", "main", defines);
 		}
 
 		// Create RTs and views.
@@ -1451,7 +1382,7 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		const std::array rtvs_0x87A0B43D = { rtv_0x87A0B43D_linear.get(), rtv_0x87A0B43D_delinearized.get() };
 		device->OMSetRenderTargets(rtvs_0x87A0B43D.size(), rtvs_0x87A0B43D.data(), nullptr);
 		device->VSSetShader(vs_original.get());
-		device->PSSetShader(g_ps_0x87A0B43D.get());
+		device->PSSetShader(g_ps_tonemap_0x87A0B43D.get());
 		const std::array srvs_0x87A0B43D = { srv_scene.get(), srv_mips_y[0] };
 		device->PSSetShaderResources(0, srvs_0x87A0B43D.size(), srvs_0x87A0B43D.data());
 		device->RSSetViewports(1, &viewport);
@@ -1680,8 +1611,8 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		}
 
 		// Create constant buffer.
-		[[unlikely]] if (!g_cb_graphical_upgrade) {
-			create_constant_buffer(device, g_cb_graphical_upgrade.put(), sizeof(g_cb_garphical_upgrade_data));
+		[[unlikely]] if (!g_cb) {
+			create_constant_buffer(device, g_cb.put(), sizeof(g_cb_data));
 		}
 
 		// Create blue noise texture.
@@ -1700,11 +1631,11 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		static auto last_update = std::chrono::high_resolution_clock::now();
 		const auto now = std::chrono::high_resolution_clock::now();
 		if (now - last_update >= interval) {
-			g_cb_garphical_upgrade_data.tex_noise_index += 1.0f;
-			if (g_cb_garphical_upgrade_data.tex_noise_index >= (float)BLUE_NOISE_TEX_ARRAY_SIZE) {
-				g_cb_garphical_upgrade_data.tex_noise_index = 0.0f;
+			g_cb_data.tex_noise_index += 1.0f;
+			if (g_cb_data.tex_noise_index >= (float)BLUE_NOISE_TEX_ARRAY_SIZE) {
+				g_cb_data.tex_noise_index = 0.0f;
 			}
-			update_constant_buffer(g_cb_graphical_upgrade.get(), &g_cb_garphical_upgrade_data, sizeof(g_cb_garphical_upgrade_data));
+			update_constant_buffer(g_cb.get(), &g_cb_data, sizeof(g_cb_data));
 			last_update += interval;
 		}
 
@@ -1713,7 +1644,7 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 
 		device->OMSetRenderTargets(1, &rtv_original, nullptr);
 		device->PSSetShader(g_ps_amd_ffx_lfga.get());
-		device->PSSetConstantBuffers(13, 1, &g_cb_graphical_upgrade); // The game should never be using CB slot 13.
+		device->PSSetConstantBuffers(13, 1, &g_cb); // The game should never be using CB slot 13.
 		const std::array ps_srvs_amd_ffx_lfga = { srv_amd_ffx_cas.get(), g_srv_blue_noise_tex.get() };
 		device->PSSetShaderResources(0, ps_srvs_amd_ffx_lfga.size(), ps_srvs_amd_ffx_lfga.data());
 
@@ -1752,53 +1683,53 @@ static void on_init_pipeline(reshade::api::device* device, reshade::api::pipelin
 			auto desc = (reshade::api::shader_desc*)subobjects[i].data;
 			const auto hash = compute_crc32((const uint8_t*)desc->code, desc->code_size);
 			switch (hash) {
-				case g_ps_0x87A0B43D_hash:
-					ensure(((ID3D10PixelShader*)pipeline.handle)->SetPrivateData(g_ps_0x87A0B43D_guid, sizeof(g_ps_0x87A0B43D_hash), &g_ps_0x87A0B43D_hash), >= 0);
+				case g_ps_tonemap_0x87A0B43D_hash:
+					ensure(((ID3D10PixelShader*)pipeline.handle)->SetPrivateData(g_ps_tonemap_0x87A0B43D_guid, sizeof(g_ps_tonemap_0x87A0B43D_hash), &g_ps_tonemap_0x87A0B43D_hash), >= 0);
 					break;
-				case g_ps_0xB69D6558_hash:
-					ensure(((ID3D10PixelShader*)pipeline.handle)->SetPrivateData(g_ps_0xB69D6558_guid, sizeof(g_ps_0xB69D6558_hash), &g_ps_0xB69D6558_hash), >= 0);
+				case g_ps_fog_0xB69D6558_hash:
+					ensure(((ID3D10PixelShader*)pipeline.handle)->SetPrivateData(g_ps_fog_0xB69D6558_guid, sizeof(g_ps_fog_0xB69D6558_hash), &g_ps_fog_0xB69D6558_hash), >= 0);
 					break;
-				case g_ps_0xC907CF9A_hash:
-					ensure(((ID3D10PixelShader*)pipeline.handle)->SetPrivateData(g_ps_0xC907CF9A_guid, sizeof(g_ps_0xC907CF9A_hash), &g_ps_0xC907CF9A_hash), >= 0);
+				case g_ps_fog_0xC907CF9A_hash:
+					ensure(((ID3D10PixelShader*)pipeline.handle)->SetPrivateData(g_ps_fog_0xC907CF9A_guid, sizeof(g_ps_fog_0xC907CF9A_hash), &g_ps_fog_0xC907CF9A_hash), >= 0);
 					break;
-				case g_ps_0xE689FDF8_hash:
-					ensure(((ID3D10PixelShader*)pipeline.handle)->SetPrivateData(g_ps_0xE689FDF8_guid, sizeof(g_ps_0xE689FDF8_hash), &g_ps_0xE689FDF8_hash), >= 0);
+				case g_ps_godrays_0xE689FDF8_hash:
+					ensure(((ID3D10PixelShader*)pipeline.handle)->SetPrivateData(g_ps_godrays_0xE689FDF8_guid, sizeof(g_ps_godrays_0xE689FDF8_hash), &g_ps_godrays_0xE689FDF8_hash), >= 0);
 					break;
-				case g_ps_0xB51C436B_hash:
-					ensure(((ID3D10PixelShader*)pipeline.handle)->SetPrivateData(g_ps_0xB51C436B_guid, sizeof(g_ps_0xB51C436B_hash), &g_ps_0xB51C436B_hash), >= 0);
+				case g_ps_bloom_downsample_0xB51C436B_hash:
+					ensure(((ID3D10PixelShader*)pipeline.handle)->SetPrivateData(g_ps_bloom_downsample_0xB51C436B_guid, sizeof(g_ps_bloom_downsample_0xB51C436B_hash), &g_ps_bloom_downsample_0xB51C436B_hash), >= 0);
 					break;
-				case g_ps_0x9CFB96DA_hash:
-					ensure(((ID3D10PixelShader*)pipeline.handle)->SetPrivateData(g_ps_0x9CFB96DA_guid, sizeof(g_ps_0x9CFB96DA_hash), &g_ps_0x9CFB96DA_hash), >= 0);
+				case g_ps_fog_0x9CFB96DA_hash:
+					ensure(((ID3D10PixelShader*)pipeline.handle)->SetPrivateData(g_ps_fog_0x9CFB96DA_guid, sizeof(g_ps_fog_0x9CFB96DA_hash), &g_ps_fog_0x9CFB96DA_hash), >= 0);
 					break;
-				case g_ps_0x3B177042_hash:
-					ensure(((ID3D10PixelShader*)pipeline.handle)->SetPrivateData(g_ps_0x3B177042_guid, sizeof(g_ps_0x3B177042_hash), &g_ps_0x3B177042_hash), >= 0);
+				case g_ps_fog_0x3B177042_hash:
+					ensure(((ID3D10PixelShader*)pipeline.handle)->SetPrivateData(g_ps_fog_0x3B177042_guid, sizeof(g_ps_fog_0x3B177042_hash), &g_ps_fog_0x3B177042_hash), >= 0);
 					break;
-				case g_ps_0xE2683E33_hash:
-					ensure(((ID3D10PixelShader*)pipeline.handle)->SetPrivateData(g_ps_0xE2683E33_guid, sizeof(g_ps_0xE2683E33_hash), &g_ps_0xE2683E33_hash), >= 0);
+				case g_ps_fog_0xE2683E33_hash:
+					ensure(((ID3D10PixelShader*)pipeline.handle)->SetPrivateData(g_ps_fog_0xE2683E33_guid, sizeof(g_ps_fog_0xE2683E33_hash), &g_ps_fog_0xE2683E33_hash), >= 0);
 					break;
-				case g_ps_0xEB7BE1D6_hash:
-					ensure(((ID3D10PixelShader*)pipeline.handle)->SetPrivateData(g_ps_0xEB7BE1D6_guid, sizeof(g_ps_0xEB7BE1D6_hash), &g_ps_0xEB7BE1D6_hash), >= 0);
+				case g_ps_fog_0xEB7BE1D6_hash:
+					ensure(((ID3D10PixelShader*)pipeline.handle)->SetPrivateData(g_ps_fog_0xEB7BE1D6_guid, sizeof(g_ps_fog_0xEB7BE1D6_hash), &g_ps_fog_0xEB7BE1D6_hash), >= 0);
 					break;
-				case g_ps_0x59018C97_hash:
-					ensure(((ID3D10PixelShader*)pipeline.handle)->SetPrivateData(g_ps_0x59018C97_guid, sizeof(g_ps_0x59018C97_hash), &g_ps_0x59018C97_hash), >= 0);
+				case g_ps_r_glass_door_0x59018C97_hash:
+					ensure(((ID3D10PixelShader*)pipeline.handle)->SetPrivateData(g_ps_r_glass_door_0x59018C97_guid, sizeof(g_ps_r_glass_door_0x59018C97_hash), &g_ps_r_glass_door_0x59018C97_hash), >= 0);
 					break;
-				case g_ps_0xF5E21918_hash:
-					ensure(((ID3D10PixelShader*)pipeline.handle)->SetPrivateData(g_ps_0xF5E21918_guid, sizeof(g_ps_0xF5E21918_hash), &g_ps_0xF5E21918_hash), >= 0);
+				case g_ps_fog_0xF5E21918_hash:
+					ensure(((ID3D10PixelShader*)pipeline.handle)->SetPrivateData(g_ps_fog_0xF5E21918_guid, sizeof(g_ps_fog_0xF5E21918_hash), &g_ps_fog_0xF5E21918_hash), >= 0);
 					break;
-				case g_ps_0xDC232D31_hash:
-					ensure(((ID3D10PixelShader*)pipeline.handle)->SetPrivateData(g_ps_0xDC232D31_guid, sizeof(g_ps_0xDC232D31_hash), &g_ps_0xDC232D31_hash), >= 0);
+				case g_ps_ceiling_debris_0xDC232D31_hash:
+					ensure(((ID3D10PixelShader*)pipeline.handle)->SetPrivateData(g_ps_ceiling_debris_0xDC232D31_guid, sizeof(g_ps_ceiling_debris_0xDC232D31_hash), &g_ps_ceiling_debris_0xDC232D31_hash), >= 0);
 					break;
-				case g_ps_0x7862AA89_hash:
-					ensure(((ID3D10PixelShader*)pipeline.handle)->SetPrivateData(g_ps_0x7862AA89_guid, sizeof(g_ps_0x7862AA89_hash), &g_ps_0x7862AA89_hash), >= 0);
+				case g_ps_flashing_images_0x7862AA89_hash:
+					ensure(((ID3D10PixelShader*)pipeline.handle)->SetPrivateData(g_ps_flashing_images_0x7862AA89_guid, sizeof(g_ps_flashing_images_0x7862AA89_hash), &g_ps_flashing_images_0x7862AA89_hash), >= 0);
 					break;
-				case g_ps_0xB1DCCAE7_hash:
-					ensure(((ID3D10PixelShader*)pipeline.handle)->SetPrivateData(g_ps_0xB1DCCAE7_guid, sizeof(g_ps_0xB1DCCAE7_hash), &g_ps_0xB1DCCAE7_hash), >= 0);
+				case g_ps_bloom_0xB1DCCAE7_hash:
+					ensure(((ID3D10PixelShader*)pipeline.handle)->SetPrivateData(g_ps_bloom_0xB1DCCAE7_guid, sizeof(g_ps_bloom_0xB1DCCAE7_hash), &g_ps_bloom_0xB1DCCAE7_hash), >= 0);
 					break;
-				case g_ps_0x1A782DB1_hash:
-					ensure(((ID3D10PixelShader*)pipeline.handle)->SetPrivateData(g_ps_0x1A782DB1_guid, sizeof(g_ps_0x1A782DB1_hash), &g_ps_0x1A782DB1_hash), >= 0);
+				case g_ps_bloom_0x1A782DB1_hash:
+					ensure(((ID3D10PixelShader*)pipeline.handle)->SetPrivateData(g_ps_bloom_0x1A782DB1_guid, sizeof(g_ps_bloom_0x1A782DB1_hash), &g_ps_bloom_0x1A782DB1_hash), >= 0);
 					break;
-				case g_ps_0xBD24CC87_hash:
-					ensure(((ID3D10PixelShader*)pipeline.handle)->SetPrivateData(g_ps_0xBD24CC87_guid, sizeof(g_ps_0xBD24CC87_hash), &g_ps_0xBD24CC87_hash), >= 0);
+				case g_ps_bloom_0xBD24CC87_hash:
+					ensure(((ID3D10PixelShader*)pipeline.handle)->SetPrivateData(g_ps_bloom_0xBD24CC87_guid, sizeof(g_ps_bloom_0xBD24CC87_hash), &g_ps_bloom_0xBD24CC87_hash), >= 0);
 					break;
 			}
 		}
@@ -1809,6 +1740,10 @@ static bool on_create_resource(reshade::api::device* device, reshade::api::resou
 {
 	// Upgrade render targets.
 	if (((desc.usage & reshade::api::resource_usage::render_target) != 0)) {
+		if (desc.texture.format == reshade::api::format::r8g8b8a8_unorm) {
+			desc.texture.format = reshade::api::format::r16g16b16a16_unorm;
+			return true;
+		}
 		if (desc.texture.format == reshade::api::format::r11g11b10_float) {
 			desc.texture.format = reshade::api::format::r16g16b16a16_float;
 			return true;
@@ -1830,8 +1765,12 @@ static bool on_create_resource_view(reshade::api::device* device, reshade::api::
 {
 	const auto resource_desc = device->get_resource_desc(resource);
 
-	// Render targets.
+	// Try to filter only render targets that we have upgraded.
 	if ((resource_desc.usage & reshade::api::resource_usage::render_target) != 0) {
+		if (resource_desc.texture.format == reshade::api::format::r16g16b16a16_unorm) {
+			desc.format = reshade::api::format::r16g16b16a16_unorm;
+			return true;
+		}
 		if (resource_desc.texture.format == reshade::api::format::r16g16b16a16_float) {
 			desc.format = reshade::api::format::r16g16b16a16_float;
 			return true;
@@ -1906,10 +1845,9 @@ static void on_init_device(reshade::api::device* device)
 
 static void on_destroy_device(reshade::api::device *device)
 {
-	g_cb_graphical_upgrade.reset();
+	g_cb.reset();
 	g_vs_fullscreen_triangle.reset();
-	g_ps_0xB51C436B.reset();
-	g_ps_0x87A0B43D.reset();
+	g_ps_tonemap_0x87A0B43D.reset();
 	g_srv_depth.reset();
 
 	// SMAA
@@ -2036,7 +1974,7 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 	ImGui::Spacing();
 	if (ImGui::SliderFloat("Bloom Intensity", &g_bloom_intensity, 0.0f, 3.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp)) {
 		reshade::set_config_value(nullptr, "BioshockGraphicalUpgrade", "BloomIntensity", g_bloom_intensity);
-		g_ps_0x87A0B43D.reset();
+		g_ps_tonemap_0x87A0B43D.reset();
 	}
 	ImGui::Spacing();
 	if (ImGui::SliderFloat("Sharpness", &g_amd_ffx_cas_sharpness, 0.0f, 1.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp)) {
@@ -2064,7 +2002,7 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 }
 
 extern "C" __declspec(dllexport) const char* NAME = "BioshockGrapicalUpgrade";
-extern "C" __declspec(dllexport) const char* DESCRIPTION = "BioshockGrapicalUpgrade v7.0.0";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "BioshockGrapicalUpgrade v7.1.0";
 extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/BioshockGraphicalUpgrade";
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)
