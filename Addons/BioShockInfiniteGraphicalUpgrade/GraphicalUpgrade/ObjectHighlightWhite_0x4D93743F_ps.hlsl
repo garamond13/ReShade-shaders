@@ -1,5 +1,3 @@
-// Object highlight
-
 cbuffer _Globals : register(b0)
 {
   float4x4 LocalToWorld : packoffset(c0);

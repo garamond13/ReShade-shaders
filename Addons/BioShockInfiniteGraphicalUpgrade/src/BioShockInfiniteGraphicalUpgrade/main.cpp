@@ -1,19 +1,12 @@
-#include "Common.h"
-#include "Helpers.h"
-#include "AreaTex.h"
-#include "SearchTex.h"
-
 #define DEV 0
 #define OUTPUT_ASSEMBLY 0
 #define SHOW_AO 0
+#include "Helpers.h"
+#include "HLSLTypes.h"
+#include "AreaTex.h"
+#include "SearchTex.h"
 
-struct float2
-{
-	float x;
-	float y;
-};
-
-struct alignas(16) CB_graphical_upgrade_data
+struct alignas(16) CB_data
 {
    float2 src_size;
    float2 inv_src_size;
@@ -44,10 +37,7 @@ private:
 	D3D_SHADER_MACRO defines[2] = {};
 };
 
-// Path to the GraphicalUpgrade folder.
-static std::filesystem::path g_graphical_upgrade_path;
-
-// Shader hooks and replacemnt shaders.
+// Shader hooks.
 //
 
 constexpr uint32_t g_ps_depth_copy_0x496E549B_hash = 0x496E549B;
@@ -55,7 +45,6 @@ constexpr GUID g_ps_depth_copy_0x496E549B_guid = { 0xfeb12521, 0xc4fa, 0x426a, {
 
 constexpr uint32_t g_ps_tonemap_0x29D570D8_hash = 0x29D570D8;
 constexpr GUID g_ps_tonemap_0x29D570D8_guid = { 0x892b84bd, 0x1a7, 0x442c, { 0x86, 0x60, 0xcb, 0x69, 0xf0, 0xc3, 0x2e, 0x68 } };
-static Com_ptr<ID3D11PixelShader> g_ps_tonemap_0x29D570D8;
 
 constexpr uint32_t g_ps_fxaa_0x27BD2A2E_hash = 0x27BD2A2E;
 constexpr GUID g_ps_fxaa_0x27BD2A2E_guid = { 0xbedb4e98, 0x423b, 0x4d98, { 0x93, 0x6d, 0xc, 0x8a, 0xd8, 0x87, 0xde, 0x4f } };
@@ -86,22 +75,17 @@ constexpr GUID g_ps_bloom_prefilter_dof_0xAD03A911_guid = { 0x1d600368, 0x3ffd, 
 
 constexpr uint32_t g_ps_starburst_and_lens_dirt_0x2AD953ED_hash = 0x2AD953ED;
 constexpr GUID g_ps_starburst_and_lens_dirt_0x2AD953ED_guid = { 0xecdc207f, 0x2731, 0x48ea, { 0xb6, 0x48, 0x82, 0xac, 0xd5, 0xfa, 0xda, 0x60 } };
-static Com_ptr<ID3D11PixelShader> g_ps_starburst_and_lens_dirt_0x2AD953ED;
 
-constexpr uint32_t g_ps_object_highlight_0x4D93743F_hash = 0x4D93743F;
-constexpr GUID g_ps_object_highlight_0x4D93743F_guid = { 0xab06e6f6, 0x4a73, 0x490c, { 0x88, 0xd0, 0x73, 0xfe, 0xbe, 0xa7, 0x29, 0x43 } };
-static Com_ptr<ID3D11PixelShader> g_ps_object_highlight_0x4D93743F;
+constexpr uint32_t g_ps_object_highlight_white_0x4D93743F_hash = 0x4D93743F;
+constexpr GUID g_ps_object_highlight_white_0x4D93743F_guid = { 0xab06e6f6, 0x4a73, 0x490c, { 0x88, 0xd0, 0x73, 0xfe, 0xbe, 0xa7, 0x29, 0x43 } };
+constexpr uint32_t g_ps_object_highlight_red_0x61D986B8_hash = 0x61D986B8;
+constexpr GUID g_ps_object_highlight_red_0x61D986B8_guid = { 0xe180a8e2, 0x2bb, 0x48a1, { 0xab, 0xc8, 0xa3, 0xd8, 0x7a, 0x33, 0xdc, 0x4c } };
 
 //
 
 static uint32_t g_swapchain_width;
 static uint32_t g_swapchain_height;
-static Com_ptr<ID3D11ComputeShader> g_cs_linearize;
-static Com_ptr<ID3D11VertexShader> g_vs_fullscreen_triangle;
-static Com_ptr<ID3D11SamplerState> g_smp_point;
-static Com_ptr<ID3D11ShaderResourceView> g_srv_depth;
-static Com_ptr<ID3D11Buffer> g_cb;
-static CB_graphical_upgrade_data g_cb_data;
+static CB_data g_cb_data;
 static bool g_disable_lens_flare = true;
 static bool g_disable_lens_dirt = true;
 
@@ -109,12 +93,8 @@ static bool g_disable_lens_dirt = true;
 constexpr size_t XE_GTAO_DEPTH_MIP_LEVELS = 5;
 constexpr UINT XE_GTAO_NUMTHREADS_X = 8;
 constexpr UINT XE_GTAO_NUMTHREADS_Y = 8;
-static Com_ptr<ID3D11ComputeShader> g_cs_xegtao_prefilter_depths16x16;
-static Com_ptr<ID3D11ComputeShader> g_cs_xegtao_main_pass;
-static Com_ptr<ID3D11ComputeShader> g_cs_xegtao_denoise_pass1;
-static Com_ptr<ID3D11ComputeShader> g_cs_xegtao_denoise_pass2;
-static float g_xegtao_radius = 0.4f;
-static int g_xegtao_quality = 2; // 0 - Low, 1 - Medium, 2 - High, 3 - Very High, 4 - Ultra
+static float g_xe_gtao_radius = 0.4f;
+static int g_xe_gtao_quality = 2; // 0 - Low, 1 - Medium, 2 - High, 3 - Very High, 4 - Ultra
 
 #if DEV && SHOW_AO
 static Com_ptr<ID3D11ShaderResourceView> g_srv_ao;
@@ -123,26 +103,11 @@ static Com_ptr<ID3D11ShaderResourceView> g_srv_ao;
 // Bloom
 static int g_bloom_nmips;
 static std::vector<float> g_bloom_sigmas;
-static Com_ptr<ID3D11PixelShader> g_ps_bloom_downsample;
-static Com_ptr<ID3D11PixelShader> g_ps_bloom_prefilter;
-static Com_ptr<ID3D11PixelShader> g_ps_bloom_upsample;
-static Com_ptr<ID3D11Buffer> g_cb_bloom;
-static Com_ptr<ID3D11BlendState> g_blend_bloom;
 static float g_bloom_intensity = 1.0f;
 
 // SMAA
 constexpr float g_smaa_clear_color[4] = {};
 static SMAA_rt_metrics g_smaa_rt_metrics;
-static Com_ptr<ID3D11ShaderResourceView> g_srv_smaa_area_tex;
-static Com_ptr<ID3D11ShaderResourceView> g_srv_smaa_search_tex;
-static Com_ptr<ID3D11VertexShader> g_vs_smaa_edge_detection;
-static Com_ptr<ID3D11PixelShader> g_ps_smaa_edge_detection;
-static Com_ptr<ID3D11VertexShader> g_vs_smaa_blending_weight_calculation;
-static Com_ptr<ID3D11PixelShader> g_ps_smaa_blending_weight_calculation;
-static Com_ptr<ID3D11VertexShader> g_vs_smaa_neighborhood_blending;
-static Com_ptr<ID3D11PixelShader> g_ps_smaa_neighborhood_blending;
-static Com_ptr<ID3D11DepthStencilState> g_ds_smaa_disable_depth_replace_stencil;
-static Com_ptr<ID3D11DepthStencilState> g_ds_smaa_disable_depth_use_stencil;
 
 // FPS limiter.
 //
@@ -156,94 +121,95 @@ static std::chrono::duration<double> g_accounted_error; // in seconds
 
 //
 
-static std::filesystem::path get_shaders_path()
+// Global COM resources.
+namespace GCOM
 {
-	wchar_t filename[MAX_PATH];
-	GetModuleFileNameW(nullptr, filename, ARRAYSIZE(filename));
-	std::filesystem::path path = filename;
-	path = path.parent_path();
-	path /= L".\\GraphicalUpgrade";
-	return path;
-}
+	static Com_ptr<ID3D11ComputeShader> cs_linearize;
+	static Com_ptr<ID3D11VertexShader> vs_fullscreen_triangle;
+	static Com_ptr<ID3D11SamplerState> smp_point;
+	static Com_ptr<ID3D11ShaderResourceView> srv_depth;
+	static Com_ptr<ID3D11Buffer> cb;
 
-static void compile_shader(ID3DBlob** code, const wchar_t* file, const char* target, const char* entry_point = "main", const D3D_SHADER_MACRO* defines = nullptr)
-{
-	std::filesystem::path path = g_graphical_upgrade_path;
-	path /= file;
-	Com_ptr<ID3DBlob> error;
-	auto hr = D3DCompileFromFile(path.c_str(), defines, D3D_COMPILE_STANDARD_FILE_INCLUDE, entry_point, target, D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, code, error.put());
-	if (FAILED(hr)) {
-		if (error) {
-			log_error("D3DCompileFromFile: {}", (const char*)error->GetBufferPointer());
-		}
-		else {
-			log_error("D3DCompileFromFile: (HRESULT){:08X}", hr);
-		}
+	// Replacement shaders.
+	static Com_ptr<ID3D11PixelShader> ps_tonemap_0x29D570D8;
+	static Com_ptr<ID3D11PixelShader> ps_starburst_and_lens_dirt_0x2AD953ED;
+	static Com_ptr<ID3D11PixelShader> ps_object_highlight_white_0x4D93743F;
+	static Com_ptr<ID3D11PixelShader> ps_object_highlight_red_0x61D986B8;
+
+	// XeGTAO
+	static Com_ptr<ID3D11ComputeShader> cs_xe_gtao_prefilter_depths16x16;
+	static Com_ptr<ID3D11ComputeShader> cs_xe_gtao_main_pass;
+	static Com_ptr<ID3D11ComputeShader> cs_xe_gtao_denoise_pass1;
+	static Com_ptr<ID3D11ComputeShader> cs_xe_gtao_denoise_pass2;
+
+	// Bloom
+	static Com_ptr<ID3D11PixelShader> ps_bloom_downsample;
+	static Com_ptr<ID3D11PixelShader> ps_bloom_prefilter;
+	static Com_ptr<ID3D11PixelShader> ps_bloom_upsample;
+	static Com_ptr<ID3D11Buffer> cb_bloom;
+	static Com_ptr<ID3D11BlendState> blend_bloom;
+
+	// SMAA
+	static Com_ptr<ID3D11ShaderResourceView> srv_smaa_area_tex;
+	static Com_ptr<ID3D11ShaderResourceView> srv_smaa_search_tex;
+	static Com_ptr<ID3D11VertexShader> vs_smaa_edge_detection;
+	static Com_ptr<ID3D11PixelShader> ps_smaa_edge_detection;
+	static Com_ptr<ID3D11VertexShader> vs_smaa_blending_weight_calculation;
+	static Com_ptr<ID3D11PixelShader> ps_smaa_blending_weight_calculation;
+	static Com_ptr<ID3D11VertexShader> vs_smaa_neighborhood_blending;
+	static Com_ptr<ID3D11PixelShader> ps_smaa_neighborhood_blending;
+	static Com_ptr<ID3D11DepthStencilState> ds_smaa_disable_depth_replace_stencil;
+	static Com_ptr<ID3D11DepthStencilState> ds_smaa_disable_depth_use_stencil;
+
+	static void reset_xe_gtao() noexcept
+	{
+		cs_xe_gtao_prefilter_depths16x16.reset();
+		cs_xe_gtao_main_pass.reset();
+		cs_xe_gtao_denoise_pass1.reset();
+		cs_xe_gtao_denoise_pass2.reset();
 	}
 
-	#if DEV && OUTPUT_ASSEMBLY
-	Com_ptr<ID3DBlob> disassembly;
-	D3DDisassemble((*code)->GetBufferPointer(), (*code)->GetBufferSize(), 0, nullptr, disassembly.put());
-	std::ofstream assembly(path.replace_filename(path.filename().string() + "_" + entry_point + ".asm"));
-	assembly.write((const char*)disassembly->GetBufferPointer(), disassembly->GetBufferSize());
-	#endif
-}
+	static void reset_smaa() noexcept
+	{
+		srv_smaa_area_tex.reset();
+		srv_smaa_search_tex.reset();
+		vs_smaa_edge_detection.reset();
+		ps_smaa_edge_detection.reset();
+		vs_smaa_blending_weight_calculation.reset();
+		ps_smaa_blending_weight_calculation.reset();
+		vs_smaa_neighborhood_blending.reset();
+		ps_smaa_neighborhood_blending.reset();
+		ds_smaa_disable_depth_replace_stencil.reset();
+		ds_smaa_disable_depth_use_stencil.reset();
+	}
 
-static void create_vertex_shader(ID3D11Device* device, ID3D11VertexShader** vs, const wchar_t* file, const char* entry_point = "main", const D3D_SHADER_MACRO* defines = nullptr)
-{
-	Com_ptr<ID3DBlob> code;
-	compile_shader(code.put(), file, "vs_5_0", entry_point, defines);
-	ensure(device->CreateVertexShader(code->GetBufferPointer(), code->GetBufferSize(), nullptr, vs), >= 0);
-}
+	static void reset() noexcept
+	{
+		cs_linearize.reset();
+		vs_fullscreen_triangle.reset();
+		smp_point.reset();
+		srv_depth.reset();
+		cb.reset();
+		
+		// Replacement shaders.
+		ps_tonemap_0x29D570D8.reset();
+		ps_starburst_and_lens_dirt_0x2AD953ED.reset();
+		ps_object_highlight_white_0x4D93743F.reset();
+		ps_object_highlight_red_0x61D986B8.reset();
 
-static void create_pixel_shader(ID3D11Device* device, ID3D11PixelShader** ps, const wchar_t* file, const char* entry_point = "main", const D3D_SHADER_MACRO* defines = nullptr)
-{
-	Com_ptr<ID3DBlob> code;
-	compile_shader(code.put(), file, "ps_5_0", entry_point, defines);
-	ensure(device->CreatePixelShader(code->GetBufferPointer(), code->GetBufferSize(), nullptr, ps), >= 0);
-}
+		// Bloom
+		ps_bloom_downsample.reset();
+		ps_bloom_prefilter.reset();
+		ps_bloom_upsample.reset();
+		cb_bloom.reset();
+		blend_bloom.reset();
 
-static void create_compute_shader(ID3D11Device* device, ID3D11ComputeShader** cs, const wchar_t* file, const char* entry_point = "main", const D3D_SHADER_MACRO* defines = nullptr)
-{
-	Com_ptr<ID3DBlob> code;
-	compile_shader(code.put(), file, "cs_5_0", entry_point, defines);
-	ensure(device->CreateComputeShader(code->GetBufferPointer(), code->GetBufferSize(), nullptr, cs), >= 0);
-}
+		reset_xe_gtao();
+		reset_smaa();
+	}
+};
 
-static void create_sampler_point_clamp(ID3D11Device* device, ID3D11SamplerState** smp)
-{
-	CD3D11_SAMPLER_DESC desc(D3D11_DEFAULT);
-	desc.Filter = D3D11_FILTER_MIN_MAG_MIP_POINT;
-	ensure(device->CreateSamplerState(&desc, smp), >= 0);
-}
-
-static void create_constant_buffer(ID3D11Device* device, UINT size, ID3D11Buffer** cb)
-{
-	D3D11_BUFFER_DESC desc = {};
-	desc.ByteWidth = size;
-	desc.Usage = D3D11_USAGE_DYNAMIC;
-	desc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
-	desc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
-	ensure(device->CreateBuffer(&desc, nullptr, cb), >= 0);
-}
-
-static void update_constant_buffer(ID3D11DeviceContext* ctx, ID3D11Buffer* cb, const void* data, size_t size)
-{
-	D3D11_MAPPED_SUBRESOURCE mapped_subresource;
-	ensure(ctx->Map(cb, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped_subresource), >= 0);
-	std::memcpy(mapped_subresource.pData, data, size);
-	ctx->Unmap(cb, 0);
-}
-
-static void reset_xegtao()
-{
-	g_cs_xegtao_prefilter_depths16x16.reset();
-	g_cs_xegtao_main_pass.reset();
-	g_cs_xegtao_denoise_pass1.reset();
-	g_cs_xegtao_denoise_pass2.reset();
-}
-
-static void draw_xegtao(ID3D11DeviceContext* ctx)
+static void draw_xe_gtao(ID3D11DeviceContext* ctx)
 {
 	// Original binds:
 	// t0 - depth - r32f
@@ -264,18 +230,18 @@ static void draw_xegtao(ID3D11DeviceContext* ctx)
 	//
 
 	// Create sampler.
-	[[unlikely]] if (!g_smp_point) {
-		create_sampler_point_clamp(device.get(), g_smp_point.put());
+	[[unlikely]] if (!GCOM::smp_point) {
+		create_sampler_point_clamp(device.get(), GCOM::smp_point.put());
 	}
 
 	// Create CS.
-	[[unlikely]] if (!g_cs_xegtao_prefilter_depths16x16) {
-		const std::string effect_radius_val = std::to_string(g_xegtao_radius);
+	[[unlikely]] if (!GCOM::cs_xe_gtao_prefilter_depths16x16) {
+		const std::string effect_radius_val = std::to_string(g_xe_gtao_radius);
 		const std::array defines = {
 			D3D_SHADER_MACRO{ "EFFECT_RADIUS", effect_radius_val.c_str() },
 			D3D_SHADER_MACRO{ nullptr, nullptr }
 		};
-		create_compute_shader(device.get(), g_cs_xegtao_prefilter_depths16x16.put(), L"XeGTAO.hlsl", "prefilter_depths16x16_cs", defines.data());
+		create_compute_shader(device.get(), GCOM::cs_xe_gtao_prefilter_depths16x16.put(), L"XeGTAO.hlsl", "prefilter_depths16x16_cs", defines.data());
 	}
 
 	D3D11_TEXTURE2D_DESC tex_desc = {};
@@ -303,8 +269,8 @@ static void draw_xegtao(ID3D11DeviceContext* ctx)
 
 	// Bindings.
 	ctx->CSSetUnorderedAccessViews(0, uav_prefilter_depths.size(), uav_prefilter_depths.data(), nullptr);
-	ctx->CSSetShader(g_cs_xegtao_prefilter_depths16x16.get(), nullptr, 0);
-	ctx->CSSetSamplers(0, 1, &g_smp_point);
+	ctx->CSSetShader(GCOM::cs_xe_gtao_prefilter_depths16x16.get(), nullptr, 0);
+	ctx->CSSetSamplers(0, 1, &GCOM::smp_point);
 
 	ctx->Dispatch((tex_desc.Width + 16 - 1) / 16, (tex_desc.Height + 16 - 1) / 16, 1);
 
@@ -321,15 +287,15 @@ static void draw_xegtao(ID3D11DeviceContext* ctx)
 	//
 
 	// Create CS.
-	[[unlikely]] if (!g_cs_xegtao_main_pass) {
-		const std::string xe_gtao_quality_val = std::to_string(g_xegtao_quality);
-		const std::string effect_radius_val = std::to_string(g_xegtao_radius);
+	[[unlikely]] if (!GCOM::cs_xe_gtao_main_pass) {
+		const std::string xe_gtao_quality_val = std::to_string(g_xe_gtao_quality);
+		const std::string effect_radius_val = std::to_string(g_xe_gtao_radius);
 		const std::array defines = {
 			D3D_SHADER_MACRO{ "EFFECT_RADIUS", effect_radius_val.c_str() },
 			D3D_SHADER_MACRO{ "XE_GTAO_QUALITY", xe_gtao_quality_val.c_str() },
 			D3D_SHADER_MACRO{ nullptr, nullptr }
 		};
-		create_compute_shader(device.get(), g_cs_xegtao_main_pass.put(), L"XeGTAO.hlsl", "main_pass_cs", defines.data());
+		create_compute_shader(device.get(), GCOM::cs_xe_gtao_main_pass.put(), L"XeGTAO.hlsl", "main_pass_cs", defines.data());
 	}
 
 	// Create AO term and Edges views.
@@ -343,7 +309,7 @@ static void draw_xegtao(ID3D11DeviceContext* ctx)
 
 	// Bindings.
 	ctx->CSSetUnorderedAccessViews(0, 1, &uav_main_pass, nullptr);
-	ctx->CSSetShader(g_cs_xegtao_main_pass.get(), nullptr, 0);
+	ctx->CSSetShader(GCOM::cs_xe_gtao_main_pass.get(), nullptr, 0);
 	const std::array srvs_main_pass = { srv_prefilter_depths.get(), srv_normal.get() };
 	ctx->CSSetShaderResources(0, srvs_main_pass.size(), srvs_main_pass.data());
 
@@ -357,12 +323,12 @@ static void draw_xegtao(ID3D11DeviceContext* ctx)
 	//
 
 	// Create CS.
-	[[unlikely]] if (!g_cs_xegtao_denoise_pass1) {
+	[[unlikely]] if (!GCOM::cs_xe_gtao_denoise_pass1) {
 		static constexpr std::array defines = {
 			D3D_SHADER_MACRO{ "XE_GTAO_FINAL_APPLY", "0" },
 			D3D_SHADER_MACRO{ nullptr, nullptr }
 		};
-		create_compute_shader(device.get(), g_cs_xegtao_denoise_pass1.put(), L"XeGTAO.hlsl", "denoise_pass_cs", defines.data());
+		create_compute_shader(device.get(), GCOM::cs_xe_gtao_denoise_pass1.put(), L"XeGTAO.hlsl", "denoise_pass_cs", defines.data());
 	}
 
 	// Create AO term and Edges views.
@@ -374,7 +340,7 @@ static void draw_xegtao(ID3D11DeviceContext* ctx)
 
 	// Bindings.
 	ctx->CSSetUnorderedAccessViews(0, 1, &uav_denoise_pass1, nullptr);
-	ctx->CSSetShader(g_cs_xegtao_denoise_pass1.get(), nullptr, 0);
+	ctx->CSSetShader(GCOM::cs_xe_gtao_denoise_pass1.get(), nullptr, 0);
 	ctx->CSSetShaderResources(0, 1, &srv_main_pass);
 
 	ctx->Dispatch((tex_desc.Width + (XE_GTAO_NUMTHREADS_X * 2) - 1) / (XE_GTAO_NUMTHREADS_X * 2), (tex_desc.Height + XE_GTAO_NUMTHREADS_Y - 1) / XE_GTAO_NUMTHREADS_Y,1);
@@ -385,17 +351,17 @@ static void draw_xegtao(ID3D11DeviceContext* ctx)
 	//
 
 	// Create CS.
-	[[unlikely]] if (!g_cs_xegtao_denoise_pass2) {
+	[[unlikely]] if (!GCOM::cs_xe_gtao_denoise_pass2) {
 		static constexpr std::array defines = {
 			D3D_SHADER_MACRO{ "XE_GTAO_FINAL_APPLY", "1" },
 			D3D_SHADER_MACRO{ nullptr, nullptr }
 		};
-		create_compute_shader(device.get(), g_cs_xegtao_denoise_pass2.put(), L"XeGTAO.hlsl", "denoise_pass_cs", defines.data());
+		create_compute_shader(device.get(), GCOM::cs_xe_gtao_denoise_pass2.put(), L"XeGTAO.hlsl", "denoise_pass_cs", defines.data());
 	}
 
 	// Bindings.
 	ctx->CSSetUnorderedAccessViews(0, 1, &uav_original, nullptr);
-	ctx->CSSetShader(g_cs_xegtao_denoise_pass2.get(), nullptr, 0);
+	ctx->CSSetShader(GCOM::cs_xe_gtao_denoise_pass2.get(), nullptr, 0);
 	ctx->CSSetShaderResources(0, 1, &srv_denoise_pass1);
 
 	ctx->Dispatch((tex_desc.Width + (XE_GTAO_NUMTHREADS_X * 2) - 1) / (XE_GTAO_NUMTHREADS_X * 2), (tex_desc.Height + XE_GTAO_NUMTHREADS_Y - 1) / XE_GTAO_NUMTHREADS_Y, 1);
@@ -411,7 +377,7 @@ static void draw_xegtao(ID3D11DeviceContext* ctx)
 
 static bool on_ps_bloom_prefilter(ID3D11DeviceContext* ctx)
 {
-	ctx->PSGetConstantBuffers(0, 1, g_cb_bloom.put());
+	ctx->PSGetConstantBuffers(0, 1, GCOM::cb_bloom.put());
 	return false;
 }
 
@@ -458,7 +424,7 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		ctx->OMGetRenderTargets(1, rtv.put(), nullptr);
 		Com_ptr<ID3D11Resource> resource;
 		rtv->GetResource(resource.put());
-		ensure(device->CreateShaderResourceView(resource.get(), nullptr, g_srv_depth.put()), >= 0);
+		ensure(device->CreateShaderResourceView(resource.get(), nullptr, GCOM::srv_depth.put()), >= 0);
 
 		return false;
 	}
@@ -479,17 +445,17 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		ctx->GetDevice(device.put());
 
 		// Create PS.
-		[[unlikely]] if (!g_ps_starburst_and_lens_dirt_0x2AD953ED) {
+		[[unlikely]] if (!GCOM::ps_starburst_and_lens_dirt_0x2AD953ED) {
 			const std::string disable_lens_dirt = g_disable_lens_dirt ? "1" : "0";
 			const std::array defines = {
 				D3D_SHADER_MACRO{ "DISABLE_LENS_DIRT", disable_lens_dirt.c_str() },
 				D3D_SHADER_MACRO{ nullptr, nullptr }
 			};
-			create_pixel_shader(device.get(), g_ps_starburst_and_lens_dirt_0x2AD953ED.put(), L"Starburst_LensFlare_0x2AD953ED_ps.hlsl", "main", defines.data());
+			create_pixel_shader(device.get(), GCOM::ps_starburst_and_lens_dirt_0x2AD953ED.put(), L"Starburst_LensFlare_0x2AD953ED_ps.hlsl", "main", defines.data());
 		}
 
 		// Bindings.
-		ctx->PSSetShader(g_ps_starburst_and_lens_dirt_0x2AD953ED.get(), nullptr, 0);
+		ctx->PSSetShader(GCOM::ps_starburst_and_lens_dirt_0x2AD953ED.get(), nullptr, 0);
 	}
 
 	return false;
@@ -534,21 +500,39 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 	}
 
 	size = sizeof(hash);
-	hr = ps->GetPrivateData(g_ps_object_highlight_0x4D93743F_guid, &size, &hash);
-	if (SUCCEEDED(hr) && hash == g_ps_object_highlight_0x4D93743F_hash) {
+	hr = ps->GetPrivateData(g_ps_object_highlight_white_0x4D93743F_guid, &size, &hash);
+	if (SUCCEEDED(hr) && hash == g_ps_object_highlight_white_0x4D93743F_hash) {
 		Com_ptr<ID3D11Device> device;
 		ctx->GetDevice(device.put());
-		
+
 		// Create PS.
-		[[unlikely]] if (!g_ps_object_highlight_0x4D93743F) {
-			create_pixel_shader(device.get(), g_ps_object_highlight_0x4D93743F.put(), L"ObjectHighlight_0x4D93743F_ps.hlsl");
+		[[unlikely]] if (!GCOM::ps_object_highlight_white_0x4D93743F) {
+			create_pixel_shader(device.get(), GCOM::ps_object_highlight_white_0x4D93743F.put(), L"ObjectHighlightWhite_0x4D93743F_ps.hlsl");
 		}
 
 		// Bindings.
-		ctx->PSSetShader(g_ps_object_highlight_0x4D93743F.get(), nullptr, 0);
+		ctx->PSSetShader(GCOM::ps_object_highlight_white_0x4D93743F.get(), nullptr, 0);
 
 		return false;
 	}
+
+	size = sizeof(hash);
+	hr = ps->GetPrivateData(g_ps_object_highlight_red_0x61D986B8_guid, &size, &hash);
+	if (SUCCEEDED(hr) && hash == g_ps_object_highlight_red_0x61D986B8_hash) {
+		Com_ptr<ID3D11Device> device;
+		ctx->GetDevice(device.put());
+
+		// Create PS.
+		[[unlikely]] if (!GCOM::ps_object_highlight_red_0x61D986B8) {
+			create_pixel_shader(device.get(), GCOM::ps_object_highlight_red_0x61D986B8.put(), L"ObjectHighlightRed_0x61D986B8_ps.hlsl");
+		}
+
+		// Bindings.
+		ctx->PSSetShader(GCOM::ps_object_highlight_red_0x61D986B8.get(), nullptr, 0);
+
+		return false;
+	}
+
 
 	size = sizeof(hash);
 	hr = ps->GetPrivateData(g_ps_tonemap_0x29D570D8_guid, &size, &hash);
@@ -564,25 +548,14 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 			log_debug("(0x29D570D8)The expected primitive topology wasn't what we expected it to be!");
 		}
 
-		// Sampler in slot 0 should be:
-		// D3D11_FILTER_MIN_MAG_MIP_POINT
-		// D3D11_TEXTURE_ADDRESS_CLAMP
-		// MipLODBias 0, MinLOD 0, MaxLOD FLT_MAX
-		// D3D11_COMPARISON_NEVER
-		Com_ptr<ID3D11SamplerState> smp;
-		ctx->PSGetSamplers(0, 1, smp.put());
-		D3D11_SAMPLER_DESC smp_desc;
-		smp->GetDesc(&smp_desc);
-		if (smp_desc.Filter != D3D11_FILTER_MIN_MAG_MIP_POINT || smp_desc.AddressU != D3D11_TEXTURE_ADDRESS_CLAMP || smp_desc.AddressV != D3D11_TEXTURE_ADDRESS_CLAMP || smp_desc.AddressW != D3D11_TEXTURE_ADDRESS_CLAMP || smp_desc.MipLODBias != 0.0f || smp_desc.MinLOD != 0.0f || smp_desc.MaxLOD != D3D11_FLOAT32_MAX || smp_desc.ComparisonFunc != D3D11_COMPARISON_NEVER) {
-			log_debug("(0x29D570D8)The expected sampler in the slot 0 wasn't what we expected it to be!");
-		}
-
 		// Sampler in slot 1 should be:
 		// D3D11_FILTER_MIN_MAG_LINEAR_MIP_POINT
 		// D3D11_TEXTURE_ADDRESS_CLAMP
 		// MipLODBias 0, MinLOD 0, MaxLOD FLT_MAX
 		// D3D11_COMPARISON_NEVER
+		Com_ptr<ID3D11SamplerState> smp;
 		ctx->PSGetSamplers(1, 1, smp.put());
+		D3D11_SAMPLER_DESC smp_desc;
 		smp->GetDesc(&smp_desc);
 		if (smp_desc.Filter != D3D11_FILTER_MIN_MAG_LINEAR_MIP_POINT || smp_desc.AddressU != D3D11_TEXTURE_ADDRESS_CLAMP || smp_desc.AddressV != D3D11_TEXTURE_ADDRESS_CLAMP || smp_desc.AddressW != D3D11_TEXTURE_ADDRESS_CLAMP || smp_desc.MipLODBias != 0.0f || smp_desc.MinLOD != 0.0f || smp_desc.MaxLOD != D3D11_FLOAT32_MAX || smp_desc.ComparisonFunc != D3D11_COMPARISON_NEVER) {
 			log_debug("(0x29D570D8)The expected sampler in the slot 1 wasn't what we expected it to be!");
@@ -687,26 +660,26 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 		////
 
 		// Create bloom CB.
-		[[unlikely]] if (!g_cb) {
-			create_constant_buffer(device.get(), sizeof(g_cb_data), g_cb.put());
+		[[unlikely]] if (!GCOM::cb) {
+			create_constant_buffer(device.get(), sizeof(g_cb_data), GCOM::cb.put());
 		}
 
 		// Prefilter + downsample pass
 		////
 
 		// Create VS.
-		[[unlikely]] if (!g_vs_fullscreen_triangle) {
-			create_vertex_shader(device.get(), g_vs_fullscreen_triangle.put(), L"FullscreenTriangle_vs.hlsl");
+		[[unlikely]] if (!GCOM::vs_fullscreen_triangle) {
+			create_vertex_shader(device.get(), GCOM::vs_fullscreen_triangle.put(), L"FullscreenTriangle_vs.hlsl");
 		}
 
 		// Create PS.
-		[[unlikely]] if (!g_ps_bloom_downsample) {
-			create_pixel_shader(device.get(), g_ps_bloom_downsample.put(), L"Bloom_impl.hlsl", "downsample_ps");
+		[[unlikely]] if (!GCOM::ps_bloom_downsample) {
+			create_pixel_shader(device.get(), GCOM::ps_bloom_downsample.put(), L"Bloom_impl.hlsl", "downsample_ps");
 		}
 
 		// Create PS.
-		[[unlikely]] if (!g_ps_bloom_prefilter) {
-			create_pixel_shader(device.get(), g_ps_bloom_prefilter.put(), L"Bloom_impl.hlsl", "prefilter_ps");
+		[[unlikely]] if (!GCOM::ps_bloom_prefilter) {
+			create_pixel_shader(device.get(), GCOM::ps_bloom_prefilter.put(), L"Bloom_impl.hlsl", "prefilter_ps");
 		}
 
 		D3D11_VIEWPORT viewport_x = {};
@@ -718,13 +691,13 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 		g_cb_data.inv_src_size = float2(1.0f / g_cb_data.src_size.x, 1.0f / g_cb_data.src_size.y);
 		g_cb_data.axis = float2(1.0f, 0.0f);
 		g_cb_data.sigma = g_bloom_sigmas[0];
-		update_constant_buffer(ctx, g_cb.get(), &g_cb_data, sizeof(g_cb_data));
+		update_constant_buffer(ctx, GCOM::cb.get(), &g_cb_data, sizeof(g_cb_data));
 
 		// Bindings.
 		ctx->OMSetRenderTargets(1, &rtv_mips_x[0], nullptr);
-		ctx->VSSetShader(g_vs_fullscreen_triangle.get(), nullptr, 0);
-		ctx->PSSetShader(g_ps_bloom_downsample.get(), nullptr, 0);
-		const std::array ps_cbs = { g_cb_bloom.get(), g_cb.get() };
+		ctx->VSSetShader(GCOM::vs_fullscreen_triangle.get(), nullptr, 0);
+		ctx->PSSetShader(GCOM::ps_bloom_downsample.get(), nullptr, 0);
+		const std::array ps_cbs = { GCOM::cb_bloom.get(), GCOM::cb.get() };
 		ctx->PSSetConstantBuffers(14 - ps_cbs.size(), ps_cbs.size(), ps_cbs.data());
 		ctx->PSSetShaderResources(0, 1, &srv_scene);
 		ctx->RSSetViewports(1, &viewport_x);
@@ -740,11 +713,11 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 		g_cb_data.src_size = float2(x_mip0_width, x_mip0_height);
 		g_cb_data.inv_src_size = float2(1.0f / g_cb_data.src_size.x, 1.0f / g_cb_data.src_size.y);
 		g_cb_data.axis = float2(0.0f, 1.0f);
-		update_constant_buffer(ctx, g_cb.get(), &g_cb_data, sizeof(g_cb_data));
+		update_constant_buffer(ctx, GCOM::cb.get(), &g_cb_data, sizeof(g_cb_data));
 
 		// Bindings.
 		ctx->OMSetRenderTargets(1, &rtv_mips_y[0], nullptr);
-		ctx->PSSetShader(g_ps_bloom_prefilter.get(), nullptr, 0);
+		ctx->PSSetShader(GCOM::ps_bloom_prefilter.get(), nullptr, 0);
 		ctx->PSSetShaderResources(0, 1, &srv_mips_x[0]);
 		ctx->RSSetViewports(1, &viewports_y[0]);
 
@@ -757,7 +730,7 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 		////
 
 		// Bindings.
-		ctx->PSSetShader(g_ps_bloom_downsample.get(), nullptr, 0);
+		ctx->PSSetShader(GCOM::ps_bloom_downsample.get(), nullptr, 0);
 
 		// Render downsample passes.
 		for (UINT i = 1; i < g_bloom_nmips; ++i) {
@@ -769,7 +742,7 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 			g_cb_data.axis = float2(1.0f, 0.0f);
 			g_cb_data.inv_src_size = float2(1.0f / g_cb_data.src_size.x, 1.0f / g_cb_data.src_size.y);
 			g_cb_data.sigma = g_bloom_sigmas[i];
-			update_constant_buffer(ctx, g_cb.get(), &g_cb_data, sizeof(g_cb_data));
+			update_constant_buffer(ctx, GCOM::cb.get(), &g_cb_data, sizeof(g_cb_data));
 
 			// Bindings.
 			ctx->OMSetRenderTargets(1, &rtv_mips_x[i], nullptr);
@@ -786,7 +759,7 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 			g_cb_data.src_size = float2(viewport_x.Width, viewport_x.Height);
 			g_cb_data.axis = float2(0.0f, 1.0f);
 			g_cb_data.inv_src_size = float2(1.0f / g_cb_data.src_size.x, 1.0f / g_cb_data.src_size.y);
-			update_constant_buffer(ctx, g_cb.get(), &g_cb_data, sizeof(g_cb_data));
+			update_constant_buffer(ctx, GCOM::cb.get(), &g_cb_data, sizeof(g_cb_data));
 
 			// Bindings.
 			ctx->OMSetRenderTargets(1, &rtv_mips_y[i], nullptr);
@@ -803,21 +776,21 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 		////
 
 		// Create PS.
-		[[unlikely]] if (!g_ps_bloom_upsample) {
-			create_pixel_shader(device.get(), g_ps_bloom_upsample.put(), L"Bloom_impl.hlsl", "upsample_ps");
+		[[unlikely]] if (!GCOM::ps_bloom_upsample) {
+			create_pixel_shader(device.get(), GCOM::ps_bloom_upsample.put(), L"Bloom_impl.hlsl", "upsample_ps");
 		}
 
 		// Create blend.
-		if (!g_blend_bloom) {
+		if (!GCOM::blend_bloom) {
 			CD3D11_BLEND_DESC desc(D3D11_DEFAULT);
 			desc.RenderTarget[0].BlendEnable = TRUE;
 			desc.RenderTarget[0].SrcBlend = D3D11_BLEND_BLEND_FACTOR;
 			desc.RenderTarget[0].DestBlend = D3D11_BLEND_BLEND_FACTOR;
-			ensure(device->CreateBlendState(&desc, g_blend_bloom.put()), >= 0);
+			ensure(device->CreateBlendState(&desc, GCOM::blend_bloom.put()), >= 0);
 		}
 
 		// Bindings.
-		ctx->PSSetShader(g_ps_bloom_upsample.get(), nullptr, 0);
+		ctx->PSSetShader(GCOM::ps_bloom_upsample.get(), nullptr, 0);
 
 		for (int i = g_bloom_nmips - 1; i > 0; --i) {
 			// If both dst and src are D3D10_BLEND_BLEND_FACTOR,
@@ -827,13 +800,13 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 			// Update CB.
 			g_cb_data.src_size = float2(viewports_y[i].Width, viewports_y[i].Height);
 			g_cb_data.inv_src_size = float2(1.0f / g_cb_data.src_size.x, 1.0f / g_cb_data.src_size.y);
-			update_constant_buffer(ctx, g_cb.get(), &g_cb_data, sizeof(g_cb_data));
+			update_constant_buffer(ctx, GCOM::cb.get(), &g_cb_data, sizeof(g_cb_data));
 
 			// Bindings.
 			ctx->OMSetRenderTargets(1, &rtv_mips_y[i - 1], nullptr);
 			ctx->PSSetShaderResources(0, 1, &srv_mips_y[i]);
 			ctx->RSSetViewports(1, &viewports_y[i - 1]);
-			ctx->OMSetBlendState(g_blend_bloom.get(), blend_factor, UINT_MAX);
+			ctx->OMSetBlendState(GCOM::blend_bloom.get(), blend_factor, UINT_MAX);
 
 			ctx->Draw(3, 0);
 		}
@@ -860,17 +833,17 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 		//
 
 		// Create PS.
-		[[unlikely]] if (!g_ps_tonemap_0x29D570D8) {
+		[[unlikely]] if (!GCOM::ps_tonemap_0x29D570D8) {
 			const std::string bloom_intensity_val = std::to_string(g_bloom_intensity);
 			const std::array defines = {
 				D3D_SHADER_MACRO{ "BLOOM_INTENSITY", bloom_intensity_val.c_str() },
 				D3D_SHADER_MACRO{ nullptr, nullptr }
 			};
-			create_pixel_shader(device.get(), g_ps_tonemap_0x29D570D8.put(), L"Tonemap_0x29D570D8_ps.hlsl", "main", defines.data());
+			create_pixel_shader(device.get(), GCOM::ps_tonemap_0x29D570D8.put(), L"Tonemap_0x29D570D8_ps.hlsl", "main", defines.data());
 		}
 
 		// Bindings.
-		ctx->PSSetShader(g_ps_tonemap_0x29D570D8.get(), nullptr, 0);
+		ctx->PSSetShader(GCOM::ps_tonemap_0x29D570D8.get(), nullptr, 0);
 
 		//
 
@@ -929,8 +902,8 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 		//
 
 		// Create CS.
-		[[unlikely]] if (!g_cs_linearize) {
-			create_compute_shader(device.get(), g_cs_linearize.put(), L"Linearize.hlsl");
+		[[unlikely]] if (!GCOM::cs_linearize) {
+			create_compute_shader(device.get(), GCOM::cs_linearize.put(), L"Linearize_cs.hlsl");
 		}
 
 		// Create UAs and views.
@@ -945,7 +918,7 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 		// Bindings.
 		static constexpr ID3D11ShaderResourceView* srv_null = nullptr;
 		ctx->PSSetShaderResources(0, 1, &srv_null);
-		ctx->CSSetShader(g_cs_linearize.get(), nullptr, 0);
+		ctx->CSSetShader(GCOM::cs_linearize.get(), nullptr, 0);
 		ctx->CSSetUnorderedAccessViews(0, 1, &uav_scene_linearized, nullptr);
 		ctx->CSSetShaderResources(0, 1, &srv_scene);
 
@@ -962,28 +935,28 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 		//
 
 		// Create point sampler.
-		[[unlikely]] if (!g_smp_point) {
-			create_sampler_point_clamp(device.get(), g_smp_point.put());
+		[[unlikely]] if (!GCOM::smp_point) {
+			create_sampler_point_clamp(device.get(), GCOM::smp_point.put());
 		}
 
 		// Create VS.
-		[[unlikely]] if (!g_vs_smaa_edge_detection) {
+		[[unlikely]] if (!GCOM::vs_smaa_edge_detection) {
 			g_smaa_rt_metrics.set(tex_desc.Width, tex_desc.Height);
-			create_vertex_shader(device.get(), g_vs_smaa_edge_detection.put(), L"SMAA_impl.hlsl", "smaa_edge_detection_vs", g_smaa_rt_metrics.get());
+			create_vertex_shader(device.get(), GCOM::vs_smaa_edge_detection.put(), L"SMAA_impl.hlsl", "smaa_edge_detection_vs", g_smaa_rt_metrics.get());
 		}
 
 		// Create PS.
-		[[unlikely]] if (!g_ps_smaa_edge_detection) {
-			create_pixel_shader(device.get(), g_ps_smaa_edge_detection.put(), L"SMAA_impl.hlsl", "smaa_edge_detection_ps", g_smaa_rt_metrics.get());
+		[[unlikely]] if (!GCOM::ps_smaa_edge_detection) {
+			create_pixel_shader(device.get(), GCOM::ps_smaa_edge_detection.put(), L"SMAA_impl.hlsl", "smaa_edge_detection_ps", g_smaa_rt_metrics.get());
 		}
 
 		// Create DS.
-		[[unlikely]] if (!g_ds_smaa_disable_depth_replace_stencil) {
+		[[unlikely]] if (!GCOM::ds_smaa_disable_depth_replace_stencil) {
 			CD3D11_DEPTH_STENCIL_DESC desc(D3D11_DEFAULT);
 			desc.DepthEnable = FALSE;
 			desc.StencilEnable = TRUE;
 			desc.FrontFace.StencilPassOp = D3D11_STENCIL_OP_REPLACE;
-			ensure(device->CreateDepthStencilState(&desc, g_ds_smaa_disable_depth_replace_stencil.put()), >= 0);
+			ensure(device->CreateDepthStencilState(&desc, GCOM::ds_smaa_disable_depth_replace_stencil.put()), >= 0);
 		}
 
 		// Create DSV.
@@ -1003,12 +976,12 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 		ensure(device->CreateShaderResourceView(tex.get(), nullptr, srv_smaa_edge_detection.put()), >= 0);
 
 		// Bindings.
-		ctx->OMSetDepthStencilState(g_ds_smaa_disable_depth_replace_stencil.get(), 1);
+		ctx->OMSetDepthStencilState(GCOM::ds_smaa_disable_depth_replace_stencil.get(), 1);
 		ctx->OMSetRenderTargets(1, &rtv_smaa_edge_detection, dsv.get());
-		ctx->VSSetShader(g_vs_smaa_edge_detection.get(), nullptr, 0);
-		ctx->PSSetShader(g_ps_smaa_edge_detection.get(), nullptr, 0);
-		ctx->PSSetSamplers(1, 1, &g_smp_point);
-		const std::array ps_srvs_smaa_edge_detection = { srv_scene.get(), g_srv_depth.get() };
+		ctx->VSSetShader(GCOM::vs_smaa_edge_detection.get(), nullptr, 0);
+		ctx->PSSetShader(GCOM::ps_smaa_edge_detection.get(), nullptr, 0);
+		ctx->PSSetSamplers(1, 1, &GCOM::smp_point);
+		const std::array ps_srvs_smaa_edge_detection = { srv_scene.get(), GCOM::srv_depth.get() };
 		ctx->PSSetShaderResources(0, ps_srvs_smaa_edge_detection.size(), ps_srvs_smaa_edge_detection.data());
 
 		ctx->ClearRenderTargetView(rtv_smaa_edge_detection.get(), g_smaa_clear_color);
@@ -1021,17 +994,17 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 		//
 
 		// Create VS.
-		[[unlikely]] if (!g_vs_smaa_blending_weight_calculation) {
-			create_vertex_shader(device.get(), g_vs_smaa_blending_weight_calculation.put(), L"SMAA_impl.hlsl", "smaa_blending_weight_calculation_vs", g_smaa_rt_metrics.get());
+		[[unlikely]] if (!GCOM::vs_smaa_blending_weight_calculation) {
+			create_vertex_shader(device.get(), GCOM::vs_smaa_blending_weight_calculation.put(), L"SMAA_impl.hlsl", "smaa_blending_weight_calculation_vs", g_smaa_rt_metrics.get());
 		}
 
 		// Create PS.
-		[[unlikely]] if (!g_ps_smaa_blending_weight_calculation) {
-			create_pixel_shader(device.get(), g_ps_smaa_blending_weight_calculation.put(), L"SMAA_impl.hlsl", "smaa_blending_weight_calculation_ps", g_smaa_rt_metrics.get());
+		[[unlikely]] if (!GCOM::ps_smaa_blending_weight_calculation) {
+			create_pixel_shader(device.get(), GCOM::ps_smaa_blending_weight_calculation.put(), L"SMAA_impl.hlsl", "smaa_blending_weight_calculation_ps", g_smaa_rt_metrics.get());
 		}
 
 		// Create area texture.
-		[[unlikely]] if (!g_srv_smaa_area_tex) {
+		[[unlikely]] if (!GCOM::srv_smaa_area_tex) {
 			D3D11_TEXTURE2D_DESC desc = {};
 			desc.Width = AREATEX_WIDTH;
 			desc.Height = AREATEX_HEIGHT;
@@ -1045,11 +1018,11 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 			subresource_data.pSysMem = areaTexBytes;
 			subresource_data.SysMemPitch = AREATEX_PITCH;
 			ensure(device->CreateTexture2D(&desc, &subresource_data, tex.put()), >= 0);
-			ensure(device->CreateShaderResourceView(tex.get(), nullptr, g_srv_smaa_area_tex.put()), >= 0);
+			ensure(device->CreateShaderResourceView(tex.get(), nullptr, GCOM::srv_smaa_area_tex.put()), >= 0);
 		}
 
 		// Create search texture.
-		[[unlikely]] if (!g_srv_smaa_search_tex) {
+		[[unlikely]] if (!GCOM::srv_smaa_search_tex) {
 			D3D11_TEXTURE2D_DESC desc = {};
 			desc.Width = SEARCHTEX_WIDTH;
 			desc.Height = SEARCHTEX_HEIGHT;
@@ -1063,16 +1036,16 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 			subresource_data.pSysMem = searchTexBytes;
 			subresource_data.SysMemPitch = SEARCHTEX_PITCH;
 			ensure(device->CreateTexture2D(&desc, &subresource_data, tex.put()), >= 0);
-			ensure(device->CreateShaderResourceView(tex.get(), nullptr, g_srv_smaa_search_tex.put()), >= 0);
+			ensure(device->CreateShaderResourceView(tex.get(), nullptr, GCOM::srv_smaa_search_tex.put()), >= 0);
 		}
 
 		// Create DS.
-		[[unlikely]] if (!g_ds_smaa_disable_depth_use_stencil) {
+		[[unlikely]] if (!GCOM::ds_smaa_disable_depth_use_stencil) {
 			CD3D11_DEPTH_STENCIL_DESC desc(D3D11_DEFAULT);
 			desc.DepthEnable = FALSE;
 			desc.StencilEnable = TRUE;
 			desc.FrontFace.StencilFunc = D3D11_COMPARISON_EQUAL;
-			ensure(device->CreateDepthStencilState(&desc, g_ds_smaa_disable_depth_use_stencil.put()), >= 0);
+			ensure(device->CreateDepthStencilState(&desc, GCOM::ds_smaa_disable_depth_use_stencil.put()), >= 0);
 		}
 
 		// Create RT and views.
@@ -1084,11 +1057,11 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 		ensure(device->CreateShaderResourceView(tex.get(), nullptr, srv_smaa_blending_weight_calculation.put()), >= 0);
 
 		// Bindings.
-		ctx->OMSetDepthStencilState(g_ds_smaa_disable_depth_use_stencil.get(), 1);
+		ctx->OMSetDepthStencilState(GCOM::ds_smaa_disable_depth_use_stencil.get(), 1);
 		ctx->OMSetRenderTargets(1, &rtv_smaa_blending_weight_calculation, dsv.get());
-		ctx->VSSetShader(g_vs_smaa_blending_weight_calculation.get(), nullptr, 0);
-		ctx->PSSetShader(g_ps_smaa_blending_weight_calculation.get(), nullptr, 0);
-		const std::array ps_srvs_smaa_blending_weight_calculation = { srv_smaa_edge_detection.get(), g_srv_smaa_area_tex.get(), g_srv_smaa_search_tex.get() };
+		ctx->VSSetShader(GCOM::vs_smaa_blending_weight_calculation.get(), nullptr, 0);
+		ctx->PSSetShader(GCOM::ps_smaa_blending_weight_calculation.get(), nullptr, 0);
+		const std::array ps_srvs_smaa_blending_weight_calculation = { srv_smaa_edge_detection.get(), GCOM::srv_smaa_area_tex.get(), GCOM::srv_smaa_search_tex.get() };
 		ctx->PSSetShaderResources(0, ps_srvs_smaa_blending_weight_calculation.size(), ps_srvs_smaa_blending_weight_calculation.data());
 
 		ctx->ClearRenderTargetView(rtv_smaa_blending_weight_calculation.get(), g_smaa_clear_color);
@@ -1100,19 +1073,19 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 		//
 
 		// Create VS.
-		[[unlikely]] if (!g_vs_smaa_neighborhood_blending) {
-			create_vertex_shader(device.get(), g_vs_smaa_neighborhood_blending.put(), L"SMAA_impl.hlsl", "smaa_neighborhood_blending_vs", g_smaa_rt_metrics.get());
+		[[unlikely]] if (!GCOM::vs_smaa_neighborhood_blending) {
+			create_vertex_shader(device.get(), GCOM::vs_smaa_neighborhood_blending.put(), L"SMAA_impl.hlsl", "smaa_neighborhood_blending_vs", g_smaa_rt_metrics.get());
 		}
 
 		// Create PS.
-		[[unlikely]] if (!g_ps_smaa_neighborhood_blending) {
-			create_pixel_shader(device.get(), g_ps_smaa_neighborhood_blending.put(), L"SMAA_impl.hlsl", "smaa_neighborhood_blending_ps", g_smaa_rt_metrics.get());
+		[[unlikely]] if (!GCOM::ps_smaa_neighborhood_blending) {
+			create_pixel_shader(device.get(), GCOM::ps_smaa_neighborhood_blending.put(), L"SMAA_impl.hlsl", "smaa_neighborhood_blending_ps", g_smaa_rt_metrics.get());
 		}
 
 		// Bindings.
 		ctx->OMSetRenderTargets(1, &rtv_original, nullptr);
-		ctx->VSSetShader(g_vs_smaa_neighborhood_blending.get(), nullptr, 0);
-		ctx->PSSetShader(g_ps_smaa_neighborhood_blending.get(), nullptr, 0);
+		ctx->VSSetShader(GCOM::vs_smaa_neighborhood_blending.get(), nullptr, 0);
+		ctx->PSSetShader(GCOM::ps_smaa_neighborhood_blending.get(), nullptr, 0);
 		const std::array ps_srvs_neighborhood_blending = { srv_scene_linearized.get(), srv_smaa_blending_weight_calculation.get() };
 		ctx->PSSetShaderResources(0, ps_srvs_neighborhood_blending.size(), ps_srvs_neighborhood_blending.data());
 
@@ -1140,14 +1113,14 @@ static bool on_dispatch(reshade::api::command_list* cmd_list, uint32_t group_cou
 	UINT size = sizeof(hash);
 	auto hr = cs->GetPrivateData(g_cs_ao_main_high_0x1E7B9941_guid, &size, &hash);
 	if (SUCCEEDED(hr) && hash == g_cs_ao_main_high_0x1E7B9941_hash) {
-		draw_xegtao(ctx);
+		draw_xe_gtao(ctx);
 		return true;
 	}
 
 	size = sizeof(hash);
 	hr = cs->GetPrivateData(g_cs_ao_main_ultra_0x348372D0_guid, &size, &hash);
 	if (SUCCEEDED(hr) && hash == g_cs_ao_main_ultra_0x348372D0_hash) {
-		draw_xegtao(ctx);
+		draw_xe_gtao(ctx);
 		return true;
 	}
 
@@ -1200,8 +1173,11 @@ static void on_init_pipeline(reshade::api::device* device, reshade::api::pipelin
 				case g_ps_starburst_and_lens_dirt_0x2AD953ED_hash:
 					ensure(((ID3D11PixelShader*)pipeline.handle)->SetPrivateData(g_ps_starburst_and_lens_dirt_0x2AD953ED_guid, sizeof(g_ps_starburst_and_lens_dirt_0x2AD953ED_hash), &g_ps_starburst_and_lens_dirt_0x2AD953ED_hash), >= 0);
 					break;
-				case g_ps_object_highlight_0x4D93743F_hash:
-					ensure(((ID3D11PixelShader*)pipeline.handle)->SetPrivateData(g_ps_object_highlight_0x4D93743F_guid, sizeof(g_ps_object_highlight_0x4D93743F_hash), &g_ps_object_highlight_0x4D93743F_hash), >= 0);
+				case g_ps_object_highlight_white_0x4D93743F_hash:
+					ensure(((ID3D11PixelShader*)pipeline.handle)->SetPrivateData(g_ps_object_highlight_white_0x4D93743F_guid, sizeof(g_ps_object_highlight_white_0x4D93743F_hash), &g_ps_object_highlight_white_0x4D93743F_hash), >= 0);
+					break;
+				case g_ps_object_highlight_red_0x61D986B8_hash:
+					ensure(((ID3D11PixelShader*)pipeline.handle)->SetPrivateData(g_ps_object_highlight_red_0x61D986B8_guid, sizeof(g_ps_object_highlight_red_0x61D986B8_hash), &g_ps_object_highlight_red_0x61D986B8_hash), >= 0);
 					break;
 			}
 		}
@@ -1295,19 +1271,8 @@ static bool on_create_swapchain(reshade::api::device_api api, reshade::api::swap
 	g_swapchain_height = desc.back_buffer.texture.height;
 
 	// Reset reolution dependent resources.
-	//
-
-	reset_xegtao();
-
-	// SMAA.
-	g_vs_smaa_edge_detection.reset();
-	g_ps_smaa_edge_detection.reset();
-	g_vs_smaa_blending_weight_calculation.reset();
-	g_ps_smaa_blending_weight_calculation.reset();
-	g_vs_smaa_neighborhood_blending.reset();
-	g_ps_smaa_neighborhood_blending.reset();
-
-	//
+	GCOM::reset_xe_gtao();
+	GCOM::reset_smaa();
 
 	return true;
 }
@@ -1325,46 +1290,16 @@ static void on_init_device(reshade::api::device* device)
 
 static void on_destroy_device(reshade::api::device *device)
 {
-	// Shader replacements.
-	g_ps_tonemap_0x29D570D8.reset();
-	g_ps_starburst_and_lens_dirt_0x2AD953ED.reset();
-	g_ps_object_highlight_0x4D93743F.reset();
-
-	g_cs_linearize.reset();
-	g_vs_fullscreen_triangle.reset();
-	g_smp_point.reset();
-	g_srv_depth.reset();
-	g_cb.reset();
-
-	// SMAA
-	g_srv_smaa_area_tex.reset();
-	g_srv_smaa_search_tex.reset();
-	g_vs_smaa_edge_detection.reset();
-	g_ps_smaa_edge_detection.reset();
-	g_vs_smaa_blending_weight_calculation.reset();
-	g_ps_smaa_blending_weight_calculation.reset();
-	g_vs_smaa_neighborhood_blending.reset();
-	g_ps_smaa_neighborhood_blending.reset();
-	g_ds_smaa_disable_depth_replace_stencil.reset();
-	g_ds_smaa_disable_depth_use_stencil.reset();
-
-	reset_xegtao();
-
-	// Bloom.
-	g_ps_bloom_downsample.reset();
-	g_ps_bloom_prefilter.reset();
-	g_ps_bloom_upsample.reset();
-	g_cb_bloom.reset();
-	g_blend_bloom.reset();
+	GCOM::reset();
 }
 
 static void read_config()
 {	
-	if (!reshade::get_config_value(nullptr, "BioShockInfiniteGraphicalUpgrade", "XeGTAORadius", g_xegtao_radius)) {
-		reshade::set_config_value(nullptr, "BioShockInfiniteGraphicalUpgrade", "XeGTAORadius", g_xegtao_radius);
+	if (!reshade::get_config_value(nullptr, "BioShockInfiniteGraphicalUpgrade", "XeGTAORadius", g_xe_gtao_radius)) {
+		reshade::set_config_value(nullptr, "BioShockInfiniteGraphicalUpgrade", "XeGTAORadius", g_xe_gtao_radius);
 	}
-	if (!reshade::get_config_value(nullptr, "BioShockInfiniteGraphicalUpgrade", "XeGTAOQuality", g_xegtao_quality)) {
-		reshade::set_config_value(nullptr, "BioShockInfiniteGraphicalUpgrade", "XeGTAOQuality", g_xegtao_quality);
+	if (!reshade::get_config_value(nullptr, "BioShockInfiniteGraphicalUpgrade", "XeGTAOQuality", g_xe_gtao_quality)) {
+		reshade::set_config_value(nullptr, "BioShockInfiniteGraphicalUpgrade", "XeGTAOQuality", g_xe_gtao_quality);
 	}
 	if (!reshade::get_config_value(nullptr, "BioShockInfiniteGraphicalUpgrade", "BloomIntensity", g_bloom_intensity)) {
 		reshade::set_config_value(nullptr, "BioShockInfiniteGraphicalUpgrade", "BloomIntensity", g_bloom_intensity);
@@ -1398,19 +1333,19 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 	ImGui::Spacing();
 	#endif
 
-	if (ImGui::SliderFloat("XeGTAO radius", &g_xegtao_radius, 0.01f, 1.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp)) {
-		reshade::set_config_value(nullptr, "BioShockInfiniteGraphicalUpgrade", "XeGTAORadius", g_xegtao_radius);
-		reset_xegtao();
+	if (ImGui::SliderFloat("XeGTAO radius", &g_xe_gtao_radius, 0.01f, 1.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp)) {
+		reshade::set_config_value(nullptr, "BioShockInfiniteGraphicalUpgrade", "XeGTAORadius", g_xe_gtao_radius);
+		GCOM::reset_xe_gtao();
 	}
-	static constexpr std::array xegtao_quality_items = { "Low", "Medium", "High", "Very High", "Ultra" };
-	if (ImGui::Combo("XeGTAO quality", &g_xegtao_quality, xegtao_quality_items.data(), xegtao_quality_items.size())) {
-		reshade::set_config_value(nullptr, "BioShockInfiniteGraphicalUpgrade", "XeGTAOQuality", g_xegtao_quality);
-		reset_xegtao();
+	static constexpr std::array xe_gtao_quality_items = { "Low", "Medium", "High", "Very High", "Ultra" };
+	if (ImGui::Combo("XeGTAO quality", &g_xe_gtao_quality, xe_gtao_quality_items.data(), xe_gtao_quality_items.size())) {
+		reshade::set_config_value(nullptr, "BioShockInfiniteGraphicalUpgrade", "XeGTAOQuality", g_xe_gtao_quality);
+		GCOM::reset_xe_gtao();
 	}
 	ImGui::Spacing();
 	if (ImGui::SliderFloat("Bloom intensity", &g_bloom_intensity, 0.0f, 2.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp)) {
 		reshade::set_config_value(nullptr, "BioShockInfiniteGraphicalUpgrade", "BloomIntensity", g_bloom_intensity);
-		g_ps_tonemap_0x29D570D8.reset();
+		GCOM::ps_tonemap_0x29D570D8.reset();
 	}
 	ImGui::Spacing();
 	if (ImGui::Checkbox("Disable Lens Flare", &g_disable_lens_flare)) {
@@ -1418,7 +1353,7 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 	}
 	if (ImGui::Checkbox("Disable Lens Dirt", &g_disable_lens_dirt)) {
 		reshade::set_config_value(nullptr, "BioShockInfiniteGraphicalUpgrade", "DisableLensDirt", g_disable_lens_flare);
-		g_ps_starburst_and_lens_dirt_0x2AD953ED.reset();
+		GCOM::ps_starburst_and_lens_dirt_0x2AD953ED.reset();
 	}
 	ImGui::Spacing();
 	ImGui::InputFloat("FPS limit", &g_user_set_fps_limit);
@@ -1436,7 +1371,7 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 }
 
 extern "C" __declspec(dllexport) const char* NAME = "BioShockInfiniteGraphicalUpgrade";
-extern "C" __declspec(dllexport) const char* DESCRIPTION = "BioShockInfiniteGraphicalUpgrade v1.0.0";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "BioShockInfiniteGraphicalUpgrade v1.1.0";
 extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/BioShockInfiniteGraphicalUpgrade";
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)
@@ -1449,7 +1384,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)
 
 			//MessageBoxW(0, L"Debug", L"Attach debugger.", MB_OK);
 
-			g_graphical_upgrade_path = get_shaders_path();
+			g_graphical_upgrade_path = get_graphical_upgrade_path();
 			read_config();
 
 			// Bloom.

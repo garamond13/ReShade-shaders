@@ -1,5 +1,3 @@
-// Tonemap
-
 cbuffer _Globals : register(b0)
 {
   float4 SceneShadowsAndDesaturation : packoffset(c0);
