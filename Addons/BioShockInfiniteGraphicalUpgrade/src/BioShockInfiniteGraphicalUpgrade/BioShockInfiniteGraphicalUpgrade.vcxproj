@@ -181,6 +181,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="AreaTex.h" />
+    <ClInclude Include="BlueNoiseTex.h" />
     <ClInclude Include="HLSLTypes.h" />
     <ClInclude Include="Common.h" />
     <ClInclude Include="ComPtr.h" />
@@ -188,6 +189,7 @@
     <ClInclude Include="GraphicalUpgradePath.h" />
     <ClInclude Include="Helpers.h" />
     <ClInclude Include="SearchTex.h" />
+    <ClInclude Include="TRC.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

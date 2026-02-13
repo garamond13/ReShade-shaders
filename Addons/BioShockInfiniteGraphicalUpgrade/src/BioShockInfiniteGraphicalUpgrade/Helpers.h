@@ -99,6 +99,16 @@ inline void create_sampler_linear_clamp(ID3D11Device* device, ID3D11SamplerState
 	ensure(device->CreateSamplerState(&desc, smp), >= 0);
 }
 
+inline void create_sampler_point_wrap(ID3D11Device* device, ID3D11SamplerState** smp)
+{
+	CD3D11_SAMPLER_DESC desc(D3D11_DEFAULT);
+	desc.Filter = D3D11_FILTER_MIN_MAG_MIP_POINT;
+	desc.AddressU = D3D11_TEXTURE_ADDRESS_WRAP;
+	desc.AddressV = D3D11_TEXTURE_ADDRESS_WRAP;
+	desc.AddressW = D3D11_TEXTURE_ADDRESS_WRAP;
+	ensure(device->CreateSamplerState(&desc, smp), >= 0);
+}
+
 inline auto to_string(reshade::api::format format)
 {
 	switch(format) {

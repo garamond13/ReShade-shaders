@@ -5,6 +5,8 @@
 #include "HLSLTypes.h"
 #include "AreaTex.h"
 #include "SearchTex.h"
+#include "BlueNoiseTex.h"
+#include "TRC.h"
 
 struct alignas(16) CB_data
 {
@@ -12,6 +14,7 @@ struct alignas(16) CB_data
    float2 inv_src_size;
    float2 axis;
    float sigma;
+   float tex_noise_index;
 };
 
 // We need to pass this to all SMAA shaders on resolution change.
@@ -88,6 +91,11 @@ static uint32_t g_swapchain_height;
 static CB_data g_cb_data;
 static bool g_disable_lens_flare = true;
 static bool g_disable_lens_dirt = true;
+static bool g_force_vsync_off = true;
+static float g_amd_ffx_cas_sharpness = 0.4f;
+static float g_amd_ffx_lfga_amount = 0.4f;
+static TRC g_trc = TRC_GAMMA;
+static float g_gamma = 2.2f;
 
 // XeGTAO
 constexpr size_t XE_GTAO_DEPTH_MIP_LEVELS = 5;
@@ -124,12 +132,17 @@ static std::chrono::duration<double> g_accounted_error; // in seconds
 // Global COM resources.
 namespace GCOM
 {
-	static Com_ptr<ID3D11ComputeShader> cs_delinearize;
+	static Com_ptr<ID3D11PixelShader> ps_delinearize;
 	static Com_ptr<ID3D11VertexShader> vs_fullscreen_triangle;
 	static Com_ptr<ID3D11PixelShader> ps_copy;
 	static Com_ptr<ID3D11SamplerState> smp_point;
 	static Com_ptr<ID3D11ShaderResourceView> srv_depth;
 	static Com_ptr<ID3D11Buffer> cb;
+	static Com_ptr<ID3D11PixelShader> ps_linearize;
+	static Com_ptr<ID3D11PixelShader> ps_amd_ffx_cas;
+	static Com_ptr<ID3D11PixelShader> ps_amd_ffx_lfga;
+	static Com_ptr<ID3D11SamplerState> smp_point_wrap;
+	static Com_ptr<ID3D11ShaderResourceView> srv_blue_noise_tex;
 
 	// Replacement shaders.
 	static Com_ptr<ID3D11PixelShader> ps_tonemap_0x29D570D8;
@@ -186,13 +199,17 @@ namespace GCOM
 
 	static void reset() noexcept
 	{
-		cs_delinearize.reset();
+		ps_delinearize.reset();
 		vs_fullscreen_triangle.reset();
 		ps_copy.reset();
 		smp_point.reset();
 		srv_depth.reset();
 		cb.reset();
-		
+		ps_amd_ffx_cas.reset();
+		ps_linearize.reset();
+		ps_amd_ffx_lfga.reset();
+		srv_blue_noise_tex.reset();
+
 		// Replacement shaders.
 		ps_tonemap_0x29D570D8.reset();
 		ps_starburst_and_lens_dirt_0x2AD953ED.reset();
@@ -614,33 +631,29 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 		// Delinearize pass
 		////
 
-		// Create CS.
-		[[unlikely]] if (!GCOM::cs_delinearize) {
-			create_compute_shader(device.get(), GCOM::cs_delinearize.put(), L"Delinearize_cs.hlsl");
+		// Create VS.
+		[[unlikely]] if (!GCOM::vs_fullscreen_triangle) {
+			create_vertex_shader(device.get(), GCOM::vs_fullscreen_triangle.put(), L"FullscreenTriangle_vs.hlsl");
+		}
+
+		// Create PS.
+		[[unlikely]] if (!GCOM::ps_delinearize) {
+			create_pixel_shader(device.get(), GCOM::ps_delinearize.put(), L"Delinearize_ps.hlsl");
 		}
 
 		// Create UAs and views.
-		tex_desc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS;
 		ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
-		Com_ptr<ID3D11UnorderedAccessView> uav_scene_delinearized;
-		ensure(device->CreateUnorderedAccessView(tex.get(), nullptr, uav_scene_delinearized.put()), >= 0);
+		Com_ptr<ID3D11RenderTargetView> rtv_scene_delinearized;
+		ensure(device->CreateRenderTargetView(tex.get(), nullptr, rtv_scene_delinearized.put()), >= 0);
 		Com_ptr<ID3D11ShaderResourceView> srv_scene_delinearized;
 		ensure(device->CreateShaderResourceView(tex.get(), nullptr, srv_scene_delinearized.put()), >= 0);
-		ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
 
 		// Bindings.
-		static constexpr ID3D11ShaderResourceView* srv_null = nullptr;
-		ctx->PSSetShaderResources(0, 1, &srv_null);
-		ctx->CSSetShader(GCOM::cs_delinearize.get(), nullptr, 0);
-		ctx->CSSetUnorderedAccessViews(0, 1, &uav_scene_delinearized, nullptr);
-		ctx->CSSetShaderResources(0, 1, &srv_scene);
+		ctx->OMSetRenderTargets(1, &rtv_scene_delinearized, nullptr);
+		ctx->VSSetShader(GCOM::vs_fullscreen_triangle.get(), nullptr, 0);
+		ctx->PSSetShader(GCOM::ps_delinearize.get(), nullptr, 0);
 
-		ctx->Dispatch((tex_desc.Width + 8 - 1) / 8, (tex_desc.Height + 8 - 1) / 8, 1);
-
-		// Unbind UAVs and SRVs.
-		constexpr ID3D11UnorderedAccessView* uav_null = nullptr;
-		ctx->CSSetUnorderedAccessViews(0, 1, &uav_null, nullptr);
-		ctx->CSSetShaderResources(0, 1, &srv_null);
+		ctx->Draw(3, 0);
 
 		////
 
@@ -888,11 +901,6 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 		// Prefilter + downsample pass
 		////
 
-		// Create VS.
-		[[unlikely]] if (!GCOM::vs_fullscreen_triangle) {
-			create_vertex_shader(device.get(), GCOM::vs_fullscreen_triangle.put(), L"FullscreenTriangle_vs.hlsl");
-		}
-
 		// Create PS.
 		[[unlikely]] if (!GCOM::ps_bloom_downsample) {
 			create_pixel_shader(device.get(), GCOM::ps_bloom_downsample.put(), L"Bloom_impl.hlsl", "downsample_ps");
@@ -1032,24 +1040,6 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 			ctx->Draw(3, 0);
 		}
 
-		// Restore.
-		// It's convinient to do a partial restore here.
-		ctx->OMSetBlendState(blend_original.get(), blend_factor_original, sample_mask_original);
-		ctx->OMSetRenderTargets(1, &rtv_original, dsv_original.get());
-		ctx->VSSetShader(vs_original.get(), nullptr, 0);
-		ctx->PSSetSamplers(0, 1, &smp_original);
-		const std::array ps_srvs_restore = { srv_smaa_neighborhood_blending.get(), srvs_original[0], srvs_original[1], srv_mips_y[0] };
-		ctx->PSSetShaderResources(0, ps_srvs_restore.size(), ps_srvs_restore.data());
-		ctx->RSSetViewports(viewports_original.size(), viewports_original.data());
-
-		// Release com arrays.
-		auto release_com_array = [](auto& array){ for (auto* p : array) if (p) p->Release(); };
-		release_com_array(rtv_mips_x);
-		release_com_array(srv_mips_x);
-		release_com_array(rtv_mips_y);
-		release_com_array(srv_mips_y);
-		release_com_array(srvs_original);
-
 		//
 
 		// Tonemap_0x29D570D8 pass
@@ -1065,12 +1055,165 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 			create_pixel_shader(device.get(), GCOM::ps_tonemap_0x29D570D8.put(), L"Tonemap_0x29D570D8_ps.hlsl", "main", defines.data());
 		}
 
+		// Create RT and views.
+		tex_desc.Width = g_swapchain_width;
+		tex_desc.Height = g_swapchain_height;
+		ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
+		Com_ptr<ID3D11RenderTargetView> rtv_tonemap;
+		ensure(device->CreateRenderTargetView(tex.get(), nullptr, rtv_tonemap.put()), >= 0);
+		Com_ptr<ID3D11ShaderResourceView> srv_tonemap;
+		ensure(device->CreateShaderResourceView(tex.get(), nullptr, srv_tonemap.put()), >= 0);
+
 		// Bindings.
+		ctx->OMSetBlendState(blend_original.get(), blend_factor_original, sample_mask_original);
+		ctx->OMSetRenderTargets(1, &rtv_tonemap, nullptr);
+		ctx->VSSetShader(vs_original.get(), nullptr, 0);
 		ctx->PSSetShader(GCOM::ps_tonemap_0x29D570D8.get(), nullptr, 0);
+		ctx->PSSetSamplers(0, 1, &smp_original);
+		const std::array ps_srvs_restore = { srv_smaa_neighborhood_blending.get(), srvs_original[0], srvs_original[1], srv_mips_y[0] };
+		ctx->PSSetShaderResources(0, ps_srvs_restore.size(), ps_srvs_restore.data());
+		ctx->RSSetViewports(viewports_original.size(), viewports_original.data());
+
+		cmd_list->draw_indexed(index_count, instance_count, first_index, vertex_offset, first_instance);
 
 		//
 
-		return false;
+		// Linearize pass
+		//
+
+		// Create PS.
+		[[unlikely]] if (!GCOM::ps_linearize) {
+			create_pixel_shader(device.get(), GCOM::ps_linearize.put(), L"Linearize_ps.hlsl");
+		}
+
+		// Create RT and views.
+		ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
+		Com_ptr<ID3D11RenderTargetView> rtv_linearize;
+		ensure(device->CreateRenderTargetView(tex.get(), nullptr, rtv_linearize.put()), >= 0);
+		Com_ptr<ID3D11ShaderResourceView> srv_linearize;
+		ensure(device->CreateShaderResourceView(tex.get(), nullptr, srv_linearize.put()), >= 0);
+
+		// Bindings.
+		ctx->OMSetRenderTargets(1, &rtv_linearize, nullptr);
+		ctx->VSSetShader(GCOM::vs_fullscreen_triangle.get(), nullptr, 0);
+		ctx->PSSetShader(GCOM::ps_linearize.get(), nullptr, 0);
+		ctx->PSSetShaderResources(0, 1, &srv_tonemap);
+
+		ctx->Draw(3, 0);
+
+		//
+
+		// AMD FFX CAS pass
+		//
+
+		// Create PS.
+		[[unlikely]] if (!GCOM::ps_amd_ffx_cas) {
+			const std::string amd_ffx_cas_sharpness_str = std::to_string(g_amd_ffx_cas_sharpness);
+			const D3D10_SHADER_MACRO defines[] = {
+				{ "SHARPNESS", amd_ffx_cas_sharpness_str.c_str() },
+				{ nullptr, nullptr }
+			};
+			create_pixel_shader(device.get(), GCOM::ps_amd_ffx_cas.put(), L"AMD_FFX_CAS_ps.hlsl", "main", defines);
+		}
+
+		// Create RT and views.
+		ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
+		Com_ptr<ID3D11RenderTargetView> rtv_amd_ffx_cas;
+		ensure(device->CreateRenderTargetView(tex.get(), nullptr, rtv_amd_ffx_cas.put()), >= 0);
+		Com_ptr<ID3D11ShaderResourceView> srv_amd_ffx_cas;
+		ensure(device->CreateShaderResourceView(tex.get(), nullptr, srv_amd_ffx_cas.put()), >= 0);
+
+		// Bindings.
+		ctx->OMSetRenderTargets(1, &rtv_amd_ffx_cas, nullptr);
+		ctx->PSSetShader(GCOM::ps_amd_ffx_cas.get(), nullptr, 0);
+		ctx->PSSetShaderResources(0, 1, &srv_linearize);
+
+		ctx->Draw(3, 0);
+
+		//
+
+		// AMD FFX LFGA pass
+		//
+
+		// Create PS.
+		[[unlikely]] if (!GCOM::ps_amd_ffx_lfga) {
+			const std::string viewport_dims = std::format("float2({},{})", (float)tex_desc.Width, (float)tex_desc.Height);
+			const std::string amd_ffx_lfga_amount_str = std::to_string(g_amd_ffx_lfga_amount);
+			const std::string srgb_str = g_trc == TRC_SRGB ? "SRGB" : "";
+			const std::string gamma_str = std::to_string(g_gamma);
+			const D3D10_SHADER_MACRO defines[] = {
+				{ "WIEWPORT_DIMS", viewport_dims.c_str() },
+				{ "AMOUNT", amd_ffx_lfga_amount_str.c_str() },
+				{ srgb_str.c_str(), nullptr },
+				{ "GAMMA", gamma_str.c_str() },
+				{ nullptr, nullptr }
+			};
+			create_pixel_shader(device.get(), GCOM::ps_amd_ffx_lfga.put(), L"AMD_FFX_LFGA_ps.hlsl", "main", defines);
+		}
+
+		// Create blue noise texture.
+		[[unlikely]] if (!GCOM::srv_blue_noise_tex) {
+			D3D11_TEXTURE2D_DESC tex_desc = {};
+			tex_desc.Width = BLUE_NOISE_TEX_WIDTH;
+			tex_desc.Height = BLUE_NOISE_TEX_HEIGHT;
+			tex_desc.MipLevels = 1;
+			tex_desc.ArraySize = BLUE_NOISE_TEX_ARRAY_SIZE;
+			tex_desc.Format = DXGI_FORMAT_R8_UNORM;
+			tex_desc.SampleDesc.Count = 1;
+			tex_desc.Usage = D3D11_USAGE_IMMUTABLE;
+			tex_desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+			std::array<D3D11_SUBRESOURCE_DATA, BLUE_NOISE_TEX_ARRAY_SIZE> subresource_data;
+			for (size_t i = 0; i < subresource_data.size(); ++i) {
+				subresource_data[i].pSysMem = BLUE_NOISE_TEX + i * BLUE_NOISE_TEX_PITCH * BLUE_NOISE_TEX_HEIGHT;
+				subresource_data[i].SysMemPitch = BLUE_NOISE_TEX_PITCH;
+			}
+			Com_ptr<ID3D11Texture2D> tex;
+			ensure(device->CreateTexture2D(&tex_desc, subresource_data.data(), tex.put()), >= 0);
+			ensure(device->CreateShaderResourceView(tex.get(), nullptr, GCOM::srv_blue_noise_tex.put()), >= 0);
+		}
+
+		// Create point wrap sampler.
+		[[unlikely]] if (!GCOM::smp_point_wrap) {
+			create_sampler_point_wrap(device.get(), GCOM::smp_point_wrap.put());
+		}
+
+		// Update the constant buffer.
+		// We need to limit the temporal grain update rate, otherwise grain will flicker.
+		constexpr auto interval = std::chrono::duration_cast<std::chrono::high_resolution_clock::duration>(std::chrono::duration<double>(1.0 / (double)BLUE_NOISE_TEX_ARRAY_SIZE));
+		static auto last_update = std::chrono::high_resolution_clock::now();
+		const auto now = std::chrono::high_resolution_clock::now();
+		if (now - last_update >= interval) {
+			g_cb_data.tex_noise_index += 1.0f;
+			if (g_cb_data.tex_noise_index >= (float)BLUE_NOISE_TEX_ARRAY_SIZE) {
+				g_cb_data.tex_noise_index = 0.0f;
+			}
+			update_constant_buffer(ctx, GCOM::cb.get(), &g_cb_data, sizeof(g_cb_data));
+			last_update += interval;
+		}
+
+		// Bindings.
+		ctx->OMSetRenderTargets(1, &rtv_original, nullptr);
+		ctx->PSSetShader(GCOM::ps_amd_ffx_lfga.get(), nullptr, 0);
+		ctx->PSSetSamplers(0, 1, &GCOM::smp_point_wrap);
+		const std::array ps_srvs_amd_ffx_lfga = { srv_amd_ffx_cas.get(), GCOM::srv_blue_noise_tex.get() };
+		ctx->PSSetShaderResources(0, ps_srvs_amd_ffx_lfga.size(), ps_srvs_amd_ffx_lfga.data());
+
+		ctx->Draw(3, 0);
+
+		//
+
+		// Restore.
+		ctx->PSSetSamplers(0, 1, &smp_original);
+
+		// Release com arrays.
+		auto release_com_array = [](auto& array){ for (auto* p : array) if (p) p->Release(); };
+		release_com_array(rtv_mips_x);
+		release_com_array(srv_mips_x);
+		release_com_array(rtv_mips_y);
+		release_com_array(srv_mips_y);
+		release_com_array(srvs_original);
+
+		return true;
 	}
 
 
@@ -1270,9 +1413,12 @@ static bool on_create_swapchain(reshade::api::device_api api, reshade::api::swap
 	desc.back_buffer.texture.format = reshade::api::format::r10g10b10a2_unorm;
 	desc.back_buffer_count = 2;
 	desc.present_mode = DXGI_SWAP_EFFECT_FLIP_DISCARD;
-	desc.present_flags |= DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
 	desc.fullscreen_refresh_rate = 0.0f;
-	desc.sync_interval = 0;
+
+	if (g_force_vsync_off) {
+		desc.present_flags |= DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
+		desc.sync_interval = 0;
+	}
 
 	// Save swapchain size.
 	g_swapchain_width = desc.back_buffer.texture.width;
@@ -1303,6 +1449,12 @@ static void on_destroy_device(reshade::api::device *device)
 
 static void read_config()
 {	
+	if (!reshade::get_config_value(nullptr, "BioShockInfiniteGraphicalUpgrade", "DisableLensFlare", g_disable_lens_flare)) {
+		reshade::set_config_value(nullptr, "BioShockInfiniteGraphicalUpgrade", "DisableLensFlare", g_disable_lens_flare);
+	}
+	if (!reshade::get_config_value(nullptr, "BioShockInfiniteGraphicalUpgrade", "DisableLensDirt", g_disable_lens_dirt)) {
+		reshade::set_config_value(nullptr, "BioShockInfiniteGraphicalUpgrade", "DisableLensDirt", g_disable_lens_dirt);
+	}
 	if (!reshade::get_config_value(nullptr, "BioShockInfiniteGraphicalUpgrade", "XeGTAORadius", g_xe_gtao_radius)) {
 		reshade::set_config_value(nullptr, "BioShockInfiniteGraphicalUpgrade", "XeGTAORadius", g_xe_gtao_radius);
 	}
@@ -1312,11 +1464,20 @@ static void read_config()
 	if (!reshade::get_config_value(nullptr, "BioShockInfiniteGraphicalUpgrade", "BloomIntensity", g_bloom_intensity)) {
 		reshade::set_config_value(nullptr, "BioShockInfiniteGraphicalUpgrade", "BloomIntensity", g_bloom_intensity);
 	}
-	if (!reshade::get_config_value(nullptr, "BioShockInfiniteGraphicalUpgrade", "DisableLensFlare", g_disable_lens_flare)) {
-		reshade::set_config_value(nullptr, "BioShockInfiniteGraphicalUpgrade", "DisableLensFlare", g_disable_lens_flare);
+	if (!reshade::get_config_value(nullptr, "BioShockInfiniteGraphicalUpgrade", "Sharpness", g_amd_ffx_cas_sharpness)) {
+		reshade::set_config_value(nullptr, "BioShockInfiniteGraphicalUpgrade", "Sharpness", g_amd_ffx_cas_sharpness);
 	}
-	if (!reshade::get_config_value(nullptr, "BioShockInfiniteGraphicalUpgrade", "DisableLensDirt", g_disable_lens_dirt)) {
-		reshade::set_config_value(nullptr, "BioShockInfiniteGraphicalUpgrade", "DisableLensDirt", g_disable_lens_dirt);
+	if (!reshade::get_config_value(nullptr, "BioShockInfiniteGraphicalUpgrade", "GrainAmount", g_amd_ffx_lfga_amount)) {
+		reshade::set_config_value(nullptr, "BioShockInfiniteGraphicalUpgrade", "GrainAmount", g_amd_ffx_lfga_amount);
+	}
+	if (!reshade::get_config_value(nullptr, "BioshockGraphicalUpgrade", "TRC", g_trc)) {
+		reshade::set_config_value(nullptr, "BioshockGraphicalUpgrade", "TRC", g_trc);
+	}
+	if (!reshade::get_config_value(nullptr, "BioshockGraphicalUpgrade", "Gamma", g_gamma)) {
+		reshade::set_config_value(nullptr, "BioshockGraphicalUpgrade", "Gamma", g_gamma);
+	}
+	if (!reshade::get_config_value(nullptr, "BioShockInfiniteGraphicalUpgrade", "ForceVsyncOff", g_force_vsync_off)) {
+		reshade::set_config_value(nullptr, "BioShockInfiniteGraphicalUpgrade", "ForceVsyncOff", g_force_vsync_off);
 	}
 	if (!reshade::get_config_value(nullptr, "BioShockInfiniteGraphicalUpgrade", "FPSLimit", g_user_set_fps_limit)) {
 		reshade::set_config_value(nullptr, "BioShockInfiniteGraphicalUpgrade", "FPSLimit", g_user_set_fps_limit);
@@ -1341,6 +1502,15 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 	ImGui::Spacing();
 	#endif
 
+	if (ImGui::Checkbox("Disable lens flare", &g_disable_lens_flare)) {
+		reshade::set_config_value(nullptr, "BioShockInfiniteGraphicalUpgrade", "DisableLensFlare", g_disable_lens_flare);
+	}
+	if (ImGui::Checkbox("Disable lens dirt", &g_disable_lens_dirt)) {
+		reshade::set_config_value(nullptr, "BioShockInfiniteGraphicalUpgrade", "DisableLensDirt", g_disable_lens_flare);
+		GCOM::ps_starburst_and_lens_dirt_0x2AD953ED.reset();
+	}
+	ImGui::Spacing();
+
 	if (ImGui::SliderFloat("XeGTAO radius", &g_xe_gtao_radius, 0.01f, 1.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp)) {
 		reshade::set_config_value(nullptr, "BioShockInfiniteGraphicalUpgrade", "XeGTAORadius", g_xe_gtao_radius);
 		GCOM::reset_xe_gtao();
@@ -1351,19 +1521,46 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 		GCOM::reset_xe_gtao();
 	}
 	ImGui::Spacing();
+	
 	if (ImGui::SliderFloat("Bloom intensity", &g_bloom_intensity, 0.0f, 2.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp)) {
 		reshade::set_config_value(nullptr, "BioShockInfiniteGraphicalUpgrade", "BloomIntensity", g_bloom_intensity);
 		GCOM::ps_tonemap_0x29D570D8.reset();
 	}
 	ImGui::Spacing();
-	if (ImGui::Checkbox("Disable Lens Flare", &g_disable_lens_flare)) {
-		reshade::set_config_value(nullptr, "BioShockInfiniteGraphicalUpgrade", "DisableLensFlare", g_disable_lens_flare);
-	}
-	if (ImGui::Checkbox("Disable Lens Dirt", &g_disable_lens_dirt)) {
-		reshade::set_config_value(nullptr, "BioShockInfiniteGraphicalUpgrade", "DisableLensDirt", g_disable_lens_flare);
-		GCOM::ps_starburst_and_lens_dirt_0x2AD953ED.reset();
+
+	if (ImGui::SliderFloat("Sharpness", &g_amd_ffx_cas_sharpness, 0.0f, 1.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp)) {
+		reshade::set_config_value(nullptr, "BioShockInfiniteGraphicalUpgrade", "Sharpness", g_amd_ffx_cas_sharpness);
+		GCOM::ps_amd_ffx_cas.reset();
 	}
 	ImGui::Spacing();
+	
+	if (ImGui::SliderFloat("Grain amount", &g_amd_ffx_lfga_amount, 0.0f, 1.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp)) {
+		reshade::set_config_value(nullptr, "BioShockInfiniteGraphicalUpgrade", "GrainAmount", g_amd_ffx_lfga_amount);
+		GCOM::ps_amd_ffx_lfga.reset();
+	}
+	ImGui::Spacing();
+
+	static constexpr std::array trc_items = { "sRGB", "Gamma" };
+	if (ImGui::Combo("TRC", &g_trc, trc_items.data(), trc_items.size())) {
+		reshade::set_config_value(nullptr, "BioshockGraphicalUpgrade", "TRC", g_trc);
+		GCOM::ps_amd_ffx_lfga.reset();
+	}
+	ImGui::BeginDisabled(g_trc == TRC_SRGB);
+	if (ImGui::SliderFloat("Gamma", &g_gamma, 1.0f, 3.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp)) {
+		reshade::set_config_value(nullptr, "BioshockGraphicalUpgrade", "Gamma", g_gamma);
+		GCOM::ps_amd_ffx_lfga.reset();
+	}
+	ImGui::EndDisabled();
+	ImGui::Spacing();
+
+	if (ImGui::Checkbox("Force vsync off", &g_force_vsync_off)) {
+		reshade::set_config_value(nullptr, "BioShockInfiniteGraphicalUpgrade", "ForceVsyncOff", g_force_vsync_off);
+	}
+	if (ImGui::IsItemHovered()) {
+		ImGui::SetItemTooltip("Requires restart.");
+	}
+	ImGui::Spacing();
+	
 	ImGui::InputFloat("FPS limit", &g_user_set_fps_limit);
 	if (ImGui::IsItemDeactivatedAfterEdit()) {
 		g_user_set_fps_limit = std::clamp(g_user_set_fps_limit, 10.0f, FLT_MAX);
@@ -1379,7 +1576,7 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 }
 
 extern "C" __declspec(dllexport) const char* NAME = "BioShockInfiniteGraphicalUpgrade";
-extern "C" __declspec(dllexport) const char* DESCRIPTION = "BioShockInfiniteGraphicalUpgrade v1.2.0";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "BioShockInfiniteGraphicalUpgrade v2.0.0";
 extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/BioShockInfiniteGraphicalUpgrade";
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)

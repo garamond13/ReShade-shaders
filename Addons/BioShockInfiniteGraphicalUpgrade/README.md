@@ -4,6 +4,9 @@
 - Replaced ambient occlusion (AMBIENT OCCLUSION: HIGH and ULTRA) with XeGTAO.
 - Replaced FXAA anti aliasing with SMAA.
 - Replaced bloom.
+- Sharpening filter (Modified AMD FFX CAS).
+- Temporal blue noise film grain (AMD FFX LFGA).
+- Adjustable Tone Responce Curve (TRC) (sRGB, gamma).
 - Optionally disable lens flare.
 - Optionally disable lens dirt.
 - Accurate FPS limiter.

@@ -6,6 +6,7 @@ cbuffer graphical_upgrade : register(b13)
 	float2 inv_src_size;
 	float2 axis;
 	float sigma;
+	float tex_noise_index;
 }
 
 cbuffer _Globals : register(b12)
