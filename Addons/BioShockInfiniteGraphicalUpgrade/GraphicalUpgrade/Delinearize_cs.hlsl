@@ -7,5 +7,5 @@ RWTexture2D<float4> uav : register(u0);
 void main(uint3 dtid : SV_DispatchThreadID)
 {	
 	float4 color = tex.Load(int3(dtid.xy, 0));
-	uav[dtid.xy] = float4(srgb_to_linear(color.rgb), color.a);
+	uav[dtid.xy] = float4(linear_to_srgb(color.rgb), color.a);
 }

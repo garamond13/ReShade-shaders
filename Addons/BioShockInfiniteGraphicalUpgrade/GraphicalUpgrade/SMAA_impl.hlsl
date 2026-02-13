@@ -4,8 +4,8 @@
 #define SMAA_PRESET_ULTRA
 #define SMAA_PREDICATION 1
 #define SMAA_CUSTOM_SL
-SamplerState LinearSampler : register(s0);
-SamplerState PointSampler : register(s1);
+SamplerState LinearSampler : register(s1);
+SamplerState PointSampler : register(s0);
 #define SMAATexture2D(tex) Texture2D tex
 #define SMAATexturePass2D(tex) tex
 #define SMAASampleLevelZero(tex, coord) tex.SampleLevel(LinearSampler, coord, 0)
@@ -78,8 +78,7 @@ float4 smaa_neighborhood_blending_ps(float4 position : SV_Position, float2 texco
 {
 	// tex0 = colorTex
 	// tex1 = blendTex
-	float4 color = SMAANeighborhoodBlendingPS(texcoord, offset, tex0, tex1);
-	return float4(linear_to_srgb(color.rgb), color.a);
+	return SMAANeighborhoodBlendingPS(texcoord, offset, tex0, tex1);
 }
 
 //
