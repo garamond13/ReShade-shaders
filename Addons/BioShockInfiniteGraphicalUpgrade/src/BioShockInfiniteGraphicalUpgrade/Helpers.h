@@ -109,6 +109,33 @@ inline void create_sampler_point_wrap(ID3D11Device* device, ID3D11SamplerState**
 	ensure(device->CreateSamplerState(&desc, smp), >= 0);
 }
 
+// Fowler–Noll–Vo hash function (FNV-1a 32bit)
+// https://en.wikipedia.org/wiki/Fowler%E2%80%93Noll%E2%80%93Vo_hash_function
+//
+// str has to be null terminated!
+consteval uint32_t hash_name(const char* str)
+{
+	constexpr uint32_t fnv_offset_basis = 2166136261u;
+	constexpr uint32_t fnv_prime = 16777619u;
+	uint32_t hash = fnv_offset_basis;
+	while (*str) {
+		hash ^= (uint8_t)*str;
+		hash *= fnv_prime;
+		++str;
+	}
+	return hash;
+}
+
+inline void release_com_array(auto& array)
+{
+	for (auto*& ptr : array) {
+		if (ptr) {
+			ptr->Release();
+			ptr = nullptr;
+		}
+	}
+}
+
 inline auto to_string(reshade::api::format format)
 {
 	switch(format) {

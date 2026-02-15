@@ -129,104 +129,23 @@ static std::chrono::duration<double> g_accounted_error; // in seconds
 
 //
 
-// Global COM resources.
-namespace GCOM
-{
-	static Com_ptr<ID3D11PixelShader> ps_delinearize;
-	static Com_ptr<ID3D11VertexShader> vs_fullscreen_triangle;
-	static Com_ptr<ID3D11PixelShader> ps_copy;
-	static Com_ptr<ID3D11SamplerState> smp_point;
-	static Com_ptr<ID3D11ShaderResourceView> srv_depth;
-	static Com_ptr<ID3D11Buffer> cb;
-	static Com_ptr<ID3D11PixelShader> ps_linearize;
-	static Com_ptr<ID3D11PixelShader> ps_amd_ffx_cas;
-	static Com_ptr<ID3D11PixelShader> ps_amd_ffx_lfga;
-	static Com_ptr<ID3D11SamplerState> smp_point_wrap;
-	static Com_ptr<ID3D11ShaderResourceView> srv_blue_noise_tex;
-
-	// Replacement shaders.
-	static Com_ptr<ID3D11PixelShader> ps_tonemap_0x29D570D8;
-	static Com_ptr<ID3D11PixelShader> ps_starburst_and_lens_dirt_0x2AD953ED;
-	static Com_ptr<ID3D11PixelShader> ps_object_highlight_white_0x4D93743F;
-	static Com_ptr<ID3D11PixelShader> ps_object_highlight_red_0x61D986B8;
-
-	// XeGTAO
-	static Com_ptr<ID3D11ComputeShader> cs_xe_gtao_prefilter_depths16x16;
-	static Com_ptr<ID3D11ComputeShader> cs_xe_gtao_main_pass;
-	static Com_ptr<ID3D11ComputeShader> cs_xe_gtao_denoise_pass1;
-	static Com_ptr<ID3D11ComputeShader> cs_xe_gtao_denoise_pass2;
-
-	// Bloom
-	static Com_ptr<ID3D11PixelShader> ps_bloom_downsample;
-	static Com_ptr<ID3D11PixelShader> ps_bloom_prefilter;
-	static Com_ptr<ID3D11PixelShader> ps_bloom_upsample;
-	static Com_ptr<ID3D11Buffer> cb_bloom;
-	static Com_ptr<ID3D11BlendState> blend_bloom;
-
-	// SMAA
-	static Com_ptr<ID3D11ShaderResourceView> srv_smaa_area_tex;
-	static Com_ptr<ID3D11ShaderResourceView> srv_smaa_search_tex;
-	static Com_ptr<ID3D11VertexShader> vs_smaa_edge_detection;
-	static Com_ptr<ID3D11PixelShader> ps_smaa_edge_detection;
-	static Com_ptr<ID3D11VertexShader> vs_smaa_blending_weight_calculation;
-	static Com_ptr<ID3D11PixelShader> ps_smaa_blending_weight_calculation;
-	static Com_ptr<ID3D11VertexShader> vs_smaa_neighborhood_blending;
-	static Com_ptr<ID3D11PixelShader> ps_smaa_neighborhood_blending;
-	static Com_ptr<ID3D11DepthStencilState> ds_smaa_disable_depth_replace_stencil;
-	static Com_ptr<ID3D11DepthStencilState> ds_smaa_disable_depth_use_stencil;
-
-	static void reset_xe_gtao() noexcept
-	{
-		cs_xe_gtao_prefilter_depths16x16.reset();
-		cs_xe_gtao_main_pass.reset();
-		cs_xe_gtao_denoise_pass1.reset();
-		cs_xe_gtao_denoise_pass2.reset();
-	}
-
-	static void reset_smaa() noexcept
-	{
-		srv_smaa_area_tex.reset();
-		srv_smaa_search_tex.reset();
-		vs_smaa_edge_detection.reset();
-		ps_smaa_edge_detection.reset();
-		vs_smaa_blending_weight_calculation.reset();
-		ps_smaa_blending_weight_calculation.reset();
-		vs_smaa_neighborhood_blending.reset();
-		ps_smaa_neighborhood_blending.reset();
-		ds_smaa_disable_depth_replace_stencil.reset();
-		ds_smaa_disable_depth_use_stencil.reset();
-	}
-
-	static void reset() noexcept
-	{
-		ps_delinearize.reset();
-		vs_fullscreen_triangle.reset();
-		ps_copy.reset();
-		smp_point.reset();
-		srv_depth.reset();
-		cb.reset();
-		ps_amd_ffx_cas.reset();
-		ps_linearize.reset();
-		ps_amd_ffx_lfga.reset();
-		srv_blue_noise_tex.reset();
-
-		// Replacement shaders.
-		ps_tonemap_0x29D570D8.reset();
-		ps_starburst_and_lens_dirt_0x2AD953ED.reset();
-		ps_object_highlight_white_0x4D93743F.reset();
-		ps_object_highlight_red_0x61D986B8.reset();
-
-		// Bloom
-		ps_bloom_downsample.reset();
-		ps_bloom_prefilter.reset();
-		ps_bloom_upsample.reset();
-		cb_bloom.reset();
-		blend_bloom.reset();
-
-		reset_xe_gtao();
-		reset_smaa();
-	}
-};
+// COM resources.
+static std::unordered_map<uint32_t, Com_ptr<ID3D11RenderTargetView>> g_rtv;
+static std::unordered_map<uint32_t, Com_ptr<ID3D11UnorderedAccessView>> g_uav;
+static std::unordered_map<uint32_t, Com_ptr<ID3D11ShaderResourceView>> g_srv;
+static std::unordered_map<uint32_t, Com_ptr<ID3D11PixelShader>> g_ps;
+static std::unordered_map<uint32_t, Com_ptr<ID3D11VertexShader>> g_vs;
+static std::unordered_map<uint32_t, Com_ptr<ID3D11ComputeShader>> g_cs;
+static std::unordered_map<uint32_t, Com_ptr<ID3D11SamplerState>> g_smp;
+static std::unordered_map<uint32_t, Com_ptr<ID3D11DepthStencilView>> g_dsv;
+static std::unordered_map<uint32_t, Com_ptr<ID3D11DepthStencilState>> g_ds;
+static std::unordered_map<uint32_t, Com_ptr<ID3D11Buffer>> g_cb;
+static std::unordered_map<uint32_t, Com_ptr<ID3D11BlendState>> g_blend;
+static std::array<ID3D11UnorderedAccessView*, XE_GTAO_DEPTH_MIP_LEVELS> g_uav_xe_gtao_prefilter_depths;
+static std::vector<ID3D11RenderTargetView*> g_rtv_bloom_mips_y;
+static std::vector<ID3D11ShaderResourceView*> g_srv_bloom_mips_y;
+static std::vector<ID3D11RenderTargetView*> g_rtv_bloom_mips_x;
+static std::vector<ID3D11ShaderResourceView*> g_srv_bloom_mips_x;
 
 static void draw_xe_gtao(ID3D11DeviceContext* ctx)
 {
@@ -249,56 +168,54 @@ static void draw_xe_gtao(ID3D11DeviceContext* ctx)
 	//
 
 	// Create sampler.
-	[[unlikely]] if (!GCOM::smp_point) {
-		create_sampler_point_clamp(device.get(), GCOM::smp_point.put());
+	[[unlikely]] if (!g_smp[hash_name("point_clamp")]) {
+		create_sampler_point_clamp(device.get(), g_smp[hash_name("point_clamp")].put());
 	}
 
 	// Create CS.
-	[[unlikely]] if (!GCOM::cs_xe_gtao_prefilter_depths16x16) {
+	[[unlikely]] if (!g_cs[hash_name("xe_gtao_prefilter_depths16x16")]) {
 		const std::string effect_radius_val = std::to_string(g_xe_gtao_radius);
 		const std::array defines = {
 			D3D_SHADER_MACRO{ "EFFECT_RADIUS", effect_radius_val.c_str() },
 			D3D_SHADER_MACRO{ nullptr, nullptr }
 		};
-		create_compute_shader(device.get(), GCOM::cs_xe_gtao_prefilter_depths16x16.put(), L"XeGTAO.hlsl", "prefilter_depths16x16_cs", defines.data());
+		create_compute_shader(device.get(), g_cs[hash_name("xe_gtao_prefilter_depths16x16")].put(), L"XeGTAO.hlsl", "prefilter_depths16x16_cs", defines.data());
 	}
-
-	D3D11_TEXTURE2D_DESC tex_desc = {};
-	tex_desc.Width = g_swapchain_width;
-	tex_desc.Height = g_swapchain_height;
-	tex_desc.MipLevels = XE_GTAO_DEPTH_MIP_LEVELS;
-	tex_desc.ArraySize = 1;
-	tex_desc.Format = DXGI_FORMAT_R32_FLOAT;
-	tex_desc.SampleDesc.Count = 1;
-	tex_desc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS;
 
 	// Create prefilter depths views.
-	Com_ptr<ID3D11Texture2D> tex;
-	ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
-	std::array<ID3D11UnorderedAccessView*, XE_GTAO_DEPTH_MIP_LEVELS> uav_prefilter_depths = {};
-	D3D11_UNORDERED_ACCESS_VIEW_DESC uav_desc = {};
-	uav_desc.Format = tex_desc.Format;
-	uav_desc.ViewDimension = D3D11_UAV_DIMENSION_TEXTURE2D;
-	for (int i = 0; i < uav_prefilter_depths.size(); ++i) {
-	   uav_desc.Texture2D.MipSlice = i;
-	   ensure(device->CreateUnorderedAccessView(tex.get(), &uav_desc, &uav_prefilter_depths[i]), >= 0);
+	[[unlikely]] if (!g_uav_xe_gtao_prefilter_depths[0]) {
+		D3D11_TEXTURE2D_DESC tex_desc = {};
+		tex_desc.Width = g_swapchain_width;
+		tex_desc.Height = g_swapchain_height;
+		tex_desc.MipLevels = XE_GTAO_DEPTH_MIP_LEVELS;
+		tex_desc.ArraySize = 1;
+		tex_desc.Format = DXGI_FORMAT_R32_FLOAT;
+		tex_desc.SampleDesc.Count = 1;
+		tex_desc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS;
+		Com_ptr<ID3D11Texture2D> tex;
+		ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
+
+		D3D11_UNORDERED_ACCESS_VIEW_DESC uav_desc = {};
+		uav_desc.Format = tex_desc.Format;
+		uav_desc.ViewDimension = D3D11_UAV_DIMENSION_TEXTURE2D;
+		for (int i = 0; i < g_uav_xe_gtao_prefilter_depths.size(); ++i) {
+		   uav_desc.Texture2D.MipSlice = i;
+		   ensure(device->CreateUnorderedAccessView(tex.get(), &uav_desc, &g_uav_xe_gtao_prefilter_depths[i]), >= 0);
+		}
+
+		ensure(device->CreateShaderResourceView(tex.get(), nullptr, g_srv[hash_name("xe_gtao_prefilter_depths.put()")].put()), >= 0);
 	}
-	Com_ptr<ID3D11ShaderResourceView> srv_prefilter_depths;
-	ensure(device->CreateShaderResourceView(tex.get(), nullptr, srv_prefilter_depths.put()), >= 0);
 
 	// Bindings.
-	ctx->CSSetUnorderedAccessViews(0, uav_prefilter_depths.size(), uav_prefilter_depths.data(), nullptr);
-	ctx->CSSetShader(GCOM::cs_xe_gtao_prefilter_depths16x16.get(), nullptr, 0);
-	ctx->CSSetSamplers(0, 1, &GCOM::smp_point);
+	ctx->CSSetUnorderedAccessViews(0, g_uav_xe_gtao_prefilter_depths.size(), g_uav_xe_gtao_prefilter_depths.data(), nullptr);
+	ctx->CSSetShader(g_cs[hash_name("xe_gtao_prefilter_depths16x16")].get(), nullptr, 0);
+	ctx->CSSetSamplers(0, 1, &g_smp[hash_name("point_clamp")]);
 
-	ctx->Dispatch((tex_desc.Width + 16 - 1) / 16, (tex_desc.Height + 16 - 1) / 16, 1);
+	ctx->Dispatch((g_swapchain_width + 16 - 1) / 16, (g_swapchain_height + 16 - 1) / 16, 1);
 
 	// Unbind UAVs and release uav_prefilter_depths.
-	static constexpr std::array<ID3D11UnorderedAccessView*, uav_prefilter_depths.size()> uav_nulls_prefilter_depths_pass = {};
+	static constexpr std::array<ID3D11UnorderedAccessView*, g_uav_xe_gtao_prefilter_depths.size()> uav_nulls_prefilter_depths_pass = {};
 	ctx->CSSetUnorderedAccessViews(0, uav_nulls_prefilter_depths_pass.size(), uav_nulls_prefilter_depths_pass.data(), nullptr);
-	for (int i = 0; i < uav_prefilter_depths.size(); ++i) {
-	   uav_prefilter_depths[i]->Release();
-	}
 
 	//
 
@@ -306,7 +223,7 @@ static void draw_xe_gtao(ID3D11DeviceContext* ctx)
 	//
 
 	// Create CS.
-	[[unlikely]] if (!GCOM::cs_xe_gtao_main_pass) {
+	[[unlikely]] if (!g_cs[hash_name("xe_gtao_main_pass")]) {
 		const std::string xe_gtao_quality_val = std::to_string(g_xe_gtao_quality);
 		const std::string effect_radius_val = std::to_string(g_xe_gtao_radius);
 		const std::array defines = {
@@ -314,25 +231,32 @@ static void draw_xe_gtao(ID3D11DeviceContext* ctx)
 			D3D_SHADER_MACRO{ "XE_GTAO_QUALITY", xe_gtao_quality_val.c_str() },
 			D3D_SHADER_MACRO{ nullptr, nullptr }
 		};
-		create_compute_shader(device.get(), GCOM::cs_xe_gtao_main_pass.put(), L"XeGTAO.hlsl", "main_pass_cs", defines.data());
+		create_compute_shader(device.get(), g_cs[hash_name("xe_gtao_main_pass")].put(), L"XeGTAO.hlsl", "main_pass_cs", defines.data());
 	}
 
 	// Create AO term and Edges views.
-	tex_desc.Format = DXGI_FORMAT_R8G8_UNORM;
-	tex_desc.MipLevels = 1;
-	ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
-	Com_ptr<ID3D11UnorderedAccessView> uav_main_pass;
-	ensure(device->CreateUnorderedAccessView(tex.get(), nullptr, uav_main_pass.put()), >= 0);
-	Com_ptr<ID3D11ShaderResourceView> srv_main_pass;
-	ensure(device->CreateShaderResourceView(tex.get(), nullptr, srv_main_pass.put()), >= 0);
+	[[unlikely]] if (!g_uav[hash_name("xe_gtao_main_pass")]) {
+		D3D11_TEXTURE2D_DESC tex_desc = {};
+		tex_desc.Width = g_swapchain_width;
+		tex_desc.Height = g_swapchain_height;
+		tex_desc.MipLevels = 1;
+		tex_desc.ArraySize = 1;
+		tex_desc.Format = DXGI_FORMAT_R8G8_UNORM;
+		tex_desc.SampleDesc.Count = 1;
+		tex_desc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS;
+		Com_ptr<ID3D11Texture2D> tex;
+		ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
+		ensure(device->CreateUnorderedAccessView(tex.get(), nullptr, g_uav[hash_name("xe_gtao_main_pass")].put()), >= 0);
+		ensure(device->CreateShaderResourceView(tex.get(), nullptr, g_srv[hash_name("xe_gtao_main_pass")].put()), >= 0);
+	}
 
 	// Bindings.
-	ctx->CSSetUnorderedAccessViews(0, 1, &uav_main_pass, nullptr);
-	ctx->CSSetShader(GCOM::cs_xe_gtao_main_pass.get(), nullptr, 0);
-	const std::array srvs_main_pass = { srv_prefilter_depths.get(), srv_normal.get() };
+	ctx->CSSetUnorderedAccessViews(0, 1, &g_uav[hash_name("xe_gtao_main_pass")], nullptr);
+	ctx->CSSetShader(g_cs[hash_name("xe_gtao_main_pass")].get(), nullptr, 0);
+	const std::array srvs_main_pass = { g_srv[hash_name("xe_gtao_prefilter_depths.put()")].get(), srv_normal.get() };
 	ctx->CSSetShaderResources(0, srvs_main_pass.size(), srvs_main_pass.data());
 
-	ctx->Dispatch((tex_desc.Width + XE_GTAO_NUMTHREADS_X - 1) / XE_GTAO_NUMTHREADS_X, (tex_desc.Height + XE_GTAO_NUMTHREADS_Y - 1) / XE_GTAO_NUMTHREADS_Y, 1);
+	ctx->Dispatch((g_swapchain_width + XE_GTAO_NUMTHREADS_X - 1) / XE_GTAO_NUMTHREADS_X, (g_swapchain_height + XE_GTAO_NUMTHREADS_Y - 1) / XE_GTAO_NUMTHREADS_Y, 1);
 
 	//
 
@@ -342,27 +266,36 @@ static void draw_xe_gtao(ID3D11DeviceContext* ctx)
 	//
 
 	// Create CS.
-	[[unlikely]] if (!GCOM::cs_xe_gtao_denoise_pass1) {
+	[[unlikely]] if (!g_cs[hash_name("xe_gtao_denoise_pass1")]) {
 		static constexpr std::array defines = {
 			D3D_SHADER_MACRO{ "XE_GTAO_FINAL_APPLY", "0" },
 			D3D_SHADER_MACRO{ nullptr, nullptr }
 		};
-		create_compute_shader(device.get(), GCOM::cs_xe_gtao_denoise_pass1.put(), L"XeGTAO.hlsl", "denoise_pass_cs", defines.data());
+		create_compute_shader(device.get(), g_cs[hash_name("xe_gtao_denoise_pass1")].put(), L"XeGTAO.hlsl", "denoise_pass_cs", defines.data());
 	}
 
 	// Create AO term and Edges views.
-	ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
-	Com_ptr<ID3D11UnorderedAccessView> uav_denoise_pass1;
-	ensure(device->CreateUnorderedAccessView(tex.get(), nullptr, uav_denoise_pass1.put()), >= 0);
-	Com_ptr<ID3D11ShaderResourceView> srv_denoise_pass1;
-	ensure(device->CreateShaderResourceView(tex.get(), nullptr, srv_denoise_pass1.put()), >= 0);
+	[[unlikely]] if (!g_uav[hash_name("xe_gtao_denoise_pass1")]) {
+		D3D11_TEXTURE2D_DESC tex_desc = {};
+		tex_desc.Width = g_swapchain_width;
+		tex_desc.Height = g_swapchain_height;
+		tex_desc.MipLevels = 1;
+		tex_desc.ArraySize = 1;
+		tex_desc.Format = DXGI_FORMAT_R8G8_UNORM;
+		tex_desc.SampleDesc.Count = 1;
+		tex_desc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS;
+		Com_ptr<ID3D11Texture2D> tex;
+		ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
+		ensure(device->CreateUnorderedAccessView(tex.get(), nullptr, g_uav[hash_name("xe_gtao_denoise_pass1")].put()), >= 0);
+		ensure(device->CreateShaderResourceView(tex.get(), nullptr, g_srv[hash_name("xe_gtao_denoise_pass1")].put()), >= 0);
+	}
 
 	// Bindings.
-	ctx->CSSetUnorderedAccessViews(0, 1, &uav_denoise_pass1, nullptr);
-	ctx->CSSetShader(GCOM::cs_xe_gtao_denoise_pass1.get(), nullptr, 0);
-	ctx->CSSetShaderResources(0, 1, &srv_main_pass);
+	ctx->CSSetUnorderedAccessViews(0, 1, &g_uav[hash_name("xe_gtao_denoise_pass1")], nullptr);
+	ctx->CSSetShader(g_cs[hash_name("xe_gtao_denoise_pass1")].get(), nullptr, 0);
+	ctx->CSSetShaderResources(0, 1, &g_srv[hash_name("xe_gtao_main_pass")]);
 
-	ctx->Dispatch((tex_desc.Width + (XE_GTAO_NUMTHREADS_X * 2) - 1) / (XE_GTAO_NUMTHREADS_X * 2), (tex_desc.Height + XE_GTAO_NUMTHREADS_Y - 1) / XE_GTAO_NUMTHREADS_Y,1);
+	ctx->Dispatch((g_swapchain_width + (XE_GTAO_NUMTHREADS_X * 2) - 1) / (XE_GTAO_NUMTHREADS_X * 2), (g_swapchain_height + XE_GTAO_NUMTHREADS_Y - 1) / XE_GTAO_NUMTHREADS_Y,1);
 
 	//
 
@@ -370,20 +303,20 @@ static void draw_xe_gtao(ID3D11DeviceContext* ctx)
 	//
 
 	// Create CS.
-	[[unlikely]] if (!GCOM::cs_xe_gtao_denoise_pass2) {
+	[[unlikely]] if (!g_cs[hash_name("xe_gtao_denoise_pass2")]) {
 		static constexpr std::array defines = {
 			D3D_SHADER_MACRO{ "XE_GTAO_FINAL_APPLY", "1" },
 			D3D_SHADER_MACRO{ nullptr, nullptr }
 		};
-		create_compute_shader(device.get(), GCOM::cs_xe_gtao_denoise_pass2.put(), L"XeGTAO.hlsl", "denoise_pass_cs", defines.data());
+		create_compute_shader(device.get(), g_cs[hash_name("xe_gtao_denoise_pass2")].put(), L"XeGTAO.hlsl", "denoise_pass_cs", defines.data());
 	}
 
 	// Bindings.
 	ctx->CSSetUnorderedAccessViews(0, 1, &uav_original, nullptr);
-	ctx->CSSetShader(GCOM::cs_xe_gtao_denoise_pass2.get(), nullptr, 0);
-	ctx->CSSetShaderResources(0, 1, &srv_denoise_pass1);
+	ctx->CSSetShader(g_cs[hash_name("xe_gtao_denoise_pass2")].get(), nullptr, 0);
+	ctx->CSSetShaderResources(0, 1, &g_srv[hash_name("xe_gtao_denoise_pass1")]);
 
-	ctx->Dispatch((tex_desc.Width + (XE_GTAO_NUMTHREADS_X * 2) - 1) / (XE_GTAO_NUMTHREADS_X * 2), (tex_desc.Height + XE_GTAO_NUMTHREADS_Y - 1) / XE_GTAO_NUMTHREADS_Y, 1);
+	ctx->Dispatch((g_swapchain_width + (XE_GTAO_NUMTHREADS_X * 2) - 1) / (XE_GTAO_NUMTHREADS_X * 2), (g_swapchain_height + XE_GTAO_NUMTHREADS_Y - 1) / XE_GTAO_NUMTHREADS_Y, 1);
 
 	//
 
@@ -396,7 +329,7 @@ static void draw_xe_gtao(ID3D11DeviceContext* ctx)
 
 static bool on_ps_bloom_prefilter(ID3D11DeviceContext* ctx)
 {
-	ctx->PSGetConstantBuffers(0, 1, GCOM::cb_bloom.put());
+	ctx->PSGetConstantBuffers(0, 1, g_cb[hash_name("bloom")].put());
 	return false;
 }
 
@@ -443,7 +376,7 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		ctx->OMGetRenderTargets(1, rtv.put(), nullptr);
 		Com_ptr<ID3D11Resource> resource;
 		rtv->GetResource(resource.put());
-		ensure(device->CreateShaderResourceView(resource.get(), nullptr, GCOM::srv_depth.put()), >= 0);
+		ensure(device->CreateShaderResourceView(resource.get(), nullptr, g_srv[hash_name("depth")].put()), >= 0);
 
 		return false;
 	}
@@ -464,17 +397,17 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		ctx->GetDevice(device.put());
 
 		// Create PS.
-		[[unlikely]] if (!GCOM::ps_starburst_and_lens_dirt_0x2AD953ED) {
+		[[unlikely]] if (!g_ps[hash_name("starburst_and_lens_dirt_0x2AD953ED")]) {
 			const std::string disable_lens_dirt = g_disable_lens_dirt ? "1" : "0";
 			const std::array defines = {
 				D3D_SHADER_MACRO{ "DISABLE_LENS_DIRT", disable_lens_dirt.c_str() },
 				D3D_SHADER_MACRO{ nullptr, nullptr }
 			};
-			create_pixel_shader(device.get(), GCOM::ps_starburst_and_lens_dirt_0x2AD953ED.put(), L"Starburst_LensFlare_0x2AD953ED_ps.hlsl", "main", defines.data());
+			create_pixel_shader(device.get(), g_ps[hash_name("starburst_and_lens_dirt_0x2AD953ED")].put(), L"Starburst_LensFlare_0x2AD953ED_ps.hlsl", "main", defines.data());
 		}
 
 		// Bindings.
-		ctx->PSSetShader(GCOM::ps_starburst_and_lens_dirt_0x2AD953ED.get(), nullptr, 0);
+		ctx->PSSetShader(g_ps[hash_name("starburst_and_lens_dirt_0x2AD953ED")].get(), nullptr, 0);
 	}
 
 	return false;
@@ -525,12 +458,12 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 		ctx->GetDevice(device.put());
 
 		// Create PS.
-		[[unlikely]] if (!GCOM::ps_object_highlight_white_0x4D93743F) {
-			create_pixel_shader(device.get(), GCOM::ps_object_highlight_white_0x4D93743F.put(), L"ObjectHighlightWhite_0x4D93743F_ps.hlsl");
+		[[unlikely]] if (!g_ps[hash_name("object_highlight_white_0x4D93743F")]) {
+			create_pixel_shader(device.get(), g_ps[hash_name("object_highlight_white_0x4D93743F")].put(), L"ObjectHighlightWhite_0x4D93743F_ps.hlsl");
 		}
 
 		// Bindings.
-		ctx->PSSetShader(GCOM::ps_object_highlight_white_0x4D93743F.get(), nullptr, 0);
+		ctx->PSSetShader(g_ps[hash_name("object_highlight_white_0x4D93743F")].get(), nullptr, 0);
 
 		return false;
 	}
@@ -542,12 +475,12 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 		ctx->GetDevice(device.put());
 
 		// Create PS.
-		[[unlikely]] if (!GCOM::ps_object_highlight_red_0x61D986B8) {
-			create_pixel_shader(device.get(), GCOM::ps_object_highlight_red_0x61D986B8.put(), L"ObjectHighlightRed_0x61D986B8_ps.hlsl");
+		[[unlikely]] if (!g_ps[hash_name("object_highlight_red_0x61D986B8")]) {
+			create_pixel_shader(device.get(), g_ps[hash_name("object_highlight_red_0x61D986B8")].put(), L"ObjectHighlightRed_0x61D986B8_ps.hlsl");
 		}
 
 		// Bindings.
-		ctx->PSSetShader(GCOM::ps_object_highlight_red_0x61D986B8.get(), nullptr, 0);
+		ctx->PSSetShader(g_ps[hash_name("object_highlight_red_0x61D986B8")].get(), nullptr, 0);
 
 		return false;
 	}
@@ -632,26 +565,26 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 		////
 
 		// Create VS.
-		[[unlikely]] if (!GCOM::vs_fullscreen_triangle) {
-			create_vertex_shader(device.get(), GCOM::vs_fullscreen_triangle.put(), L"FullscreenTriangle_vs.hlsl");
+		[[unlikely]] if (!g_vs[hash_name("fullscreen_triangle")]) {
+			create_vertex_shader(device.get(), g_vs[hash_name("fullscreen_triangle")].put(), L"FullscreenTriangle_vs.hlsl");
 		}
 
 		// Create PS.
-		[[unlikely]] if (!GCOM::ps_delinearize) {
-			create_pixel_shader(device.get(), GCOM::ps_delinearize.put(), L"Delinearize_ps.hlsl");
+		[[unlikely]] if (!g_ps[hash_name("delinearize")]) {
+			create_pixel_shader(device.get(), g_ps[hash_name("delinearize")].put(), L"Delinearize_ps.hlsl");
 		}
 
-		// Create UAs and views.
-		ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
-		Com_ptr<ID3D11RenderTargetView> rtv_scene_delinearized;
-		ensure(device->CreateRenderTargetView(tex.get(), nullptr, rtv_scene_delinearized.put()), >= 0);
-		Com_ptr<ID3D11ShaderResourceView> srv_scene_delinearized;
-		ensure(device->CreateShaderResourceView(tex.get(), nullptr, srv_scene_delinearized.put()), >= 0);
+		// Create RT and views.
+		[[unlikely]] if (!g_rtv[hash_name("scene_delinearized")]) {
+			ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
+			ensure(device->CreateRenderTargetView(tex.get(), nullptr, g_rtv[hash_name("scene_delinearized")].put()), >= 0);
+			ensure(device->CreateShaderResourceView(tex.get(), nullptr, g_srv[hash_name("scene_delinearized")].put()), >= 0);
+		}
 
 		// Bindings.
-		ctx->OMSetRenderTargets(1, &rtv_scene_delinearized, nullptr);
-		ctx->VSSetShader(GCOM::vs_fullscreen_triangle.get(), nullptr, 0);
-		ctx->PSSetShader(GCOM::ps_delinearize.get(), nullptr, 0);
+		ctx->OMSetRenderTargets(1, &g_rtv[hash_name("scene_delinearized")], nullptr);
+		ctx->VSSetShader(g_vs[hash_name("fullscreen_triangle")].get(), nullptr, 0);
+		ctx->PSSetShader(g_ps[hash_name("delinearize")].get(), nullptr, 0);
 
 		ctx->Draw(3, 0);
 
@@ -661,57 +594,58 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 		////
 
 		// Create VS.
-		[[unlikely]] if (!GCOM::vs_smaa_edge_detection) {
+		[[unlikely]] if (!g_vs[hash_name("smaa_edge_detection")]) {
 			g_smaa_rt_metrics.set(tex_desc.Width, tex_desc.Height);
-			create_vertex_shader(device.get(), GCOM::vs_smaa_edge_detection.put(), L"SMAA_impl.hlsl", "smaa_edge_detection_vs", g_smaa_rt_metrics.get());
+			create_vertex_shader(device.get(), g_vs[hash_name("smaa_edge_detection")].put(), L"SMAA_impl.hlsl", "smaa_edge_detection_vs", g_smaa_rt_metrics.get());
 		}
 
 		// Create PS.
-		[[unlikely]] if (!GCOM::ps_smaa_edge_detection) {
-			create_pixel_shader(device.get(), GCOM::ps_smaa_edge_detection.put(), L"SMAA_impl.hlsl", "smaa_edge_detection_ps", g_smaa_rt_metrics.get());
+		[[unlikely]] if (!g_ps[hash_name("smaa_edge_detection")]) {
+			create_pixel_shader(device.get(), g_ps[hash_name("smaa_edge_detection")].put(), L"SMAA_impl.hlsl", "smaa_edge_detection_ps", g_smaa_rt_metrics.get());
 		}
 
 		// Create point sampler.
-		[[unlikely]] if (!GCOM::smp_point) {
-			create_sampler_point_clamp(device.get(), GCOM::smp_point.put());
+		[[unlikely]] if (!g_smp[hash_name("point_clamp")]) {
+			create_sampler_point_clamp(device.get(), g_smp[hash_name("point_clamp")].put());
 		}
 
 		// Create DS.
-		[[unlikely]] if (!GCOM::ds_smaa_disable_depth_replace_stencil) {
+		[[unlikely]] if (!g_ds[hash_name("smaa_disable_depth_replace_stencil")]) {
 			CD3D11_DEPTH_STENCIL_DESC desc(D3D11_DEFAULT);
 			desc.DepthEnable = FALSE;
 			desc.StencilEnable = TRUE;
 			desc.FrontFace.StencilPassOp = D3D11_STENCIL_OP_REPLACE;
-			ensure(device->CreateDepthStencilState(&desc, GCOM::ds_smaa_disable_depth_replace_stencil.put()), >= 0);
+			ensure(device->CreateDepthStencilState(&desc, g_ds[hash_name("smaa_disable_depth_replace_stencil")].put()), >= 0);
 		}
 
 		// Create DSV.
-		tex_desc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
-		tex_desc.BindFlags = D3D11_BIND_DEPTH_STENCIL;
-		ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
-		Com_ptr<ID3D11DepthStencilView> dsv;
-		ensure(device->CreateDepthStencilView(tex.get(), nullptr, dsv.put()), >= 0);
+		[[unlikely]] if (!g_dsv[hash_name("smaa_dsv")]) {
+			tex_desc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
+			tex_desc.BindFlags = D3D11_BIND_DEPTH_STENCIL;
+			ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
+			ensure(device->CreateDepthStencilView(tex.get(), nullptr, g_dsv[hash_name("smaa_dsv")].put()), >= 0);
+		}
 
 		// Create RT and views.
-		tex_desc.Format = DXGI_FORMAT_R8G8_UNORM;
-		tex_desc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
-		ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
-		Com_ptr<ID3D11RenderTargetView> rtv_smaa_edge_detection;
-		ensure(device->CreateRenderTargetView(tex.get(), nullptr, rtv_smaa_edge_detection.put()), >= 0);
-		Com_ptr<ID3D11ShaderResourceView> srv_smaa_edge_detection;
-		ensure(device->CreateShaderResourceView(tex.get(), nullptr, srv_smaa_edge_detection.put()), >= 0);
+		[[unlikely]] if (!g_rtv[hash_name("smaa_edge_detection")]) {
+			tex_desc.Format = DXGI_FORMAT_R8G8_UNORM;
+			tex_desc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
+			ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
+			ensure(device->CreateRenderTargetView(tex.get(), nullptr, g_rtv[hash_name("smaa_edge_detection")].put()), >= 0);
+			ensure(device->CreateShaderResourceView(tex.get(), nullptr, g_srv[hash_name("smaa_edge_detection")].put()), >= 0);
+		}
 
 		// Bindings.
-		ctx->OMSetDepthStencilState(GCOM::ds_smaa_disable_depth_replace_stencil.get(), 1);
-		ctx->OMSetRenderTargets(1, &rtv_smaa_edge_detection, dsv.get());
-		ctx->VSSetShader(GCOM::vs_smaa_edge_detection.get(), nullptr, 0);
-		ctx->PSSetShader(GCOM::ps_smaa_edge_detection.get(), nullptr, 0);
-		ctx->PSSetSamplers(0, 1, &GCOM::smp_point);
-		const std::array ps_srvs_smaa_edge_detection = { srv_scene_delinearized.get(), GCOM::srv_depth.get() };
+		ctx->OMSetDepthStencilState(g_ds[hash_name("smaa_disable_depth_replace_stencil")].get(), 1);
+		ctx->OMSetRenderTargets(1, &g_rtv[hash_name("smaa_edge_detection")], g_dsv[hash_name("smaa_dsv")].get());
+		ctx->VSSetShader(g_vs[hash_name("smaa_edge_detection")].get(), nullptr, 0);
+		ctx->PSSetShader(g_ps[hash_name("smaa_edge_detection")].get(), nullptr, 0);
+		ctx->PSSetSamplers(0, 1, &g_smp[hash_name("point_clamp")]);
+		const std::array ps_srvs_smaa_edge_detection = { g_srv[hash_name("scene_delinearized")].get(), g_srv[hash_name("depth")].get() };
 		ctx->PSSetShaderResources(0, ps_srvs_smaa_edge_detection.size(), ps_srvs_smaa_edge_detection.data());
 
-		ctx->ClearRenderTargetView(rtv_smaa_edge_detection.get(), g_smaa_clear_color);
-		ctx->ClearDepthStencilView(dsv.get(), D3D11_CLEAR_STENCIL, 1.0f, 0);
+		ctx->ClearRenderTargetView(g_rtv[hash_name("smaa_edge_detection")].get(), g_smaa_clear_color);
+		ctx->ClearDepthStencilView(g_dsv[hash_name("smaa_dsv")].get(), D3D11_CLEAR_STENCIL, 1.0f, 0);
 		ctx->Draw(3, 0);
 
 		//
@@ -720,17 +654,17 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 		////
 
 		// Create VS.
-		[[unlikely]] if (!GCOM::vs_smaa_blending_weight_calculation) {
-			create_vertex_shader(device.get(), GCOM::vs_smaa_blending_weight_calculation.put(), L"SMAA_impl.hlsl", "smaa_blending_weight_calculation_vs", g_smaa_rt_metrics.get());
+		[[unlikely]] if (!g_vs[hash_name("smaa_blending_weight_calculation")]) {
+			create_vertex_shader(device.get(), g_vs[hash_name("smaa_blending_weight_calculation")].put(), L"SMAA_impl.hlsl", "smaa_blending_weight_calculation_vs", g_smaa_rt_metrics.get());
 		}
 
 		// Create PS.
-		[[unlikely]] if (!GCOM::ps_smaa_blending_weight_calculation) {
-			create_pixel_shader(device.get(), GCOM::ps_smaa_blending_weight_calculation.put(), L"SMAA_impl.hlsl", "smaa_blending_weight_calculation_ps", g_smaa_rt_metrics.get());
+		[[unlikely]] if (!g_ps[hash_name("smaa_blending_weight_calculation")]) {
+			create_pixel_shader(device.get(), g_ps[hash_name("smaa_blending_weight_calculation")].put(), L"SMAA_impl.hlsl", "smaa_blending_weight_calculation_ps", g_smaa_rt_metrics.get());
 		}
 
 		// Create area texture.
-		[[unlikely]] if (!GCOM::srv_smaa_area_tex) {
+		[[unlikely]] if (!g_srv[hash_name("smaa_area_tex")]) {
 			D3D11_TEXTURE2D_DESC desc = {};
 			desc.Width = AREATEX_WIDTH;
 			desc.Height = AREATEX_HEIGHT;
@@ -744,11 +678,11 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 			subresource_data.pSysMem = areaTexBytes;
 			subresource_data.SysMemPitch = AREATEX_PITCH;
 			ensure(device->CreateTexture2D(&desc, &subresource_data, tex.put()), >= 0);
-			ensure(device->CreateShaderResourceView(tex.get(), nullptr, GCOM::srv_smaa_area_tex.put()), >= 0);
+			ensure(device->CreateShaderResourceView(tex.get(), nullptr, g_srv[hash_name("smaa_area_tex")].put()), >= 0);
 		}
 
 		// Create search texture.
-		[[unlikely]] if (!GCOM::srv_smaa_search_tex) {
+		[[unlikely]] if (!g_srv[hash_name("smaa_search_tex")]) {
 			D3D11_TEXTURE2D_DESC desc = {};
 			desc.Width = SEARCHTEX_WIDTH;
 			desc.Height = SEARCHTEX_HEIGHT;
@@ -762,35 +696,35 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 			subresource_data.pSysMem = searchTexBytes;
 			subresource_data.SysMemPitch = SEARCHTEX_PITCH;
 			ensure(device->CreateTexture2D(&desc, &subresource_data, tex.put()), >= 0);
-			ensure(device->CreateShaderResourceView(tex.get(), nullptr, GCOM::srv_smaa_search_tex.put()), >= 0);
+			ensure(device->CreateShaderResourceView(tex.get(), nullptr, g_srv[hash_name("smaa_search_tex")].put()), >= 0);
 		}
 
 		// Create DS.
-		[[unlikely]] if (!GCOM::ds_smaa_disable_depth_use_stencil) {
+		[[unlikely]] if (!g_ds[hash_name("smaa_disable_depth_use_stencil")]) {
 			CD3D11_DEPTH_STENCIL_DESC desc(D3D11_DEFAULT);
 			desc.DepthEnable = FALSE;
 			desc.StencilEnable = TRUE;
 			desc.FrontFace.StencilFunc = D3D11_COMPARISON_EQUAL;
-			ensure(device->CreateDepthStencilState(&desc, GCOM::ds_smaa_disable_depth_use_stencil.put()), >= 0);
+			ensure(device->CreateDepthStencilState(&desc, g_ds[hash_name("smaa_disable_depth_use_stencil")].put()), >= 0);
 		}
 
 		// Create RT and views.
-		tex_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-		ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
-		Com_ptr<ID3D11RenderTargetView> rtv_smaa_blending_weight_calculation;
-		ensure(device->CreateRenderTargetView(tex.get(), nullptr, rtv_smaa_blending_weight_calculation.put()), >= 0);
-		Com_ptr<ID3D11ShaderResourceView> srv_smaa_blending_weight_calculation;
-		ensure(device->CreateShaderResourceView(tex.get(), nullptr, srv_smaa_blending_weight_calculation.put()), >= 0);
+		[[unlikely]] if (!g_rtv[hash_name("smaa_blending_weight_calculation")]) {
+			tex_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+			ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
+			ensure(device->CreateRenderTargetView(tex.get(), nullptr, g_rtv[hash_name("smaa_blending_weight_calculation")].put()), >= 0);
+			ensure(device->CreateShaderResourceView(tex.get(), nullptr, g_srv[hash_name("smaa_blending_weight_calculation")].put()), >= 0);
+		}
 
 		// Bindings.
-		ctx->OMSetDepthStencilState(GCOM::ds_smaa_disable_depth_use_stencil.get(), 1);
-		ctx->OMSetRenderTargets(1, &rtv_smaa_blending_weight_calculation, dsv.get());
-		ctx->VSSetShader(GCOM::vs_smaa_blending_weight_calculation.get(), nullptr, 0);
-		ctx->PSSetShader(GCOM::ps_smaa_blending_weight_calculation.get(), nullptr, 0);
-		const std::array ps_srvs_smaa_blending_weight_calculation = { srv_smaa_edge_detection.get(), GCOM::srv_smaa_area_tex.get(), GCOM::srv_smaa_search_tex.get() };
+		ctx->OMSetDepthStencilState(g_ds[hash_name("smaa_disable_depth_use_stencil")].get(), 1);
+		ctx->OMSetRenderTargets(1, &g_rtv[hash_name("smaa_blending_weight_calculation")], g_dsv[hash_name("smaa_dsv")].get());
+		ctx->VSSetShader(g_vs[hash_name("smaa_blending_weight_calculation")].get(), nullptr, 0);
+		ctx->PSSetShader(g_ps[hash_name("smaa_blending_weight_calculation")].get(), nullptr, 0);
+		const std::array ps_srvs_smaa_blending_weight_calculation = { g_srv[hash_name("smaa_edge_detection")].get(), g_srv[hash_name("smaa_area_tex")].get(), g_srv[hash_name("smaa_search_tex")].get() };
 		ctx->PSSetShaderResources(0, ps_srvs_smaa_blending_weight_calculation.size(), ps_srvs_smaa_blending_weight_calculation.data());
 
-		ctx->ClearRenderTargetView(rtv_smaa_blending_weight_calculation.get(), g_smaa_clear_color);
+		ctx->ClearRenderTargetView(g_rtv[hash_name("smaa_blending_weight_calculation")].get(), g_smaa_clear_color);
 		ctx->Draw(3, 0);
 
 		////
@@ -799,28 +733,28 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 		////
 
 		// Create VS.
-		[[unlikely]] if (!GCOM::vs_smaa_neighborhood_blending) {
-			create_vertex_shader(device.get(), GCOM::vs_smaa_neighborhood_blending.put(), L"SMAA_impl.hlsl", "smaa_neighborhood_blending_vs", g_smaa_rt_metrics.get());
+		[[unlikely]] if (!g_vs[hash_name("smaa_neighborhood_blending")]) {
+			create_vertex_shader(device.get(), g_vs[hash_name("smaa_neighborhood_blending")].put(), L"SMAA_impl.hlsl", "smaa_neighborhood_blending_vs", g_smaa_rt_metrics.get());
 		}
 
 		// Create PS.
-		[[unlikely]] if (!GCOM::ps_smaa_neighborhood_blending) {
-			create_pixel_shader(device.get(), GCOM::ps_smaa_neighborhood_blending.put(), L"SMAA_impl.hlsl", "smaa_neighborhood_blending_ps", g_smaa_rt_metrics.get());
+		[[unlikely]] if (!g_ps[hash_name("smaa_neighborhood_blending")]) {
+			create_pixel_shader(device.get(), g_ps[hash_name("smaa_neighborhood_blending")].put(), L"SMAA_impl.hlsl", "smaa_neighborhood_blending_ps", g_smaa_rt_metrics.get());
 		}
 
 		// Create RT and views.
-		tex_desc.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
-		ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
-		Com_ptr<ID3D11RenderTargetView> rtv_smaa_neighborhood_blending;
-		ensure(device->CreateRenderTargetView(tex.get(), nullptr, rtv_smaa_neighborhood_blending.put()), >= 0);
-		Com_ptr<ID3D11ShaderResourceView> srv_smaa_neighborhood_blending;
-		ensure(device->CreateShaderResourceView(tex.get(), nullptr, srv_smaa_neighborhood_blending.put()), >= 0);
+		[[unlikely]] if (!g_rtv[hash_name("smaa_neighborhood_blending")]) {
+			tex_desc.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+			ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
+			ensure(device->CreateRenderTargetView(tex.get(), nullptr, g_rtv[hash_name("smaa_neighborhood_blending")].put()), >= 0);
+			ensure(device->CreateShaderResourceView(tex.get(), nullptr, g_srv[hash_name("smaa_neighborhood_blending")].put()), >= 0);
+		}
 
 		// Bindings.
-		ctx->OMSetRenderTargets(1, &rtv_smaa_neighborhood_blending, nullptr);
-		ctx->VSSetShader(GCOM::vs_smaa_neighborhood_blending.get(), nullptr, 0);
-		ctx->PSSetShader(GCOM::ps_smaa_neighborhood_blending.get(), nullptr, 0);
-		const std::array ps_srvs_neighborhood_blending = { srv_scene.get(), srv_smaa_blending_weight_calculation.get() };
+		ctx->OMSetRenderTargets(1, &g_rtv[hash_name("smaa_neighborhood_blending")], nullptr);
+		ctx->VSSetShader(g_vs[hash_name("smaa_neighborhood_blending")].get(), nullptr, 0);
+		ctx->PSSetShader(g_ps[hash_name("smaa_neighborhood_blending")].get(), nullptr, 0);
+		const std::array ps_srvs_neighborhood_blending = { srv_scene.get(), g_srv[hash_name("smaa_blending_weight_calculation")].get() };
 		ctx->PSSetShaderResources(0, ps_srvs_neighborhood_blending.size(), ps_srvs_neighborhood_blending.data());
 
 		ctx->Draw(3, 0);
@@ -835,80 +769,76 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 		// Create MIPs and views.
 		////
 
-		const auto scene_width = tex_desc.Width;
-		const auto scene_height = tex_desc.Height;
+		const UINT y_mip0_width = g_swapchain_width / 2;
+		const UINT y_mip0_height = g_swapchain_height / 2;
 
 		// Create Y MIPs and views.
-		tex_desc.Width /= 2;
-		tex_desc.Height /= 2;
-		tex_desc.MipLevels = g_bloom_nmips;
-		tex_desc.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
-		tex_desc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
-		ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
-		const UINT y_mip0_width = tex_desc.Width;
-		const UINT y_mip0_height = tex_desc.Height;
-		std::vector<ID3D11RenderTargetView*> rtv_mips_y(g_bloom_nmips);
-		std::vector<ID3D11ShaderResourceView*> srv_mips_y(g_bloom_nmips);
-		D3D11_RENDER_TARGET_VIEW_DESC rtv_desc = {};
-		rtv_desc.Format = tex_desc.Format;
-		rtv_desc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
-		D3D11_SHADER_RESOURCE_VIEW_DESC srv_desc = {};
-		srv_desc.Format = tex_desc.Format;
-		srv_desc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
-		srv_desc.Texture2D.MipLevels = 1;
-		for (int i = 0; i < g_bloom_nmips; ++i) {
-			rtv_desc.Texture2D.MipSlice = i;
-			ensure(device->CreateRenderTargetView(tex.get(), &rtv_desc, &rtv_mips_y[i]), >= 0);
-			srv_desc.Texture2D.MostDetailedMip = i;
-			ensure(device->CreateShaderResourceView(tex.get(), &srv_desc, &srv_mips_y[i]), >= 0);
+		[[unlikely]] if (!g_rtv_bloom_mips_y[0]) {
+			tex_desc.Width = y_mip0_width;
+			tex_desc.Height = y_mip0_height;
+			tex_desc.MipLevels = g_bloom_nmips;
+			tex_desc.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+			tex_desc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
+			ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
+			
+			D3D11_RENDER_TARGET_VIEW_DESC rtv_desc = {};
+			rtv_desc.Format = tex_desc.Format;
+			rtv_desc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
+			
+			D3D11_SHADER_RESOURCE_VIEW_DESC srv_desc = {};
+			srv_desc.Format = tex_desc.Format;
+			srv_desc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+			srv_desc.Texture2D.MipLevels = 1;
+			
+			for (int i = 0; i < g_bloom_nmips; ++i) {
+				rtv_desc.Texture2D.MipSlice = i;
+				ensure(device->CreateRenderTargetView(tex.get(), &rtv_desc, &g_rtv_bloom_mips_y[i]), >= 0);
+				srv_desc.Texture2D.MostDetailedMip = i;
+				ensure(device->CreateShaderResourceView(tex.get(), &srv_desc, &g_srv_bloom_mips_y[i]), >= 0);
+			}
 		}
+
+		const UINT x_mip0_width = g_swapchain_width / 2;
+		const UINT x_mip0_height = g_swapchain_height;
 
 		// Create X MIPs and views.
-		//////
-
-		std::vector<ID3D11RenderTargetView*> rtv_mips_x(g_bloom_nmips);
-		std::vector<ID3D11ShaderResourceView*> srv_mips_x(g_bloom_nmips);
-		
-		// Create X MIP0 and views.
-		tex_desc.Width = scene_width / 2;
-		tex_desc.Height = scene_height;
-		tex_desc.MipLevels = 1;
-		ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
-		ensure(device->CreateRenderTargetView(tex.get(), nullptr, &rtv_mips_x[0]), >= 0);
-		ensure(device->CreateShaderResourceView(tex.get(), nullptr, &srv_mips_x[0]), >= 0);
-
-		const UINT x_mip0_width = tex_desc.Width;
-		const UINT x_mip0_height = tex_desc.Height;
-
-		// Create rest of X MIPs and views.
-		for (UINT i = 1; i < g_bloom_nmips; ++i) {
-			tex_desc.Width = std::max(1u, x_mip0_width >> i);
-			tex_desc.Height = std::max(1u, x_mip0_height >> i);
+		[[unlikely]] if (!g_rtv_bloom_mips_x[0]) {
+			// Create X MIP0 and views.
+			tex_desc.Width = x_mip0_width;
+			tex_desc.Height = x_mip0_height;
+			tex_desc.MipLevels = 1;
 			ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
-			ensure(device->CreateRenderTargetView(tex.get(), nullptr, &rtv_mips_x[i]), >= 0);
-			ensure(device->CreateShaderResourceView(tex.get(), nullptr, &srv_mips_x[i]), >= 0);
-		}
+			ensure(device->CreateRenderTargetView(tex.get(), nullptr, &g_rtv_bloom_mips_x[0]), >= 0);
+			ensure(device->CreateShaderResourceView(tex.get(), nullptr, &g_srv_bloom_mips_x[0]), >= 0);
 
-		//////
+			// Create rest of X MIPs and views.
+			for (UINT i = 1; i < g_bloom_nmips; ++i) {
+				tex_desc.Width = std::max(1u, x_mip0_width >> i);
+				tex_desc.Height = std::max(1u, x_mip0_height >> i);
+				ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
+				ensure(device->CreateRenderTargetView(tex.get(), nullptr, &g_rtv_bloom_mips_x[i]), >= 0);
+				ensure(device->CreateShaderResourceView(tex.get(), nullptr, &g_srv_bloom_mips_x[i]), >= 0);
+			}
+		}
 
 		////
 
 		// Create bloom CB.
-		[[unlikely]] if (!GCOM::cb) {
-			create_constant_buffer(device.get(), sizeof(g_cb_data), GCOM::cb.put());
+		[[unlikely]] if (!g_cb[hash_name("cb")]) {
+			create_constant_buffer(device.get(), sizeof(g_cb_data), g_cb[hash_name("cb")].put());
 		}
 
 		// Prefilter + downsample pass
 		////
 
 		// Create PS.
-		[[unlikely]] if (!GCOM::ps_bloom_downsample) {
-			create_pixel_shader(device.get(), GCOM::ps_bloom_downsample.put(), L"Bloom_impl.hlsl", "downsample_ps");
+		[[unlikely]] if (!g_ps[hash_name("bloom_downsample")]) {
+			create_pixel_shader(device.get(), g_ps[hash_name("bloom_downsample")].put(), L"Bloom_impl.hlsl", "downsample_ps");
 		}
 
 		// Create PS.
-		[[unlikely]] if (!GCOM::ps_bloom_prefilter) {
-			create_pixel_shader(device.get(), GCOM::ps_bloom_prefilter.put(), L"Bloom_impl.hlsl", "prefilter_ps");
+		[[unlikely]] if (!g_ps[hash_name("bloom_prefilter")]) {
+			create_pixel_shader(device.get(), g_ps[hash_name("bloom_prefilter")].put(), L"Bloom_impl.hlsl", "prefilter_ps");
 		}
 
 		D3D11_VIEWPORT viewport_x = {};
@@ -916,17 +846,17 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 		viewport_x.Height = x_mip0_height;
 
 		// Update CB.
-		g_cb_data.src_size = float2(scene_width, scene_height);
+		g_cb_data.src_size = float2(g_swapchain_width, g_swapchain_height);
 		g_cb_data.inv_src_size = float2(1.0f / g_cb_data.src_size.x, 1.0f / g_cb_data.src_size.y);
 		g_cb_data.axis = float2(1.0f, 0.0f);
 		g_cb_data.sigma = g_bloom_sigmas[0];
-		update_constant_buffer(ctx, GCOM::cb.get(), &g_cb_data, sizeof(g_cb_data));
+		update_constant_buffer(ctx, g_cb[hash_name("cb")].get(), &g_cb_data, sizeof(g_cb_data));
 
 		// Bindings.
-		ctx->OMSetRenderTargets(1, &rtv_mips_x[0], nullptr);
-		ctx->VSSetShader(GCOM::vs_fullscreen_triangle.get(), nullptr, 0);
-		ctx->PSSetShader(GCOM::ps_bloom_downsample.get(), nullptr, 0);
-		const std::array ps_cbs = { GCOM::cb_bloom.get(), GCOM::cb.get() };
+		ctx->OMSetRenderTargets(1, &g_rtv_bloom_mips_x[0], nullptr);
+		ctx->VSSetShader(g_vs[hash_name("fullscreen_triangle")].get(), nullptr, 0);
+		ctx->PSSetShader(g_ps[hash_name("bloom_downsample")].get(), nullptr, 0);
+		const std::array ps_cbs = { g_cb[hash_name("bloom")].get(), g_cb[hash_name("cb")].get() };
 		ctx->PSSetConstantBuffers(14 - ps_cbs.size(), ps_cbs.size(), ps_cbs.data());
 		ctx->PSSetShaderResources(0, 1, &srv_scene);
 		ctx->RSSetViewports(1, &viewport_x);
@@ -942,12 +872,12 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 		g_cb_data.src_size = float2(x_mip0_width, x_mip0_height);
 		g_cb_data.inv_src_size = float2(1.0f / g_cb_data.src_size.x, 1.0f / g_cb_data.src_size.y);
 		g_cb_data.axis = float2(0.0f, 1.0f);
-		update_constant_buffer(ctx, GCOM::cb.get(), &g_cb_data, sizeof(g_cb_data));
+		update_constant_buffer(ctx, g_cb[hash_name("cb")].get(), &g_cb_data, sizeof(g_cb_data));
 
 		// Bindings.
-		ctx->OMSetRenderTargets(1, &rtv_mips_y[0], nullptr);
-		ctx->PSSetShader(GCOM::ps_bloom_prefilter.get(), nullptr, 0);
-		ctx->PSSetShaderResources(0, 1, &srv_mips_x[0]);
+		ctx->OMSetRenderTargets(1, &g_rtv_bloom_mips_y[0], nullptr);
+		ctx->PSSetShader(g_ps[hash_name("bloom_prefilter")].get(), nullptr, 0);
+		ctx->PSSetShaderResources(0, 1, &g_srv_bloom_mips_x[0]);
 		ctx->RSSetViewports(1, &viewports_y[0]);
 
 		// Draw Y pass.
@@ -959,7 +889,7 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 		////
 
 		// Bindings.
-		ctx->PSSetShader(GCOM::ps_bloom_downsample.get(), nullptr, 0);
+		ctx->PSSetShader(g_ps[hash_name("bloom_downsample")].get(), nullptr, 0);
 
 		// Render downsample passes.
 		for (UINT i = 1; i < g_bloom_nmips; ++i) {
@@ -971,11 +901,11 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 			g_cb_data.axis = float2(1.0f, 0.0f);
 			g_cb_data.inv_src_size = float2(1.0f / g_cb_data.src_size.x, 1.0f / g_cb_data.src_size.y);
 			g_cb_data.sigma = g_bloom_sigmas[i];
-			update_constant_buffer(ctx, GCOM::cb.get(), &g_cb_data, sizeof(g_cb_data));
+			update_constant_buffer(ctx, g_cb[hash_name("cb")].get(), &g_cb_data, sizeof(g_cb_data));
 
 			// Bindings.
-			ctx->OMSetRenderTargets(1, &rtv_mips_x[i], nullptr);
-			ctx->PSSetShaderResources(0, 1, &srv_mips_y[i - 1]);
+			ctx->OMSetRenderTargets(1, &g_rtv_bloom_mips_x[i], nullptr);
+			ctx->PSSetShaderResources(0, 1, &g_srv_bloom_mips_y[i - 1]);
 			ctx->RSSetViewports(1, &viewport_x);
 
 			// Draw X pass.
@@ -988,11 +918,11 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 			g_cb_data.src_size = float2(viewport_x.Width, viewport_x.Height);
 			g_cb_data.axis = float2(0.0f, 1.0f);
 			g_cb_data.inv_src_size = float2(1.0f / g_cb_data.src_size.x, 1.0f / g_cb_data.src_size.y);
-			update_constant_buffer(ctx, GCOM::cb.get(), &g_cb_data, sizeof(g_cb_data));
+			update_constant_buffer(ctx, g_cb[hash_name("cb")].get(), &g_cb_data, sizeof(g_cb_data));
 
 			// Bindings.
-			ctx->OMSetRenderTargets(1, &rtv_mips_y[i], nullptr);
-			ctx->PSSetShaderResources(0, 1, &srv_mips_x[i]);
+			ctx->OMSetRenderTargets(1, &g_rtv_bloom_mips_y[i], nullptr);
+			ctx->PSSetShaderResources(0, 1, &g_srv_bloom_mips_x[i]);
 			ctx->RSSetViewports(1, &viewports_y[i]);
 
 			// Draw Y pass.
@@ -1005,21 +935,21 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 		////
 
 		// Create PS.
-		[[unlikely]] if (!GCOM::ps_bloom_upsample) {
-			create_pixel_shader(device.get(), GCOM::ps_bloom_upsample.put(), L"Bloom_impl.hlsl", "upsample_ps");
+		[[unlikely]] if (!g_ps[hash_name("bloom_upsample")]) {
+			create_pixel_shader(device.get(), g_ps[hash_name("bloom_upsample")].put(), L"Bloom_impl.hlsl", "upsample_ps");
 		}
 
 		// Create blend.
-		if (!GCOM::blend_bloom) {
+		[[unlikely]] if (!g_blend[hash_name("bloom")]) {
 			CD3D11_BLEND_DESC desc(D3D11_DEFAULT);
 			desc.RenderTarget[0].BlendEnable = TRUE;
 			desc.RenderTarget[0].SrcBlend = D3D11_BLEND_BLEND_FACTOR;
 			desc.RenderTarget[0].DestBlend = D3D11_BLEND_BLEND_FACTOR;
-			ensure(device->CreateBlendState(&desc, GCOM::blend_bloom.put()), >= 0);
+			ensure(device->CreateBlendState(&desc, g_blend[hash_name("bloom")].put()), >= 0);
 		}
 
 		// Bindings.
-		ctx->PSSetShader(GCOM::ps_bloom_upsample.get(), nullptr, 0);
+		ctx->PSSetShader(g_ps[hash_name("bloom_upsample")].get(), nullptr, 0);
 
 		for (int i = g_bloom_nmips - 1; i > 0; --i) {
 			// If both dst and src are D3D10_BLEND_BLEND_FACTOR,
@@ -1029,13 +959,13 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 			// Update CB.
 			g_cb_data.src_size = float2(viewports_y[i].Width, viewports_y[i].Height);
 			g_cb_data.inv_src_size = float2(1.0f / g_cb_data.src_size.x, 1.0f / g_cb_data.src_size.y);
-			update_constant_buffer(ctx, GCOM::cb.get(), &g_cb_data, sizeof(g_cb_data));
+			update_constant_buffer(ctx, g_cb[hash_name("cb")].get(), &g_cb_data, sizeof(g_cb_data));
 
 			// Bindings.
-			ctx->OMSetRenderTargets(1, &rtv_mips_y[i - 1], nullptr);
-			ctx->PSSetShaderResources(0, 1, &srv_mips_y[i]);
+			ctx->OMSetRenderTargets(1, &g_rtv_bloom_mips_y[i - 1], nullptr);
+			ctx->PSSetShaderResources(0, 1, &g_srv_bloom_mips_y[i]);
 			ctx->RSSetViewports(1, &viewports_y[i - 1]);
-			ctx->OMSetBlendState(GCOM::blend_bloom.get(), blend_factor, UINT_MAX);
+			ctx->OMSetBlendState(g_blend[hash_name("bloom")].get(), blend_factor, UINT_MAX);
 
 			ctx->Draw(3, 0);
 		}
@@ -1046,31 +976,32 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 		//
 
 		// Create PS.
-		[[unlikely]] if (!GCOM::ps_tonemap_0x29D570D8) {
+		[[unlikely]] if (!g_ps[hash_name("tonemap_0x29D570D8")]) {
 			const std::string bloom_intensity_val = std::to_string(g_bloom_intensity);
 			const std::array defines = {
 				D3D_SHADER_MACRO{ "BLOOM_INTENSITY", bloom_intensity_val.c_str() },
 				D3D_SHADER_MACRO{ nullptr, nullptr }
 			};
-			create_pixel_shader(device.get(), GCOM::ps_tonemap_0x29D570D8.put(), L"Tonemap_0x29D570D8_ps.hlsl", "main", defines.data());
+			create_pixel_shader(device.get(), g_ps[hash_name("tonemap_0x29D570D8")].put(), L"Tonemap_0x29D570D8_ps.hlsl", "main", defines.data());
 		}
 
+		
 		// Create RT and views.
-		tex_desc.Width = g_swapchain_width;
-		tex_desc.Height = g_swapchain_height;
-		ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
-		Com_ptr<ID3D11RenderTargetView> rtv_tonemap;
-		ensure(device->CreateRenderTargetView(tex.get(), nullptr, rtv_tonemap.put()), >= 0);
-		Com_ptr<ID3D11ShaderResourceView> srv_tonemap;
-		ensure(device->CreateShaderResourceView(tex.get(), nullptr, srv_tonemap.put()), >= 0);
+		[[unlikely]] if (!g_rtv[hash_name("tonemap")]) {
+			tex_desc.Width = g_swapchain_width;
+			tex_desc.Height = g_swapchain_height;
+			ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
+			ensure(device->CreateRenderTargetView(tex.get(), nullptr, g_rtv[hash_name("tonemap")].put()), >= 0);
+			ensure(device->CreateShaderResourceView(tex.get(), nullptr, g_srv[hash_name("tonemap")].put()), >= 0);
+		}
 
 		// Bindings.
 		ctx->OMSetBlendState(blend_original.get(), blend_factor_original, sample_mask_original);
-		ctx->OMSetRenderTargets(1, &rtv_tonemap, nullptr);
+		ctx->OMSetRenderTargets(1, &g_rtv[hash_name("tonemap")], nullptr);
 		ctx->VSSetShader(vs_original.get(), nullptr, 0);
-		ctx->PSSetShader(GCOM::ps_tonemap_0x29D570D8.get(), nullptr, 0);
+		ctx->PSSetShader(g_ps[hash_name("tonemap_0x29D570D8")].get(), nullptr, 0);
 		ctx->PSSetSamplers(0, 1, &smp_original);
-		const std::array ps_srvs_restore = { srv_smaa_neighborhood_blending.get(), srvs_original[0], srvs_original[1], srv_mips_y[0] };
+		const std::array ps_srvs_restore = { g_srv[hash_name("smaa_neighborhood_blending")].get(), srvs_original[0], srvs_original[1], g_srv_bloom_mips_y[0] };
 		ctx->PSSetShaderResources(0, ps_srvs_restore.size(), ps_srvs_restore.data());
 		ctx->RSSetViewports(viewports_original.size(), viewports_original.data());
 
@@ -1082,22 +1013,23 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 		//
 
 		// Create PS.
-		[[unlikely]] if (!GCOM::ps_linearize) {
-			create_pixel_shader(device.get(), GCOM::ps_linearize.put(), L"Linearize_ps.hlsl");
+		[[unlikely]] if (!g_ps[hash_name("linearize")]) {
+			create_pixel_shader(device.get(), g_ps[hash_name("linearize")].put(), L"Linearize_ps.hlsl");
 		}
 
 		// Create RT and views.
-		ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
-		Com_ptr<ID3D11RenderTargetView> rtv_linearize;
-		ensure(device->CreateRenderTargetView(tex.get(), nullptr, rtv_linearize.put()), >= 0);
-		Com_ptr<ID3D11ShaderResourceView> srv_linearize;
-		ensure(device->CreateShaderResourceView(tex.get(), nullptr, srv_linearize.put()), >= 0);
+		
+		[[unlikely]] if (!g_rtv[hash_name("linearize")]) {
+			ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
+			ensure(device->CreateRenderTargetView(tex.get(), nullptr, g_rtv[hash_name("linearize")].put()), >= 0);
+			ensure(device->CreateShaderResourceView(tex.get(), nullptr, g_srv[hash_name("linearize")].put()), >= 0);
+		}
 
 		// Bindings.
-		ctx->OMSetRenderTargets(1, &rtv_linearize, nullptr);
-		ctx->VSSetShader(GCOM::vs_fullscreen_triangle.get(), nullptr, 0);
-		ctx->PSSetShader(GCOM::ps_linearize.get(), nullptr, 0);
-		ctx->PSSetShaderResources(0, 1, &srv_tonemap);
+		ctx->OMSetRenderTargets(1, &g_rtv[hash_name("linearize")], nullptr);
+		ctx->VSSetShader(g_vs[hash_name("fullscreen_triangle")].get(), nullptr, 0);
+		ctx->PSSetShader(g_ps[hash_name("linearize")].get(), nullptr, 0);
+		ctx->PSSetShaderResources(0, 1, &g_srv[hash_name("tonemap")]);
 
 		ctx->Draw(3, 0);
 
@@ -1107,26 +1039,27 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 		//
 
 		// Create PS.
-		[[unlikely]] if (!GCOM::ps_amd_ffx_cas) {
+		[[unlikely]] if (!g_ps[hash_name("amd_ffx_cas")]) {
 			const std::string amd_ffx_cas_sharpness_str = std::to_string(g_amd_ffx_cas_sharpness);
 			const D3D10_SHADER_MACRO defines[] = {
 				{ "SHARPNESS", amd_ffx_cas_sharpness_str.c_str() },
 				{ nullptr, nullptr }
 			};
-			create_pixel_shader(device.get(), GCOM::ps_amd_ffx_cas.put(), L"AMD_FFX_CAS_ps.hlsl", "main", defines);
+			create_pixel_shader(device.get(), g_ps[hash_name("amd_ffx_cas")].put(), L"AMD_FFX_CAS_ps.hlsl", "main", defines);
 		}
 
+		
 		// Create RT and views.
-		ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
-		Com_ptr<ID3D11RenderTargetView> rtv_amd_ffx_cas;
-		ensure(device->CreateRenderTargetView(tex.get(), nullptr, rtv_amd_ffx_cas.put()), >= 0);
-		Com_ptr<ID3D11ShaderResourceView> srv_amd_ffx_cas;
-		ensure(device->CreateShaderResourceView(tex.get(), nullptr, srv_amd_ffx_cas.put()), >= 0);
+		[[unlikely]] if (!g_rtv[hash_name("amd_ffx_cas")]) {
+			ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
+			ensure(device->CreateRenderTargetView(tex.get(), nullptr, g_rtv[hash_name("amd_ffx_cas")].put()), >= 0);
+			ensure(device->CreateShaderResourceView(tex.get(), nullptr, g_srv[hash_name("amd_ffx_cas")].put()), >= 0);
+		}
 
 		// Bindings.
-		ctx->OMSetRenderTargets(1, &rtv_amd_ffx_cas, nullptr);
-		ctx->PSSetShader(GCOM::ps_amd_ffx_cas.get(), nullptr, 0);
-		ctx->PSSetShaderResources(0, 1, &srv_linearize);
+		ctx->OMSetRenderTargets(1, &g_rtv[hash_name("amd_ffx_cas")], nullptr);
+		ctx->PSSetShader(g_ps[hash_name("amd_ffx_cas")].get(), nullptr, 0);
+		ctx->PSSetShaderResources(0, 1, &g_srv[hash_name("linearize")]);
 
 		ctx->Draw(3, 0);
 
@@ -1136,8 +1069,8 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 		//
 
 		// Create PS.
-		[[unlikely]] if (!GCOM::ps_amd_ffx_lfga) {
-			const std::string viewport_dims = std::format("float2({},{})", (float)tex_desc.Width, (float)tex_desc.Height);
+		[[unlikely]] if (!g_ps[hash_name("amd_ffx_lfga")]) {
+			const std::string viewport_dims = std::format("float2({},{})", (float)g_swapchain_width, (float)g_swapchain_height);
 			const std::string amd_ffx_lfga_amount_str = std::to_string(g_amd_ffx_lfga_amount);
 			const std::string srgb_str = g_trc == TRC_SRGB ? "SRGB" : "";
 			const std::string gamma_str = std::to_string(g_gamma);
@@ -1148,11 +1081,11 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 				{ "GAMMA", gamma_str.c_str() },
 				{ nullptr, nullptr }
 			};
-			create_pixel_shader(device.get(), GCOM::ps_amd_ffx_lfga.put(), L"AMD_FFX_LFGA_ps.hlsl", "main", defines);
+			create_pixel_shader(device.get(), g_ps[hash_name("amd_ffx_lfga")].put(), L"AMD_FFX_LFGA_ps.hlsl", "main", defines);
 		}
 
 		// Create blue noise texture.
-		[[unlikely]] if (!GCOM::srv_blue_noise_tex) {
+		[[unlikely]] if (!g_srv[hash_name("blue_noise_tex")]) {
 			D3D11_TEXTURE2D_DESC tex_desc = {};
 			tex_desc.Width = BLUE_NOISE_TEX_WIDTH;
 			tex_desc.Height = BLUE_NOISE_TEX_HEIGHT;
@@ -1169,12 +1102,12 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 			}
 			Com_ptr<ID3D11Texture2D> tex;
 			ensure(device->CreateTexture2D(&tex_desc, subresource_data.data(), tex.put()), >= 0);
-			ensure(device->CreateShaderResourceView(tex.get(), nullptr, GCOM::srv_blue_noise_tex.put()), >= 0);
+			ensure(device->CreateShaderResourceView(tex.get(), nullptr, g_srv[hash_name("blue_noise_tex")].put()), >= 0);
 		}
 
 		// Create point wrap sampler.
-		[[unlikely]] if (!GCOM::smp_point_wrap) {
-			create_sampler_point_wrap(device.get(), GCOM::smp_point_wrap.put());
+		[[unlikely]] if (!g_smp[hash_name("point_wrap")]) {
+			create_sampler_point_wrap(device.get(), g_smp[hash_name("point_wrap")].put());
 		}
 
 		// Update the constant buffer.
@@ -1187,15 +1120,15 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 			if (g_cb_data.tex_noise_index >= (float)BLUE_NOISE_TEX_ARRAY_SIZE) {
 				g_cb_data.tex_noise_index = 0.0f;
 			}
-			update_constant_buffer(ctx, GCOM::cb.get(), &g_cb_data, sizeof(g_cb_data));
+			update_constant_buffer(ctx, g_cb[hash_name("cb")].get(), &g_cb_data, sizeof(g_cb_data));
 			last_update += interval;
 		}
 
 		// Bindings.
 		ctx->OMSetRenderTargets(1, &rtv_original, nullptr);
-		ctx->PSSetShader(GCOM::ps_amd_ffx_lfga.get(), nullptr, 0);
-		ctx->PSSetSamplers(0, 1, &GCOM::smp_point_wrap);
-		const std::array ps_srvs_amd_ffx_lfga = { srv_amd_ffx_cas.get(), GCOM::srv_blue_noise_tex.get() };
+		ctx->PSSetShader(g_ps[hash_name("amd_ffx_lfga")].get(), nullptr, 0);
+		ctx->PSSetSamplers(0, 1, &g_smp[hash_name("point_wrap")]);
+		const std::array ps_srvs_amd_ffx_lfga = { g_srv[hash_name("amd_ffx_cas")].get(), g_srv[hash_name("blue_noise_tex")].get() };
 		ctx->PSSetShaderResources(0, ps_srvs_amd_ffx_lfga.size(), ps_srvs_amd_ffx_lfga.data());
 
 		ctx->Draw(3, 0);
@@ -1205,17 +1138,10 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 		// Restore.
 		ctx->PSSetSamplers(0, 1, &smp_original);
 
-		// Release com arrays.
-		auto release_com_array = [](auto& array){ for (auto* p : array) if (p) p->Release(); };
-		release_com_array(rtv_mips_x);
-		release_com_array(srv_mips_x);
-		release_com_array(rtv_mips_y);
-		release_com_array(srv_mips_y);
 		release_com_array(srvs_original);
 
 		return true;
 	}
-
 
 	// We can't just skip FXAA cause it will be the first draw to backbuffer if enabeled.
 	size = sizeof(hash);
@@ -1229,18 +1155,18 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 		#endif
 
 		// Create VS.
-		[[unlikely]] if (!GCOM::vs_fullscreen_triangle) {
-			create_vertex_shader(device.get(), GCOM::vs_fullscreen_triangle.put(), L"FullscreenTriangle_vs.hlsl");
+		[[unlikely]] if (!g_vs[hash_name("fullscreen_triangle")]) {
+			create_vertex_shader(device.get(), g_vs[hash_name("fullscreen_triangle")].put(), L"FullscreenTriangle_vs.hlsl");
 		}
 
 		// Create PS.
-		[[unlikely]] if (!GCOM::ps_copy) {
-			create_pixel_shader(device.get(), GCOM::ps_copy.put(), L"Copy_ps.hlsl");
+		[[unlikely]] if (!g_ps[hash_name("copy")]) {
+			create_pixel_shader(device.get(), g_ps[hash_name("copy")].put(), L"Copy_ps.hlsl");
 		}
 
 		// Bindings.
-		ctx->VSSetShader(GCOM::vs_fullscreen_triangle.get(), nullptr, 0);
-		ctx->PSSetShader(GCOM::ps_copy.get(), nullptr, 0);
+		ctx->VSSetShader(g_vs[hash_name("fullscreen_triangle")].get(), nullptr, 0);
+		ctx->PSSetShader(g_ps[hash_name("copy")].get(), nullptr, 0);
 
 		ctx->Draw(3, 0);
 
@@ -1420,15 +1346,36 @@ static bool on_create_swapchain(reshade::api::device_api api, reshade::api::swap
 		desc.sync_interval = 0;
 	}
 
+	return true;
+}
+
+static void on_init_swapchain(reshade::api::swapchain *swapchain, bool resize)
+{
+	auto native_swapchain = (IDXGISwapChain*)swapchain->get_native();
+	DXGI_SWAP_CHAIN_DESC desc;
+	native_swapchain->GetDesc(&desc);
+
 	// Save swapchain size.
-	g_swapchain_width = desc.back_buffer.texture.width;
-	g_swapchain_height = desc.back_buffer.texture.height;
+	g_swapchain_width = desc.BufferDesc.Width;
+	g_swapchain_height = desc.BufferDesc.Height;
 
 	// Reset reolution dependent resources.
-	GCOM::reset_xe_gtao();
-	GCOM::reset_smaa();
-
-	return true;
+	g_vs[hash_name("smaa_edge_detection")].reset();
+	g_ps[hash_name("smaa_edge_detection")].reset();
+	g_vs[hash_name("smaa_blending_weight_calculation")].reset();
+	g_ps[hash_name("smaa_blending_weight_calculation")].reset();
+	g_vs[hash_name("smaa_neighborhood_blending")].reset();
+	g_ps[hash_name("smaa_neighborhood_blending")].reset();
+	g_ps[hash_name("amd_ffx_lfga")].reset();
+	g_rtv.clear();
+	g_uav.clear();
+	g_srv.clear();
+	g_dsv.clear();
+	release_com_array(g_uav_xe_gtao_prefilter_depths);
+	release_com_array(g_rtv_bloom_mips_y);
+	release_com_array(g_srv_bloom_mips_y);
+	release_com_array(g_rtv_bloom_mips_x);
+	release_com_array(g_srv_bloom_mips_x);
 }
 
 static void on_init_device(reshade::api::device* device)
@@ -1444,7 +1391,22 @@ static void on_init_device(reshade::api::device* device)
 
 static void on_destroy_device(reshade::api::device *device)
 {
-	GCOM::reset();
+	g_rtv.clear();
+	g_uav.clear();
+	g_srv.clear();
+	g_ps.clear();
+	g_vs.clear();
+	g_cs.clear();
+	g_smp.clear();
+	g_dsv.clear();
+	g_ds.clear();
+	g_cb.clear();
+	g_blend.clear();
+	release_com_array(g_uav_xe_gtao_prefilter_depths);
+	release_com_array(g_rtv_bloom_mips_y);
+	release_com_array(g_srv_bloom_mips_y);
+	release_com_array(g_rtv_bloom_mips_x);
+	release_com_array(g_srv_bloom_mips_x);
 }
 
 static void read_config()
@@ -1493,11 +1455,19 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 {
 	#if DEV
 	if (ImGui::SliderInt("Bloom nmips", &g_bloom_nmips, 1, 10)) {
+		release_com_array(g_rtv_bloom_mips_y);
+		release_com_array(g_srv_bloom_mips_y);
+		release_com_array(g_rtv_bloom_mips_x);
+		release_com_array(g_srv_bloom_mips_x);
+		g_rtv_bloom_mips_y.resize(g_bloom_nmips);
+		g_srv_bloom_mips_y.resize(g_bloom_nmips);
+		g_rtv_bloom_mips_x.resize(g_bloom_nmips);
+		g_srv_bloom_mips_x.resize(g_bloom_nmips);
 		g_bloom_sigmas.resize(g_bloom_nmips);
 	}
 	for (int i = 0; i < g_bloom_nmips; ++i) {
 		const std::string name = "Sigma" + std::to_string(i);
-		ImGui::SliderFloat(name.c_str(), &g_bloom_sigmas[i], 0.0f, 10.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp);
+		ImGui::SliderFloat(name.c_str(), &g_bloom_sigmas[i], 0.0f, 15.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp);
 	}
 	ImGui::Spacing();
 	#endif
@@ -1507,48 +1477,49 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 	}
 	if (ImGui::Checkbox("Disable lens dirt", &g_disable_lens_dirt)) {
 		reshade::set_config_value(nullptr, "BioShockInfiniteGraphicalUpgrade", "DisableLensDirt", g_disable_lens_flare);
-		GCOM::ps_starburst_and_lens_dirt_0x2AD953ED.reset();
+		g_ps[hash_name("starburst_and_lens_dirt_0x2AD953ED")].reset();
 	}
 	ImGui::Spacing();
 
 	if (ImGui::SliderFloat("XeGTAO radius", &g_xe_gtao_radius, 0.01f, 1.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp)) {
 		reshade::set_config_value(nullptr, "BioShockInfiniteGraphicalUpgrade", "XeGTAORadius", g_xe_gtao_radius);
-		GCOM::reset_xe_gtao();
+		g_cs[hash_name("xe_gtao_prefilter_depths16x16")].reset();
+		g_cs[hash_name("xe_gtao_main_pass")].reset();
 	}
 	static constexpr std::array xe_gtao_quality_items = { "Low", "Medium", "High", "Very High", "Ultra" };
 	if (ImGui::Combo("XeGTAO quality", &g_xe_gtao_quality, xe_gtao_quality_items.data(), xe_gtao_quality_items.size())) {
 		reshade::set_config_value(nullptr, "BioShockInfiniteGraphicalUpgrade", "XeGTAOQuality", g_xe_gtao_quality);
-		GCOM::reset_xe_gtao();
+		g_cs[hash_name("xe_gtao_main_pass")].reset();
 	}
 	ImGui::Spacing();
-	
+
 	if (ImGui::SliderFloat("Bloom intensity", &g_bloom_intensity, 0.0f, 2.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp)) {
 		reshade::set_config_value(nullptr, "BioShockInfiniteGraphicalUpgrade", "BloomIntensity", g_bloom_intensity);
-		GCOM::ps_tonemap_0x29D570D8.reset();
+		g_ps[hash_name("tonemap_0x29D570D8")].reset();
 	}
 	ImGui::Spacing();
 
 	if (ImGui::SliderFloat("Sharpness", &g_amd_ffx_cas_sharpness, 0.0f, 1.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp)) {
 		reshade::set_config_value(nullptr, "BioShockInfiniteGraphicalUpgrade", "Sharpness", g_amd_ffx_cas_sharpness);
-		GCOM::ps_amd_ffx_cas.reset();
+		g_ps[hash_name("amd_ffx_cas")].reset();
 	}
 	ImGui::Spacing();
-	
+
 	if (ImGui::SliderFloat("Grain amount", &g_amd_ffx_lfga_amount, 0.0f, 1.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp)) {
 		reshade::set_config_value(nullptr, "BioShockInfiniteGraphicalUpgrade", "GrainAmount", g_amd_ffx_lfga_amount);
-		GCOM::ps_amd_ffx_lfga.reset();
+		g_ps[hash_name("amd_ffx_lfga")].reset();
 	}
 	ImGui::Spacing();
 
 	static constexpr std::array trc_items = { "sRGB", "Gamma" };
 	if (ImGui::Combo("TRC", &g_trc, trc_items.data(), trc_items.size())) {
 		reshade::set_config_value(nullptr, "BioshockGraphicalUpgrade", "TRC", g_trc);
-		GCOM::ps_amd_ffx_lfga.reset();
+		g_ps[hash_name("amd_ffx_lfga")].reset();
 	}
 	ImGui::BeginDisabled(g_trc == TRC_SRGB);
 	if (ImGui::SliderFloat("Gamma", &g_gamma, 1.0f, 3.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp)) {
 		reshade::set_config_value(nullptr, "BioshockGraphicalUpgrade", "Gamma", g_gamma);
-		GCOM::ps_amd_ffx_lfga.reset();
+		g_ps[hash_name("amd_ffx_lfga")].reset();
 	}
 	ImGui::EndDisabled();
 	ImGui::Spacing();
@@ -1560,7 +1531,7 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 		ImGui::SetItemTooltip("Requires restart.");
 	}
 	ImGui::Spacing();
-	
+
 	ImGui::InputFloat("FPS limit", &g_user_set_fps_limit);
 	if (ImGui::IsItemDeactivatedAfterEdit()) {
 		g_user_set_fps_limit = std::clamp(g_user_set_fps_limit, 10.0f, FLT_MAX);
@@ -1576,7 +1547,7 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 }
 
 extern "C" __declspec(dllexport) const char* NAME = "BioShockInfiniteGraphicalUpgrade";
-extern "C" __declspec(dllexport) const char* DESCRIPTION = "BioShockInfiniteGraphicalUpgrade v2.0.0";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "BioShockInfiniteGraphicalUpgrade v2.1.0";
 extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/BioShockInfiniteGraphicalUpgrade";
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)
@@ -1594,6 +1565,10 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)
 
 			// Bloom.
 			g_bloom_nmips = 6;
+			g_rtv_bloom_mips_y.resize(g_bloom_nmips);
+			g_srv_bloom_mips_y.resize(g_bloom_nmips);
+			g_rtv_bloom_mips_x.resize(g_bloom_nmips);
+			g_srv_bloom_mips_x.resize(g_bloom_nmips);
 			g_bloom_sigmas.resize(g_bloom_nmips);
 			g_bloom_sigmas[0] = 1.5f;
 			g_bloom_sigmas[1] = 1.0f;
@@ -1612,6 +1587,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)
 			reshade::register_event<reshade::addon_event::create_resource>(on_create_resource);
 			reshade::register_event<reshade::addon_event::set_fullscreen_state>(on_set_fullscreen_state);
 			reshade::register_event<reshade::addon_event::create_swapchain>(on_create_swapchain);
+			reshade::register_event<reshade::addon_event::init_swapchain>(on_init_swapchain);
 			reshade::register_event<reshade::addon_event::init_device>(on_init_device);
 			reshade::register_event<reshade::addon_event::destroy_device>(on_destroy_device);
 
