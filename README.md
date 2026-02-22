@@ -61,6 +61,9 @@ Graphical upgrade for BioShock Infinite. See Addons/BioShockInfiniteGraphicalUpg
 **DiscoElysiumGraphicalUpgrade**  
 Graphical upgrade for Disco Elysium. See Addons/DiscoElysiumGraphicalUpgrade for details.
 
+**Dishonored2GraphicalUpgrade**  
+Graphical upgrade for Dishonored 2. See Addons/Dishonored2GraphicalUpgrade for details.
+
 **FarCry2GraphicalUpgrade**  
 Graphical upgrade for Far Cry 2. See Addons/FarCry2GraphicalUpgrade for details.
 
