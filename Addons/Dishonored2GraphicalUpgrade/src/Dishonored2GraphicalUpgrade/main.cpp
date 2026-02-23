@@ -100,6 +100,7 @@ static float g_gamma = 2.2f;
 
 // COM resources.
 static std::unordered_map<uint32_t, Com_ptr<ID3D11RenderTargetView>> g_rtv;
+static std::unordered_map<uint32_t, Com_ptr<ID3D11UnorderedAccessView>> g_uav;
 static std::unordered_map<uint32_t, Com_ptr<ID3D11ShaderResourceView>> g_srv;
 static std::unordered_map<uint32_t, Com_ptr<ID3D11VertexShader>> g_vs;
 static std::unordered_map<uint32_t, Com_ptr<ID3D11PixelShader>> g_ps;
@@ -134,9 +135,46 @@ static void on_execute_secondary_command_list(reshade::api::command_list* cmd_li
 		ctx = (ID3D11DeviceContext*)(cmd_list->get_native());
 		Com_ptr<ID3D11Device> device;
 		ctx->GetDevice(device.put());
+
+		// Exposure pass
+		//
+
+		if (!g_cs[hash_name("exposure")]) {
+			create_compute_shader(device.get(), g_cs[hash_name("exposure")].put(), L"Exposure.hlsl");
+		}
+
+		if (!g_resource[hash_name("exposure")]) {
+			D3D11_TEXTURE2D_DESC tex_desc = {};
+			tex_desc.Width = 1;
+			tex_desc.Height = 1;
+			tex_desc.MipLevels = 1;
+			tex_desc.ArraySize = 1;
+			tex_desc.Format = DXGI_FORMAT_R32_FLOAT;
+			tex_desc.SampleDesc.Count = 1;
+			tex_desc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS;
+			Com_ptr<ID3D11Texture2D> tex;
+			ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
+			ensure(tex->QueryInterface(g_resource[hash_name("exposure")].put()), >= 0);
+			ensure(device->CreateUnorderedAccessView(g_resource[hash_name("exposure")].get(), nullptr, g_uav[hash_name("exposure")].put()), >= 0);
+		}
+
+		// Bindings.
+		ctx->CSSetUnorderedAccessViews(0, 1, &g_uav[hash_name("exposure")], nullptr);
+		ctx->CSSetShader(g_cs[hash_name("exposure")].get(), nullptr, 0);
+		ctx->CSSetConstantBuffers(0, 1, &g_cb[hash_name("taa_b2")]);
+		ctx->CSSetShaderResources(0, 1, &g_srv[hash_name("postfx_luminance_autoexposure")]);
+		
+		ctx->Dispatch(1, 1, 1);
+		
+		// Unbind UAV.
+		static constexpr ID3D11UnorderedAccessView* uav_null = nullptr;
+		ctx->CSSetUnorderedAccessViews(0, 1, &uav_null, nullptr);
+
+		//
+
 		const auto jitter_x = g_per_view_cb.cb_jittervectors.x;
 		const auto jitter_y = g_per_view_cb.cb_jittervectors.y;
-		DLSS::instance().draw(ctx.get(), g_resource[hash_name("scene")].get(), g_resource[hash_name("depth")].get(), g_resource[hash_name("mvs")].get(), jitter_x, jitter_y, g_resource[hash_name("taa")].get());
+		DLSS::instance().draw(ctx.get(), g_resource[hash_name("scene")].get(), g_resource[hash_name("depth")].get(), g_resource[hash_name("mvs")].get(), g_resource[hash_name("exposure")].get(), jitter_x, jitter_y, g_resource[hash_name("taa")].get());
 	}
 }
 
@@ -451,6 +489,9 @@ static bool on_dispatch(reshade::api::command_list* cmd_list, uint32_t group_cou
 			Com_ptr<ID3D11UnorderedAccessView> uav;
 			ctx->CSGetUnorderedAccessViews(1, 1, uav.put());
 			uav->GetResource(g_resource[hash_name("taa")].put());
+
+			// bufefr
+			ctx->CSGetShaderResources(3, 1, g_srv[hash_name("postfx_luminance_autoexposure")].put());
 
 			release_com_array(srvs);
 			return true;
@@ -818,7 +859,7 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 }
 
 extern "C" __declspec(dllexport) const char* NAME = "Dishonored2GraphicalUpgrade";
-extern "C" __declspec(dllexport) const char* DESCRIPTION = "Dishonored2GraphicalUpgrade v1.0.0";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "Dishonored2GraphicalUpgrade v1.1.0";
 extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/Dishonored2GraphicalUpgrade";
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)

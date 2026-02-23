@@ -52,13 +52,12 @@ public:
 
 		auto result = NVSDK_NGX_D3D11_AllocateParameters(&feature);
 		if (NVSDK_NGX_SUCCEED(result)) {
-			NVSDK_NGX_Parameter_SetUI(feature, NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_DLAA, NVSDK_NGX_DLSS_Hint_Render_Preset_K);
+			NVSDK_NGX_Parameter_SetUI(feature, NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_DLAA, NVSDK_NGX_DLSS_Hint_Render_Preset_F);
 
 			int flags = NVSDK_NGX_DLSS_Feature_Flags_None;
 			flags |= NVSDK_NGX_DLSS_Feature_Flags_IsHDR;
 			flags |= NVSDK_NGX_DLSS_Feature_Flags_MVLowRes;
 			flags |= NVSDK_NGX_DLSS_Feature_Flags_DepthInverted;
-			flags |= NVSDK_NGX_DLSS_Feature_Flags_AutoExposure;
 
 			NVSDK_NGX_DLSS_Create_Params create_params = {};
 			create_params.Feature.InTargetWidth = width;
@@ -78,7 +77,7 @@ public:
 		}
 	}
 
-	void draw(ID3D11DeviceContext* ctx, ID3D11Resource* scene, ID3D11Resource* depth, ID3D11Resource* mvs, float jitter_x, float jitter_y, ID3D11Resource* out) const
+	void draw(ID3D11DeviceContext* ctx, ID3D11Resource* scene, ID3D11Resource* depth, ID3D11Resource* mvs, ID3D11Resource* exposure, float jitter_x, float jitter_y, ID3D11Resource* out) const
 	{
 		assert(scene);
 		assert(depth);
@@ -90,6 +89,7 @@ public:
 		eval_params.Feature.pInOutput = out;
 		eval_params.pInDepth = depth;
 		eval_params.pInMotionVectors = mvs;
+		eval_params.pInExposureTexture = exposure;
 		eval_params.InRenderSubrectDimensions.Width = width;
 		eval_params.InRenderSubrectDimensions.Height = height;
 		eval_params.InJitterOffsetX = jitter_x;

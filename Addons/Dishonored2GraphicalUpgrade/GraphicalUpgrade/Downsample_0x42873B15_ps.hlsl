@@ -76,11 +76,10 @@ SamplerState smp_linearclamp_s : register(s0);
 Texture2D<float4> ro_viewcolormap : register(t0);
 StructuredBuffer<postfx_luminance_autoexposure_t> ro_postfx_luminance_buffautoexposure : register(t1);
 
-
 // 3Dmigoto declarations
 #define cmp -
 
-#if 0 // The original shader.
+
 void main(
   float4 v0 : SV_POSITION0,
   out float4 o0 : SV_TARGET0)
@@ -96,36 +95,12 @@ void main(
   r1.xyz = r0.yzw * r0.xxx;
   r0.xyz = cb_usecompressedhdrbuffers ? r1.xyz : r0.yzw;
   r0.xyz = max(float3(0,0,0), r0.xyz);
+
+  // Limit colors to cb_env_tonemapping_white_level,
+  // cause after DLSS pass highlihghts explode otherwise.
+  r0.xyz = min(cb_env_tonemapping_white_level, r0.xyz);
+
   o0.w = dot(r0.xyz, float3(0.212599993,0.715200007,0.0722000003));
   o0.xyz = r0.xyz;
   return;
 }
-#else
-void main(
-  float4 v0 : SV_POSITION0,
-  out float4 o0 : SV_TARGET0)
-{
-  float4 r0,r1;
-  uint4 bitmask, uiDest;
-  float4 fDest;
-
-  r0.x = ro_postfx_luminance_buffautoexposure[cb_postfx_luminance_exposureindex.y].EngineLuminanceFactor;
-  r0.x = cb_view_white_level * r0.x;
-  r0.yz = cb_positiontoviewtexture.zw * v0.xy;
-  r0.yzw = ro_viewcolormap.Sample(smp_linearclamp_s, r0.yz).xyz;
-
-  // Compress and limit colors to cb_env_tonemapping_white_level,
-  // cause after DLSS highlihghts explode.
-  // Game's TAA already does something similar.
-  // FIXME: Still doesn't match original TAA.
-  r0.xyz = max(0.0, r0.xyz);
-  r0.yzw = cb_env_tonemapping_white_level * r0.yzw * rcp(cb_env_tonemapping_white_level + r0.yzw);
-
-  r1.xyz = r0.yzw * r0.xxx;
-  r0.xyz = cb_usecompressedhdrbuffers ? r1.xyz : r0.yzw;
-  r0.xyz = max(float3(0,0,0), r0.xyz);
-  o0.w = dot(r0.xyz, float3(0.212599993,0.715200007,0.0722000003));
-  o0.xyz = r0.xyz;
-  return;
-}
-#endif
