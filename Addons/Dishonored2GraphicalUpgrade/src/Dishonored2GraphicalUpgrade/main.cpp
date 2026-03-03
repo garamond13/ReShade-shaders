@@ -5,6 +5,12 @@
 #include "TRC.h"
 #include "DLSS.h"
 #include "HLSLTypes.h"
+#include "BlueNoiseTex.h"
+
+struct alignas(16) CB_data
+{
+   float tex_noise_index;
+};
 
 struct alignas(16) PerViewCB
 {
@@ -73,6 +79,7 @@ constexpr GUID g_ps_lens_distortion_0x152A9E10_guid = { 0xbf743ea2, 0x1f1c, 0x4d
 
 //
 
+static CB_data g_cb_data;
 static PerViewCB g_per_view_cb;
 static int g_swapchain_width;
 static int g_swapchain_height;
@@ -81,6 +88,8 @@ static float g_vignette_strenght = 1.0f;
 static bool g_force_vsync_off = true;
 static float g_bloom_intensity = 1.0f;
 static bool g_disable_lens_distortion;
+static float g_amd_ffx_cas_sharpness = 0.4f;
+static float g_amd_ffx_lfga_amount = 0.4f;
 
 // XeGTAO
 constexpr size_t XE_GTAO_DEPTH_MIP_LEVELS = 5;
@@ -399,36 +408,135 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 	size = sizeof(hash);
 	hr = ps->GetPrivateData(g_ps_upsample_0x1A0CD2AE_guid, &size, &hash);
 	if (SUCCEEDED(hr) && hash == g_ps_upsample_0x1A0CD2AE_hash) {
+
+		#if DEV && SHOW_AO
+		if (g_srv[hash_name("ao")]) {
+			ctx->PSSetShaderResources(0, 1, &g_srv[hash_name("ao")]);
+		}
+		#endif
+		
+		Com_ptr<ID3D11Device> device;
+		ctx->GetDevice(device.put());
+
+		// Backup RTs.
+		Com_ptr<ID3D11RenderTargetView> rtv_original;
+		ctx->OMGetRenderTargets(1, rtv_original.put(), nullptr);
+		
+		// AMD FFX CAS pass
+		//
+
 		// Create VS.
 		[[unlikely]] if (!g_vs[hash_name("fullscreen_triangle")]) {
-			Com_ptr<ID3D11Device> device;
-			ctx->GetDevice(device.put());
 			create_vertex_shader(device.get(), g_vs[hash_name("fullscreen_triangle")].put(), L"FullscreenTriangle_vs.hlsl");
 		}
 
 		// Create PS.
-		[[unlikely]] if (!g_ps[hash_name("copy")]) {
-			Com_ptr<ID3D11Device> device;
-			ctx->GetDevice(device.put());
+		[[unlikely]] if (!g_ps[hash_name("amd_ffx_cas")]) {
+			const std::string amd_ffx_cas_sharpness_str = std::to_string(g_amd_ffx_cas_sharpness);
+			const D3D10_SHADER_MACRO defines[] = {
+				{ "SHARPNESS", amd_ffx_cas_sharpness_str.c_str() },
+				{ nullptr, nullptr }
+			};
+			create_pixel_shader(device.get(), g_ps[hash_name("amd_ffx_cas")].put(), L"AMD_FFX_CAS_ps.hlsl", "main", defines);
+		}
+
+		// Create RT and views.
+		[[unlikely]] if (!g_rtv[hash_name("amd_ffx_cas")]) {
+			// SRV0 should be the scene.
+			Com_ptr<ID3D11ShaderResourceView> srv;
+			ctx->PSGetShaderResources(0, 1, srv.put());
+			
+			// Get texture description.
+			Com_ptr<ID3D11Resource> resource;
+			srv->GetResource(resource.put());
+			Com_ptr<ID3D11Texture2D> tex;
+			resource->QueryInterface(tex.put());
+			D3D11_TEXTURE2D_DESC tex_desc;
+			tex->GetDesc(&tex_desc);
+
+			tex_desc.Format = DXGI_FORMAT_R16G16B16A16_UNORM;
+			ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
+			ensure(device->CreateRenderTargetView(tex.get(), nullptr, g_rtv[hash_name("amd_ffx_cas")].put()), >= 0);
+			ensure(device->CreateShaderResourceView(tex.get(), nullptr, g_srv[hash_name("amd_ffx_cas")].put()), >= 0);
+		}
+
+		// Bindings.
+		ctx->OMSetRenderTargets(1, &g_rtv[hash_name("amd_ffx_cas")], nullptr);
+		ctx->VSSetShader(g_vs[hash_name("fullscreen_triangle")].get(), nullptr, 0);
+		ctx->PSSetShader(g_ps[hash_name("amd_ffx_cas")].get(), nullptr, 0);
+
+		ctx->Draw(3, 0);
+
+		//
+
+		// AMD FFX LFGA pass
+		//
+
+		[[unlikely]] if (!g_cb[hash_name("cb")]) {
+			create_constant_buffer(device.get(), sizeof(g_cb_data), g_cb[hash_name("cb")].put());
+		}
+
+		// Create PS.
+		[[unlikely]] if (!g_ps[hash_name("amd_ffx_lfga")]) {
+			const std::string amd_ffx_lfga_amount_str = std::to_string(g_amd_ffx_lfga_amount);
 			const std::string srgb_str = g_trc == TRC_SRGB ? "SRGB" : "";
 			const std::string gamma_str = std::to_string(g_gamma);
-			const D3D_SHADER_MACRO defines[] = {
+			const D3D10_SHADER_MACRO defines[] = {
+				{ "AMOUNT", amd_ffx_lfga_amount_str.c_str() },
 				{ srgb_str.c_str(), nullptr },
 				{ "GAMMA", gamma_str.c_str() },
 				{ nullptr, nullptr }
 			};
-			create_pixel_shader(device.get(), g_ps[hash_name("copy")].put(), L"Copy_ps.hlsl", "main", defines);
+			create_pixel_shader(device.get(), g_ps[hash_name("amd_ffx_lfga")].put(), L"AMD_FFX_LFGA_ps.hlsl", "main", defines);
+		}
+
+		// Create blue noise texture.
+		[[unlikely]] if (!g_srv[hash_name("blue_noise_tex")]) {
+			D3D11_TEXTURE2D_DESC tex_desc = {};
+			tex_desc.Width = BLUE_NOISE_TEX_WIDTH;
+			tex_desc.Height = BLUE_NOISE_TEX_HEIGHT;
+			tex_desc.MipLevels = 1;
+			tex_desc.ArraySize = BLUE_NOISE_TEX_ARRAY_SIZE;
+			tex_desc.Format = DXGI_FORMAT_R8_UNORM;
+			tex_desc.SampleDesc.Count = 1;
+			tex_desc.Usage = D3D11_USAGE_IMMUTABLE;
+			tex_desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+			std::array<D3D11_SUBRESOURCE_DATA, BLUE_NOISE_TEX_ARRAY_SIZE> subresource_data;
+			for (size_t i = 0; i < subresource_data.size(); ++i) {
+				subresource_data[i].pSysMem = BLUE_NOISE_TEX + i * BLUE_NOISE_TEX_PITCH * BLUE_NOISE_TEX_HEIGHT;
+				subresource_data[i].SysMemPitch = BLUE_NOISE_TEX_PITCH;
+			}
+			Com_ptr<ID3D11Texture2D> tex;
+			ensure(device->CreateTexture2D(&tex_desc, subresource_data.data(), tex.put()), >= 0);
+			ensure(device->CreateShaderResourceView(tex.get(), nullptr, g_srv[hash_name("blue_noise_tex")].put()), >= 0);
+		}
+
+		// Update the constant buffer.
+		// We need to limit the temporal grain update rate, otherwise grain will flicker.
+		constexpr auto interval = std::chrono::duration_cast<std::chrono::high_resolution_clock::duration>(std::chrono::duration<double>(1.0 / (double)BLUE_NOISE_TEX_ARRAY_SIZE));
+		static auto last_update = std::chrono::high_resolution_clock::now();
+		const auto now = std::chrono::high_resolution_clock::now();
+		if (now - last_update >= interval) {
+			g_cb_data.tex_noise_index += 1.0f;
+			if (g_cb_data.tex_noise_index >= (float)BLUE_NOISE_TEX_ARRAY_SIZE) {
+				g_cb_data.tex_noise_index = 0.0f;
+			}
+			update_constant_buffer(ctx, g_cb[hash_name("cb")].get(), &g_cb_data, sizeof(g_cb_data));
+			last_update += interval;
 		}
 
 		// Bindings.
-		ctx->VSSetShader(g_vs[hash_name("fullscreen_triangle")].get(), nullptr, 0);
-		ctx->PSSetShader(g_ps[hash_name("copy")].get(), nullptr, 0);
+		ctx->OMSetRenderTargets(1, &rtv_original, nullptr);
+		ctx->PSSetShader(g_ps[hash_name("amd_ffx_lfga")].get(), nullptr, 0);
+		ctx->PSSetConstantBuffers(13, 1, &g_cb[hash_name("cb")]);
+		const std::array ps_srvs_amd_ffx_lfga = { g_srv[hash_name("amd_ffx_cas")].get(), g_srv[hash_name("blue_noise_tex")].get() };
+		ctx->PSSetShaderResources(0, ps_srvs_amd_ffx_lfga.size(), ps_srvs_amd_ffx_lfga.data());
 
-		#if DEV && SHOW_AO
-		ctx->PSSetShaderResources(0, 1, &g_srv[hash_name("ao")]);
-		#endif
+		ctx->Draw(3, 0);
 
-		return false;
+		//
+
+		return true;
 	}
 
 	return false;
@@ -557,6 +665,21 @@ static bool on_create_resource_view(reshade::api::device* device, reshade::api::
 			return true;
 		}
 
+		if (resource_desc.texture.format == reshade::api::format::r16g16b16a16_typeless) {
+			
+			#if  DEV
+			// We only expect r8g8b8a8_unorm_srgb.
+			if (desc.format == reshade::api::format::r8g8b8a8_unorm) {
+				log_debug("The game requested r8g8b8a8_unorm view!");
+			}
+			#endif
+
+			if (desc.format == reshade::api::format::r8g8b8a8_unorm_srgb) {
+				desc.format = reshade::api::format::r16g16b16a16_unorm;
+				return true;
+			}
+			return false;
+		}
 		if (resource_desc.texture.format == reshade::api::format::r16g16b16a16_float) {
 			desc.format = reshade::api::format::r16g16b16a16_float;
 			return true;
@@ -569,18 +692,6 @@ static bool on_create_resource_view(reshade::api::device* device, reshade::api::
 			desc.format = reshade::api::format::r32g32_float;
 			return true;
 		}
-		if (resource_desc.texture.format == reshade::api::format::r16g16_unorm) {
-			desc.format = reshade::api::format::r16g16_unorm;
-			return true;
-		}
-		if (resource_desc.texture.format == reshade::api::format::r32_float) {
-			desc.format = reshade::api::format::r32_float;
-			return true;
-		}
-		if (resource_desc.texture.format == reshade::api::format::r16_unorm) {
-			desc.format = reshade::api::format::r16_unorm;
-			return true;
-		}
 	}
 
 	return false;
@@ -588,6 +699,8 @@ static bool on_create_resource_view(reshade::api::device* device, reshade::api::
 
 static bool on_create_resource(reshade::api::device* device, reshade::api::resource_desc& desc, reshade::api::subresource_data* initial_data, reshade::api::resource_usage initial_state)
 {
+	// Some upgrades are breaking the game randomly and for no obvious reason, they are left out.
+
 	auto upgrade_rts = [&]() {
 		if (desc.texture.format == reshade::api::format::r11g11b10_float) {
 			desc.texture.format = reshade::api::format::r16g16b16a16_float;
@@ -599,18 +712,6 @@ static bool on_create_resource(reshade::api::device* device, reshade::api::resou
 		}
 		if (desc.texture.format == reshade::api::format::r16g16_float) {
 			desc.texture.format = reshade::api::format::r32g32_float;
-			return true;
-		}
-		if (desc.texture.format == reshade::api::format::r8g8_unorm) {
-			desc.texture.format = reshade::api::format::r16g16_unorm;
-			return true;
-		}
-		if (desc.texture.format == reshade::api::format::r16_float) {
-			desc.texture.format = reshade::api::format::r32_float;
-			return true;
-		}
-		if (desc.texture.format == reshade::api::format::r8_unorm) {
-			desc.texture.format = reshade::api::format::r16_unorm;
 			return true;
 		}
 		return false;
@@ -628,6 +729,14 @@ static bool on_create_resource(reshade::api::device* device, reshade::api::resou
 		//		return true;
 		//	}
 		//}
+
+		// After tonemap all RTs should be r8g8b8a8_typeless.
+		// We only expect r8g8b8a8_unorm_srgb views.
+		assert(g_swapchain_width && g_swapchain_height);
+		if (desc.texture.format == reshade::api::format::r8g8b8a8_typeless && desc.texture.width == g_swapchain_width && desc.texture.height == g_swapchain_height) {
+			desc.texture.format = reshade::api::format::r16g16b16a16_typeless;
+			result = true;
+		}
 	}
 	if ((desc.usage & reshade::api::resource_usage::unordered_access) != 0) {
 		result = upgrade_rts();
@@ -761,6 +870,12 @@ static void read_config()
 	if (!reshade::get_config_value(nullptr, "Dishonored2GraphicalUpgrade", "XeGTAOQuality", g_xe_gtao_quality)) {
 		reshade::set_config_value(nullptr, "Dishonored2GraphicalUpgrade", "XeGTAOQuality", g_xe_gtao_quality);
 	}
+	if (!reshade::get_config_value(nullptr, "Dishonored2GraphicalUpgrade", "Sharpness", g_amd_ffx_cas_sharpness)) {
+		reshade::set_config_value(nullptr, "Dishonored2GraphicalUpgrade", "Sharpness", g_amd_ffx_cas_sharpness);
+	}
+	if (!reshade::get_config_value(nullptr, "Dishonored2GraphicalUpgrade", "GrainAmount", g_amd_ffx_lfga_amount)) {
+		reshade::set_config_value(nullptr, "Dishonored2GraphicalUpgrade", "GrainAmount", g_amd_ffx_lfga_amount);
+	}
 	if (!reshade::get_config_value(nullptr, "Dishonored2GraphicalUpgrade", "TRC", g_trc)) {
 		reshade::set_config_value(nullptr, "Dishonored2GraphicalUpgrade", "TRC", g_trc);
 	}
@@ -774,6 +889,10 @@ static void read_config()
 
 static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 {
+	auto device = (ID3D11Device*)runtime->get_device()->get_native();
+	Com_ptr<ID3D11DeviceContext> ctx;
+	device->GetImmediateContext(ctx.put());
+	
 	#if DEV
 	if (ImGui::Button("Dev button")) {
 	}
@@ -782,9 +901,6 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 
 	if (ImGui::Checkbox("Enable DLSS (DLAA)", &g_enable_dlss)) {
 		if (g_enable_dlss) {
-			auto device = (ID3D11Device*)runtime->get_device()->get_native();
-			Com_ptr<ID3D11DeviceContext> ctx;
-			device->GetImmediateContext(ctx.put());
 			DLSS::instance().init(device);
 			DLSS::instance().create_feature(ctx.get(), g_swapchain_width, g_swapchain_height, g_dlss_preset);
 		}
@@ -797,9 +913,6 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 	static constexpr std::array dlss_preset_items = { "F", "K" };
 	if (ImGui::Combo("DLSS preset", &g_dlss_preset, dlss_preset_items.data(), dlss_preset_items.size())) {
 		reshade::set_config_value(nullptr, "Dishonored2GraphicalUpgrade", "DLSSPreset", g_dlss_preset);
-		auto device = (ID3D11Device*)runtime->get_device()->get_native();
-		Com_ptr<ID3D11DeviceContext> ctx;
-		device->GetImmediateContext(ctx.put());
 		DLSS::instance().create_feature(ctx.get(), g_swapchain_width, g_swapchain_height, g_dlss_preset);
 	}
 	ImGui::EndDisabled();
@@ -842,15 +955,27 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 	}
 	ImGui::Spacing();
 
+	if (ImGui::SliderFloat("Sharpness", &g_amd_ffx_cas_sharpness, 0.0f, 1.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp)) {
+		reshade::set_config_value(nullptr, "Dishonored2GraphicalUpgrade", "Sharpness", g_amd_ffx_cas_sharpness);
+		g_ps[hash_name("amd_ffx_cas")].reset();
+	}
+	ImGui::Spacing();
+
+	if (ImGui::SliderFloat("Grain amount", &g_amd_ffx_lfga_amount, 0.0f, 1.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp)) {
+		reshade::set_config_value(nullptr, "Dishonored2GraphicalUpgrade", "GrainAmount", g_amd_ffx_lfga_amount);
+		g_ps[hash_name("amd_ffx_lfga")].reset();
+	}
+	ImGui::Spacing();
+
 	static constexpr std::array trc_items = { "sRGB", "Gamma" };
 	if (ImGui::Combo("TRC", &g_trc, trc_items.data(), trc_items.size())) {
 		reshade::set_config_value(nullptr, "Dishonored2GraphicalUpgrade", "TRC", g_trc);
-		g_ps[hash_name("copy")].reset();
+		g_ps[hash_name("amd_ffx_lfga")].reset();
 	}
 	ImGui::BeginDisabled(g_trc == TRC_SRGB);
 	if (ImGui::SliderFloat("Gamma", &g_gamma, 1.0f, 3.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp)) {
 		reshade::set_config_value(nullptr, "Dishonored2GraphicalUpgrade", "Gamma", g_gamma);
-		g_ps[hash_name("copy")].reset();
+		g_ps[hash_name("amd_ffx_lfga")].reset();
 	}
 	ImGui::EndDisabled();
 	ImGui::Spacing();
@@ -864,7 +989,7 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 }
 
 extern "C" __declspec(dllexport) const char* NAME = "Dishonored2GraphicalUpgrade";
-extern "C" __declspec(dllexport) const char* DESCRIPTION = "Dishonored2GraphicalUpgrade v1.3.0";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "Dishonored2GraphicalUpgrade v1.4.0";
 extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/Dishonored2GraphicalUpgrade";
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)

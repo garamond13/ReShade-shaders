@@ -188,6 +188,7 @@
     <ClCompile Include="main.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="BlueNoiseTex.h" />
     <ClInclude Include="Common.h" />
     <ClInclude Include="ComPtr.h" />
     <ClInclude Include="DLSS.h" />
