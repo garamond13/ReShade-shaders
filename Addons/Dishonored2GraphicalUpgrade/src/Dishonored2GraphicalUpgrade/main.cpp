@@ -19,7 +19,7 @@ struct alignas(16) PerViewCB
 	float4x4 cb_previousprojectionmatrix;
 	float4 cb_mousecursorposition;
 	float4 cb_mousebuttonsdown;
-	float4 cb_jittervectors;
+	float4 cb_jittervectors; // xy current and zw previous, in uv offsets.
 	float4x4 cb_inverseviewprojectionmatrix;
 	float4x4 cb_inverseviewmatrix;
 	float4x4 cb_inverseprojectionmatrix;
@@ -93,6 +93,7 @@ static int g_xe_gtao_quality = 2; // 0 - Low, 1 - Medium, 2 - High, 3 - Very Hig
 static std::atomic<uintptr_t> g_taa_tag;
 static void* g_taa_cb1_mapped_data;
 static bool g_enable_dlss = true;
+static DLSS_PRESET g_dlss_preset = DLSS_PRESET_F;
 
 // Tone responce curve.
 static TRC g_trc = TRC_SRGB;
@@ -147,7 +148,7 @@ static void on_execute_secondary_command_list(reshade::api::command_list* cmd_li
 		eval_params.pInMotionVectors = g_resource[hash_name("mvs")].get();
 
 		// MVs are in UV space so we need to scale them to screen space for DLSS.
-		// Also for DLSS we need to flip the sighn for both x and y.
+		// Also for DLSS we need to flip the sign for both x and y.
 		eval_params.InMVScaleX = -(float)g_swapchain_width;
 		eval_params.InMVScaleY = -(float)g_swapchain_height;
 
@@ -556,24 +557,28 @@ static bool on_create_resource_view(reshade::api::device* device, reshade::api::
 			return true;
 		}
 
-		if (resource_desc.texture.format == reshade::api::format::r16g16b16a16_typeless) {
-			
-			#if  DEV
-			// We only expect r8g8b8a8_unorm_srgb.
-			if (desc.format == reshade::api::format::r8g8b8a8_unorm) {
-				log_debug("The game requested r8g8b8a8_unorm view.");
-			}
-			#endif
-
-			desc.format = reshade::api::format::r16g16b16a16_unorm;
-			return true;
-		}
 		if (resource_desc.texture.format == reshade::api::format::r16g16b16a16_float) {
 			desc.format = reshade::api::format::r16g16b16a16_float;
 			return true;
 		}
 		if (resource_desc.texture.format == reshade::api::format::r16g16b16a16_unorm) {
 			desc.format = reshade::api::format::r16g16b16a16_unorm;
+			return true;
+		}
+		if (resource_desc.texture.format == reshade::api::format::r32g32_float) {
+			desc.format = reshade::api::format::r32g32_float;
+			return true;
+		}
+		if (resource_desc.texture.format == reshade::api::format::r16g16_unorm) {
+			desc.format = reshade::api::format::r16g16_unorm;
+			return true;
+		}
+		if (resource_desc.texture.format == reshade::api::format::r32_float) {
+			desc.format = reshade::api::format::r32_float;
+			return true;
+		}
+		if (resource_desc.texture.format == reshade::api::format::r16_unorm) {
+			desc.format = reshade::api::format::r16_unorm;
 			return true;
 		}
 	}
@@ -588,24 +593,30 @@ static bool on_create_resource(reshade::api::device* device, reshade::api::resou
 			desc.texture.format = reshade::api::format::r16g16b16a16_float;
 			return true;
 		}
-
 		if (desc.texture.format == reshade::api::format::r8g8b8a8_unorm_srgb) {
 			desc.texture.format = reshade::api::format::r16g16b16a16_unorm;
 			return true;
 		}
-
-		// We only expect r8g8b8a8_unorm_srgb views.
-		// After tonemap all RTs should be r8g8b8a8_typeless.
-		if (desc.texture.format == reshade::api::format::r8g8b8a8_typeless) {
-			desc.texture.format = reshade::api::format::r16g16b16a16_typeless;
+		if (desc.texture.format == reshade::api::format::r16g16_float) {
+			desc.texture.format = reshade::api::format::r32g32_float;
 			return true;
 		}
-
+		if (desc.texture.format == reshade::api::format::r8g8_unorm) {
+			desc.texture.format = reshade::api::format::r16g16_unorm;
+			return true;
+		}
+		if (desc.texture.format == reshade::api::format::r16_float) {
+			desc.texture.format = reshade::api::format::r32_float;
+			return true;
+		}
+		if (desc.texture.format == reshade::api::format::r8_unorm) {
+			desc.texture.format = reshade::api::format::r16_unorm;
+			return true;
+		}
 		return false;
 	};
 
 	// Filter RTs.
-	// Some upgrades break DLSS (r16_float).
 	bool result = false;
 	if ((desc.usage & reshade::api::resource_usage::render_target) != 0) {
 		result = upgrade_rts();
@@ -627,7 +638,6 @@ static bool on_create_resource(reshade::api::device* device, reshade::api::resou
 			result = true;
 		}
 	}
-
 	return result;
 }
 
@@ -684,7 +694,7 @@ static void on_init_swapchain(reshade::api::swapchain* swapchain, bool resize)
 		ensure(native_swapchain->GetDevice(IID_PPV_ARGS(device.put())), >= 0);
 		Com_ptr<ID3D11DeviceContext> ctx;
 		device->GetImmediateContext(ctx.put());
-		DLSS::instance().create_feature(ctx.get(), g_swapchain_width, g_swapchain_height);
+		DLSS::instance().create_feature(ctx.get(), g_swapchain_width, g_swapchain_height, g_dlss_preset);
 	}
 
 	// Reset resolution dependent resources.
@@ -730,6 +740,9 @@ static void read_config()
 	if (!reshade::get_config_value(nullptr, "Dishonored2GraphicalUpgrade", "EnableDLSS", g_enable_dlss)) {
 		reshade::set_config_value(nullptr, "Dishonored2GraphicalUpgrade", "EnableDLSS", g_enable_dlss);
 	}
+	if (!reshade::get_config_value(nullptr, "Dishonored2GraphicalUpgrade", "DLSSPreset", g_dlss_preset)) {
+		reshade::set_config_value(nullptr, "Dishonored2GraphicalUpgrade", "DLSSPreset", g_dlss_preset);
+	}
 	if (!reshade::get_config_value(nullptr, "Dishonored2GraphicalUpgrade", "DisableLensDistortion", g_disable_lens_distortion)) {
 		reshade::set_config_value(nullptr, "Dishonored2GraphicalUpgrade", "DisableLensDistortion", g_disable_lens_distortion);
 	}
@@ -773,13 +786,23 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 			Com_ptr<ID3D11DeviceContext> ctx;
 			device->GetImmediateContext(ctx.put());
 			DLSS::instance().init(device);
-			DLSS::instance().create_feature(ctx.get(), g_swapchain_width, g_swapchain_height);
+			DLSS::instance().create_feature(ctx.get(), g_swapchain_width, g_swapchain_height, g_dlss_preset);
 		}
 		else {
 			DLSS::instance().shutdown();
 		}
 		reshade::set_config_value(nullptr, "Dishonored2GraphicalUpgrade", "EnableDLSS", g_enable_dlss);
 	}
+	ImGui::BeginDisabled(!g_enable_dlss);
+	static constexpr std::array dlss_preset_items = { "F", "K" };
+	if (ImGui::Combo("DLSS preset", &g_dlss_preset, dlss_preset_items.data(), dlss_preset_items.size())) {
+		reshade::set_config_value(nullptr, "Dishonored2GraphicalUpgrade", "DLSSPreset", g_dlss_preset);
+		auto device = (ID3D11Device*)runtime->get_device()->get_native();
+		Com_ptr<ID3D11DeviceContext> ctx;
+		device->GetImmediateContext(ctx.put());
+		DLSS::instance().create_feature(ctx.get(), g_swapchain_width, g_swapchain_height, g_dlss_preset);
+	}
+	ImGui::EndDisabled();
 	ImGui::Spacing();
 
 	if (ImGui::Checkbox("Disable lens distortion", &g_disable_lens_distortion)) {
@@ -841,7 +864,7 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 }
 
 extern "C" __declspec(dllexport) const char* NAME = "Dishonored2GraphicalUpgrade";
-extern "C" __declspec(dllexport) const char* DESCRIPTION = "Dishonored2GraphicalUpgrade v1.2.0";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "Dishonored2GraphicalUpgrade v1.3.0";
 extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/Dishonored2GraphicalUpgrade";
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)

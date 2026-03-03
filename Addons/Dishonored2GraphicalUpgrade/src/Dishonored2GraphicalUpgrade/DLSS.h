@@ -7,6 +7,14 @@
 // We only support/provide DLAA.
 // Preconfigured for Dishonored 2.
 
+// Exposed to user.
+enum DLSS_PRESET_
+{
+	DLSS_PRESET_F,
+	DLSS_PRESET_K
+};
+typedef int DLSS_PRESET;
+
 class DLSS
 {
 public:
@@ -42,7 +50,7 @@ public:
 		}
 	}
 
-	void create_feature(ID3D11DeviceContext* ctx, uint32_t width, uint32_t height)
+	void create_feature(ID3D11DeviceContext* ctx, uint32_t width, uint32_t height, DLSS_PRESET preset)
 	{
 		// Release old resources first.
 		release_feature();
@@ -50,9 +58,21 @@ public:
 		this->width = width;
 		this->height = height;
 
+		// Pick an acctual preset.
+		NVSDK_NGX_DLSS_Hint_Render_Preset dlss_hint_renderer_preset = NVSDK_NGX_DLSS_Hint_Render_Preset_Default;
+		switch (preset) {
+			case DLSS_PRESET_F:
+				dlss_hint_renderer_preset = NVSDK_NGX_DLSS_Hint_Render_Preset_F;
+				break;
+			case DLSS_PRESET_K:
+				dlss_hint_renderer_preset = NVSDK_NGX_DLSS_Hint_Render_Preset_K;
+				break;
+		}
+		assert(dlss_hint_renderer_preset != NVSDK_NGX_DLSS_Hint_Render_Preset_Default);
+		
 		auto result = NVSDK_NGX_D3D11_AllocateParameters(&feature);
 		if (NVSDK_NGX_SUCCEED(result)) {
-			NVSDK_NGX_Parameter_SetUI(feature, NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_DLAA, NVSDK_NGX_DLSS_Hint_Render_Preset_F);
+			NVSDK_NGX_Parameter_SetUI(feature, NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_DLAA, dlss_hint_renderer_preset);
 
 			int flags = NVSDK_NGX_DLSS_Feature_Flags_None;
 			flags |= NVSDK_NGX_DLSS_Feature_Flags_IsHDR;
