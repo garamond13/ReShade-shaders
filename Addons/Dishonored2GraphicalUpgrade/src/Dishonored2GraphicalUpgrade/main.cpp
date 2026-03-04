@@ -74,8 +74,13 @@ constexpr GUID g_cs_taa_0x06BBC941_guid = { 0x16cb60d, 0x938, 0x4e9d, { 0xa7, 0x
 constexpr uint32_t g_ps_downsample_0x42873B15_hash = 0x42873B15;
 constexpr GUID g_ps_downsample_0x42873B15_guid = { 0xb84165a, 0x3fec, 0x4d93, { 0xa9, 0x6d, 0x6d, 0x54, 0x8e, 0x59, 0xd0, 0x3c } };
 
-constexpr uint32_t g_ps_lens_distortion_0x152A9E10_hash = 0x152A9E10;
-constexpr GUID g_ps_lens_distortion_0x152A9E10_guid = { 0xbf743ea2, 0x1f1c, 0x4dd5, { 0x9d, 0x52, 0x65, 0x1, 0x66, 0x8f, 0xef, 0x60 } };
+// If motion blur is enabled in the game's settings.
+constexpr uint32_t g_ps_motion_blur_and_lens_distortion_mvs_0xC97890C8_hash = 0xC97890C8;
+constexpr GUID g_ps_motion_blur_and_lens_distortion_mvs_0xC97890C8_guid = { 0x51783160, 0x2604, 0x4d2e, { 0x91, 0xf2, 0x68, 0x35, 0x58, 0x7a, 0xf6, 0xb1 } };
+
+// If motion blur is disabled in the game's settings.
+constexpr uint32_t g_ps_motion_blur_and_lens_distortion_mvs_0xE908E905_hash = 0xE908E905;
+constexpr GUID g_ps_motion_blur_and_lens_distortion_mvs_0xE908E905_guid = { 0x337d2791, 0xda14, 0x48f1, { 0x85, 0x2d, 0x5b, 0xcc, 0x3, 0x7e, 0xfa, 0x60 } };
 
 //
 
@@ -312,11 +317,44 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 	}
 
 	size = sizeof(hash);
-	hr = ps->GetPrivateData(g_ps_lens_distortion_0x152A9E10_guid, &size, &hash);
-	if (SUCCEEDED(hr) && hash == g_ps_lens_distortion_0x152A9E10_hash) {
-		if (g_disable_lens_distortion) {
-			return true;
+	hr = ps->GetPrivateData(g_ps_motion_blur_and_lens_distortion_mvs_0xC97890C8_guid, &size, &hash);
+	if (SUCCEEDED(hr) && hash == g_ps_motion_blur_and_lens_distortion_mvs_0xC97890C8_hash) {
+		// Create PS.
+		[[unlikely]] if (!g_ps[hash_name("motion_blur_and_lens_distortion_mvs_0xC97890C8")]) {
+			Com_ptr<ID3D11Device> device;
+			ctx->GetDevice(device.put());
+			const std::string disable_lens_distortion_str = std::to_string((int)g_disable_lens_distortion);
+			const D3D_SHADER_MACRO defines[] = {
+				{ "DISABLE_LENS_DISTORTION", disable_lens_distortion_str.c_str() },
+				{ nullptr, nullptr }
+			};
+			create_pixel_shader(device.get(), g_ps[hash_name("motion_blur_and_lens_distortion_mvs_0xC97890C8")].put(), L"MotionBlurAndLensDistortionMVs_0xC97890C8_ps.hlsl", "main", defines);
 		}
+
+		// Bindings.
+		ctx->PSSetShader(g_ps[hash_name("motion_blur_and_lens_distortion_mvs_0xC97890C8")].get(), nullptr, 0);
+		
+		return false;
+	}
+
+	size = sizeof(hash);
+	hr = ps->GetPrivateData(g_ps_motion_blur_and_lens_distortion_mvs_0xE908E905_guid, &size, &hash);
+	if (SUCCEEDED(hr) && hash == g_ps_motion_blur_and_lens_distortion_mvs_0xE908E905_hash) {
+		// Create PS.
+		[[unlikely]] if (!g_ps[hash_name("motion_blur_and_lens_distortion_mvs_0xE908E905")]) {
+			Com_ptr<ID3D11Device> device;
+			ctx->GetDevice(device.put());
+			const std::string disable_lens_distortion_str = std::to_string((int)g_disable_lens_distortion);
+			const D3D_SHADER_MACRO defines[] = {
+				{ "DISABLE_LENS_DISTORTION", disable_lens_distortion_str.c_str() },
+				{ nullptr, nullptr }
+			};
+			create_pixel_shader(device.get(), g_ps[hash_name("motion_blur_and_lens_distortion_mvs_0xE908E905")].put(), L"MotionBlurAndLensDistortionMVs_0xE908E905_ps.hlsl", "main", defines);
+		}
+
+		// Bindings.
+		ctx->PSSetShader(g_ps[hash_name("motion_blur_and_lens_distortion_mvs_0xE908E905")].get(), nullptr, 0);
+		
 		return false;
 	}
 
@@ -617,8 +655,11 @@ static void on_init_pipeline(reshade::api::device* device, reshade::api::pipelin
 				case g_ps_downsample_0x42873B15_hash:
 					ensure(((ID3D11PixelShader*)pipeline.handle)->SetPrivateData(g_ps_downsample_0x42873B15_guid, sizeof(g_ps_downsample_0x42873B15_hash), &g_ps_downsample_0x42873B15_hash), >= 0);
 					break;
-				case g_ps_lens_distortion_0x152A9E10_hash:
-					ensure(((ID3D11PixelShader*)pipeline.handle)->SetPrivateData(g_ps_lens_distortion_0x152A9E10_guid, sizeof(g_ps_lens_distortion_0x152A9E10_hash), &g_ps_lens_distortion_0x152A9E10_hash), >= 0);
+				case g_ps_motion_blur_and_lens_distortion_mvs_0xC97890C8_hash:
+					ensure(((ID3D11PixelShader*)pipeline.handle)->SetPrivateData(g_ps_motion_blur_and_lens_distortion_mvs_0xC97890C8_guid, sizeof(g_ps_motion_blur_and_lens_distortion_mvs_0xC97890C8_hash), &g_ps_motion_blur_and_lens_distortion_mvs_0xC97890C8_hash), >= 0);
+					break;
+				case g_ps_motion_blur_and_lens_distortion_mvs_0xE908E905_hash:
+					ensure(((ID3D11PixelShader*)pipeline.handle)->SetPrivateData(g_ps_motion_blur_and_lens_distortion_mvs_0xE908E905_guid, sizeof(g_ps_motion_blur_and_lens_distortion_mvs_0xE908E905_hash), &g_ps_motion_blur_and_lens_distortion_mvs_0xE908E905_hash), >= 0);
 					break;
 			}
 		}
@@ -920,6 +961,8 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 
 	if (ImGui::Checkbox("Disable lens distortion", &g_disable_lens_distortion)) {
 		reshade::set_config_value(nullptr, "Dishonored2GraphicalUpgrade", "DisableLensDistortion", g_disable_lens_distortion);
+		g_ps[hash_name("motion_blur_and_lens_distortion_mvs_0xC97890C8")].reset();
+		g_ps[hash_name("motion_blur_and_lens_distortion_mvs_0xE908E905")].reset();
 	}
 	ImGui::Spacing();
 
@@ -989,7 +1032,7 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 }
 
 extern "C" __declspec(dllexport) const char* NAME = "Dishonored2GraphicalUpgrade";
-extern "C" __declspec(dllexport) const char* DESCRIPTION = "Dishonored2GraphicalUpgrade v1.4.0";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "Dishonored2GraphicalUpgrade v1.5.0";
 extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/Dishonored2GraphicalUpgrade";
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)
