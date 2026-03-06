@@ -218,8 +218,8 @@ static void on_execute_secondary_command_list(reshade::api::command_list* cmd_li
 		}
 
 		// Bindings.
-		ctx->CSSetShader(g_cs[hash_name("post_dlss")].get(), nullptr, 0);
 		ctx->CSSetUnorderedAccessViews(0, 1, &g_uav[hash_name("taa")], nullptr);
+		ctx->CSSetShader(g_cs[hash_name("post_dlss")].get(), nullptr, 0);
 		ctx->CSSetConstantBuffers(1, 1, &g_cb[hash_name("taa_b1")]);
 		ctx->CSSetConstantBuffers(2, 1, &g_cb[hash_name("taa_b2")]);
 		ctx->CSSetShaderResources(0, 1, &g_srv[hash_name("ro_postfx_luminance_buffautoexposure")]);
@@ -661,6 +661,22 @@ static bool on_dispatch(reshade::api::command_list* cmd_list, uint32_t group_cou
 			release_com_array(srvs);
 			return true;
 		}
+
+		// Create CS.
+		[[unlikely]] if (!g_cs[hash_name("TAA_0x06BBC941")]) {
+			Com_ptr<ID3D11Device> device;
+			ctx->GetDevice(device.put());
+			const std::string viewport_size_str = std::format("float2({},{})", (float)g_swapchain_width, (float)g_swapchain_height);
+			const D3D_SHADER_MACRO defines[] = {
+				{ "VIEWPORT_SIZE", viewport_size_str.c_str() },
+				{ nullptr, nullptr }
+			};
+			create_compute_shader(device.get(), g_cs[hash_name("TAA_0x06BBC941")].put(), L"TAA_0x06BBC941_cs.hlsl", "main", defines);
+		}
+
+		// Bindings.
+		ctx->CSSetShader(g_cs[hash_name("TAA_0x06BBC941")].get(), nullptr, 0);
+
 		return false;
 	}
 
@@ -885,6 +901,7 @@ static void on_init_swapchain(reshade::api::swapchain* swapchain, bool resize)
 	g_cs[hash_name("xe_gtao_prefilter_depths16x16")].reset();
 	release_com_array(g_uav_xe_gtao_prefilter_depths16x16);
 	g_ps[hash_name("xe_gtao_main_pass")].reset();
+	g_cs[hash_name("TAA_0x06BBC941")].reset();
 }
 
 static void on_init_device(reshade::api::device* device)
@@ -907,7 +924,6 @@ static void on_destroy_device(reshade::api::device *device)
 	if (g_enable_dlss) {
 		DLSS::instance().shutdown();
 	}
-
 	g_rtv.clear();
 	g_srv.clear();
 	g_vs.clear();
@@ -1066,7 +1082,7 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 }
 
 extern "C" __declspec(dllexport) const char* NAME = "Dishonored2GraphicalUpgrade";
-extern "C" __declspec(dllexport) const char* DESCRIPTION = "Dishonored2GraphicalUpgrade v1.6.0";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "Dishonored2GraphicalUpgrade v1.7.0";
 extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/Dishonored2GraphicalUpgrade";
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)

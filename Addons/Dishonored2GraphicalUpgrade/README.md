@@ -2,10 +2,13 @@
 
 - Modern borderless window (flip mod, tearing).
 - Replaced ambient occlusion (SSAO) with XeGTAO.
-- Optionally replace TAA anti aliasing with DLSS (DLAA).
+- Replaced TAA.
+- Optionally replace TAA with DLSS (DLAA).
 - Imroved bloom.
 - Adjustable bloom intensity.
 - Adjustable vigenette strenght.
+- Sharpening filter (Modified AMD FFX CAS).
+- Temporal blue noise film grain (AMD FFX LFGA).
 - Adjustable Tone Responce Curve (TRC) (sRGB, gamma).
 - Optionally disable lens distortion.
 - Optionally disable lens dirt.
