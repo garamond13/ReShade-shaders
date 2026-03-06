@@ -71,9 +71,6 @@ constexpr GUID g_cs_downsample_depth_0x27BD5265_guid = { 0xd2d58efa, 0x76e4, 0x4
 constexpr uint32_t g_cs_taa_0x06BBC941_hash = 0x06BBC941;
 constexpr GUID g_cs_taa_0x06BBC941_guid = { 0x16cb60d, 0x938, 0x4e9d, { 0xa7, 0x7f, 0xea, 0x40, 0x56, 0x19, 0x9, 0xd6 } };
 
-constexpr uint32_t g_ps_downsample_0x42873B15_hash = 0x42873B15;
-constexpr GUID g_ps_downsample_0x42873B15_guid = { 0xb84165a, 0x3fec, 0x4d93, { 0xa9, 0x6d, 0x6d, 0x54, 0x8e, 0x59, 0xd0, 0x3c } };
-
 // If motion blur is enabled in the game's settings.
 constexpr uint32_t g_ps_motion_blur_and_lens_distortion_mvs_0xC97890C8_hash = 0xC97890C8;
 constexpr GUID g_ps_motion_blur_and_lens_distortion_mvs_0xC97890C8_guid = { 0x51783160, 0x2604, 0x4d2e, { 0x91, 0xf2, 0x68, 0x35, 0x58, 0x7a, 0xf6, 0xb1 } };
@@ -148,6 +145,35 @@ static void on_execute_secondary_command_list(reshade::api::command_list* cmd_li
 	if (g_taa_tag == secondary_cmd_list->get_native()) {
 		g_taa_tag = 0;
 		ctx = (ID3D11DeviceContext*)(cmd_list->get_native());
+		Com_ptr<ID3D11Device> device;
+		ctx->GetDevice(device.put());
+
+		// PreDLSS pass
+		//
+
+		// Create CS.
+		[[unlikely]] if (!g_cs[hash_name("pre_dlss")]) {
+			create_compute_shader(device.get(), g_cs[hash_name("pre_dlss")].put(), L"PreDLSS_cs.hlsl");
+		}
+
+		// Create UAV.
+		[[unlikely]] if (!g_uav[hash_name("scene")]) {
+			ensure(device->CreateUnorderedAccessView(g_resource[hash_name("scene")].get(), nullptr, g_uav[hash_name("scene")].put()), >= 0);
+		}
+
+		// Bindings.
+		ctx->CSSetUnorderedAccessViews(0, 1, &g_uav[hash_name("scene")], nullptr);
+		ctx->CSSetShader(g_cs[hash_name("pre_dlss")].get(), nullptr, 0);
+		ctx->CSSetConstantBuffers(1, 1, &g_cb[hash_name("taa_b1")]);
+		ctx->CSSetConstantBuffers(2, 1, &g_cb[hash_name("taa_b2")]);
+		ctx->CSSetShaderResources(0, 1, &g_srv[hash_name("ro_postfx_luminance_buffautoexposure")]);
+
+		ctx->Dispatch((g_swapchain_width + 8 - 1) / 8, (g_swapchain_height + 8 - 1) / 8, 1);
+		
+		//
+
+		// DLSS pass
+		// 
 
 		// These need to be valid.
 		assert(g_resource[hash_name("scene")]);
@@ -175,6 +201,32 @@ static void on_execute_secondary_command_list(reshade::api::command_list* cmd_li
 		eval_params.InJitterOffsetY = g_per_view_cb.cb_jittervectors.x * (float)g_swapchain_width;
 
 		DLSS::instance().draw(ctx.get(), eval_params);
+
+		//
+
+		// PostDLSS pass
+		//
+
+		// Create CS.
+		[[unlikely]] if (!g_cs[hash_name("post_dlss")]) {
+			create_compute_shader(device.get(), g_cs[hash_name("post_dlss")].put(), L"PostDLSS_cs.hlsl");
+		}
+
+		// Create UAV.
+		[[unlikely]] if (!g_uav[hash_name("taa")]) {
+			ensure(device->CreateUnorderedAccessView(g_resource[hash_name("taa")].get(), nullptr, g_uav[hash_name("taa")].put()), >= 0);
+		}
+
+		// Bindings.
+		ctx->CSSetShader(g_cs[hash_name("post_dlss")].get(), nullptr, 0);
+		ctx->CSSetUnorderedAccessViews(0, 1, &g_uav[hash_name("taa")], nullptr);
+		ctx->CSSetConstantBuffers(1, 1, &g_cb[hash_name("taa_b1")]);
+		ctx->CSSetConstantBuffers(2, 1, &g_cb[hash_name("taa_b2")]);
+		ctx->CSSetShaderResources(0, 1, &g_srv[hash_name("ro_postfx_luminance_buffautoexposure")]);
+
+		ctx->Dispatch((g_swapchain_width + 8 - 1) / 8, (g_swapchain_height + 8 - 1) / 8, 1);
+		
+		//
 	}
 }
 
@@ -355,24 +407,6 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		// Bindings.
 		ctx->PSSetShader(g_ps[hash_name("motion_blur_and_lens_distortion_mvs_0xE908E905")].get(), nullptr, 0);
 		
-		return false;
-	}
-
-	size = sizeof(hash);
-	hr = ps->GetPrivateData(g_ps_downsample_0x42873B15_guid, &size, &hash);
-	if (SUCCEEDED(hr) && hash == g_ps_downsample_0x42873B15_hash) {
-		if (g_enable_dlss) {
-			// Create PS.
-			[[unlikely]] if (!g_ps[hash_name("downsample_0x42873B15")]) {
-				Com_ptr<ID3D11Device> device;
-				ctx->GetDevice(device.put());
-				create_pixel_shader(device.get(), g_ps[hash_name("downsample_0x42873B15")].put(), L"Downsample_0x42873B15_ps.hlsl", "main");
-			}
-
-			// Bindings.
-			ctx->PSSetShader(g_ps[hash_name("downsample_0x42873B15")].get(), nullptr, 0);
-			ctx->PSSetConstantBuffers(3, 1, &g_cb[hash_name("taa_b2")]);
-		}
 		return false;
 	}
 
@@ -612,12 +646,14 @@ static bool on_dispatch(reshade::api::command_list* cmd_list, uint32_t group_cou
 
 			// SRV1 should be motion vectors.
 			// SRV2 should be the scene.
-			std::array<ID3D11ShaderResourceView*, 2> srvs = {};
+			// SRV3 should be the buffer ro_postfx_luminance_buffautoexposure.
+			std::array<ID3D11ShaderResourceView*, 3> srvs = {};
 			ctx->CSGetShaderResources(1, srvs.size(), srvs.data());
 			srvs[0]->GetResource(g_resource[hash_name("mvs")].put());
 			srvs[1]->GetResource(g_resource[hash_name("scene")].put());
+			g_srv[hash_name("ro_postfx_luminance_buffautoexposure")] = srvs[2];
 
-			// UAV1 should be TAA out.
+			// UAV1 should be the TAA out.
 			Com_ptr<ID3D11UnorderedAccessView> uav;
 			ctx->CSGetUnorderedAccessViews(1, 1, uav.put());
 			uav->GetResource(g_resource[hash_name("taa")].put());
@@ -625,6 +661,7 @@ static bool on_dispatch(reshade::api::command_list* cmd_list, uint32_t group_cou
 			release_com_array(srvs);
 			return true;
 		}
+		return false;
 	}
 
 	return false;
@@ -651,9 +688,6 @@ static void on_init_pipeline(reshade::api::device* device, reshade::api::pipelin
 					break;
 				case g_ps_upsample_0x1A0CD2AE_hash:
 					ensure(((ID3D11PixelShader*)pipeline.handle)->SetPrivateData(g_ps_upsample_0x1A0CD2AE_guid, sizeof(g_ps_upsample_0x1A0CD2AE_hash), &g_ps_upsample_0x1A0CD2AE_hash), >= 0);
-					break;
-				case g_ps_downsample_0x42873B15_hash:
-					ensure(((ID3D11PixelShader*)pipeline.handle)->SetPrivateData(g_ps_downsample_0x42873B15_guid, sizeof(g_ps_downsample_0x42873B15_hash), &g_ps_downsample_0x42873B15_hash), >= 0);
 					break;
 				case g_ps_motion_blur_and_lens_distortion_mvs_0xC97890C8_hash:
 					ensure(((ID3D11PixelShader*)pipeline.handle)->SetPrivateData(g_ps_motion_blur_and_lens_distortion_mvs_0xC97890C8_guid, sizeof(g_ps_motion_blur_and_lens_distortion_mvs_0xC97890C8_hash), &g_ps_motion_blur_and_lens_distortion_mvs_0xC97890C8_hash), >= 0);
@@ -1032,7 +1066,7 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 }
 
 extern "C" __declspec(dllexport) const char* NAME = "Dishonored2GraphicalUpgrade";
-extern "C" __declspec(dllexport) const char* DESCRIPTION = "Dishonored2GraphicalUpgrade v1.5.0";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "Dishonored2GraphicalUpgrade v1.6.0";
 extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/Dishonored2GraphicalUpgrade";
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)
