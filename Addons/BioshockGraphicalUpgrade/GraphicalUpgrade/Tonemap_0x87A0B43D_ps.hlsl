@@ -33,7 +33,6 @@ Texture2D s_bloom : register(t1);
 // 3Dmigoto declarations
 #define cmp -
 
-#if 0 // The original shader.
 void main(
   float4 v0 : SV_Position0,
   float2 v1 : TEXCOORD0,
@@ -48,37 +47,21 @@ void main(
   r1 = s_framebuffer.Sample(s_framebuffer_s, v1.xy);
   r0.xyz = r0.xyz * bloomAlpha * BLOOM_INTENSITY + r1.xyz;
   o0.w = r1.w;
-  r0.xyz = saturate(sceneBias * r0.xyz);
+
+  // Original saturate.
+  //r0.xyz = saturate(sceneBias * r0.xyz);
+  
+  // Smooth saturate.
+  r0.xyz = sceneBias * r0.xyz;
+  r0.xyz = smooth_saturate(r0.xyz, 7.0);
 
   // Original delinearization, gamma 2.2.
-  r0.xyz = log2(r0.xyz);
-  r0.xyz = float3(0.454545468,0.454545468,0.454545468) * r0.xyz;
-  o0.xyz = exp2(r0.xyz);
-
-  return;
-}
-#else // We will need both linear and delinearized output.
-void main(float4 v0 : SV_Position0, float2 v1 : TEXCOORD0, float2 w1 : TEXCOORD1, out float4 o0 : SV_Target0, out float4 o1 : SV_Target1)
-{
-  float4 r0,r1;
-
-  r0 = s_bloom.Sample(s_bloom_s, w1.xy);
-  r1 = s_framebuffer.Sample(s_framebuffer_s, v1.xy);
-  r0.xyz = r0.xyz * bloomAlpha * BLOOM_INTENSITY + r1.xyz;
-  o0.w = r1.w;
-  r0.xyz = saturate(sceneBias * r0.xyz);
+  //r0.xyz = log2(r0.xyz);
+  //r0.xyz = float3(0.454545468,0.454545468,0.454545468) * r0.xyz;
+  //o0.xyz = exp2(r0.xyz);
 
   // Linear output.
   o0.xyz = r0.xyz;
 
-  // Delinearization.
-  #ifdef SRGB
-  r0.xyz = linear_to_srgb(r0.xyz);
-  #else
-  r0.xyz = linear_to_gamma(r0.xyz);
-  #endif
-
-  // Delinearized output.
-  o1 = float4(r0.xyz, r1.w);
+  return;
 }
-#endif

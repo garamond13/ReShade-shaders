@@ -1,26 +1,28 @@
 #pragma once
 
 #include "Common.h"
+#include "GraphicalUpgradePath.h"
 
-struct float2
+// We need to pass this to all SMAA shaders on resolution change.
+class SMAA_rt_metrics
 {
-	float x = 0.0f;
-	float y = 0.0f;
-};
+public:
 
-struct float3
-{
-	float x = 0.0f;
-	float y = 0.0f;
-	float z = 0.0f;
-};
+	void set(float width, float height)
+	{
+		val_str = std::format("float4({},{},{},{})", 1.0f / width, 1.0f / height, width, height);
+		defines[0] = { "SMAA_RT_METRICS", val_str.c_str() };
+	}
 
-struct float4
-{
-	float x = 0.0f;
-	float y = 0.0f;
-	float z = 0.0f;
-	float w = 0.0f;
+	const D3D_SHADER_MACRO* get() const
+	{
+		return defines;
+	}
+
+private:
+
+	std::string val_str;
+	D3D_SHADER_MACRO defines[2] = {};
 };
 
 template<typename... Args>
@@ -44,7 +46,7 @@ void log_debug(std::string_view fmt, Args&&... args)
 	reshade::log::message(reshade::log::level::debug, msg.c_str());
 }
 
-__forceinline [[nodiscard]] constexpr D3D10_SAMPLER_DESC default_D3D10_SAMPLER_DESC() noexcept
+__forceinline [[nodiscard]] constexpr D3D10_SAMPLER_DESC default_D3D10_SAMPLER_DESC()
 {
 	return D3D10_SAMPLER_DESC {
 		.Filter = D3D10_FILTER_MIN_MAG_MIP_POINT,
@@ -60,7 +62,7 @@ __forceinline [[nodiscard]] constexpr D3D10_SAMPLER_DESC default_D3D10_SAMPLER_D
 	};
 }
 
-__forceinline [[nodiscard]] constexpr D3D10_DEPTH_STENCIL_DESC default_D3D10_DEPTH_STENCIL_DESC() noexcept
+__forceinline [[nodiscard]] constexpr D3D10_DEPTH_STENCIL_DESC default_D3D10_DEPTH_STENCIL_DESC()
 {
 	return D3D10_DEPTH_STENCIL_DESC {
 		.DepthEnable = TRUE,
@@ -84,7 +86,7 @@ __forceinline [[nodiscard]] constexpr D3D10_DEPTH_STENCIL_DESC default_D3D10_DEP
 	};
 }
 
-__forceinline [[nodiscard]] constexpr D3D10_BLEND_DESC default_D3D10_BLEND_DESC() noexcept
+__forceinline [[nodiscard]] constexpr D3D10_BLEND_DESC default_D3D10_BLEND_DESC()
 {
 	return D3D10_BLEND_DESC {
 		.AlphaToCoverageEnable = FALSE,
@@ -97,6 +99,94 @@ __forceinline [[nodiscard]] constexpr D3D10_BLEND_DESC default_D3D10_BLEND_DESC(
 		.BlendOpAlpha = D3D10_BLEND_OP_ADD,
 		.RenderTargetWriteMask = { D3D10_COLOR_WRITE_ENABLE_ALL, D3D10_COLOR_WRITE_ENABLE_ALL, D3D10_COLOR_WRITE_ENABLE_ALL, D3D10_COLOR_WRITE_ENABLE_ALL, D3D10_COLOR_WRITE_ENABLE_ALL, D3D10_COLOR_WRITE_ENABLE_ALL, D3D10_COLOR_WRITE_ENABLE_ALL, D3D10_COLOR_WRITE_ENABLE_ALL }
 	};
+}
+
+inline void compile_shader(ID3DBlob** code, const wchar_t* file, const char* target, const char* entry_point = "main", const D3D_SHADER_MACRO* defines = nullptr)
+{
+	std::filesystem::path path = g_graphical_upgrade_path;
+	path /= file;
+	Com_ptr<ID3DBlob> error;
+	auto hr = D3DCompileFromFile(path.c_str(), defines, D3D_COMPILE_STANDARD_FILE_INCLUDE, entry_point, target, D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, code, error.put());
+	if (FAILED(hr)) {
+		if (error) {
+			log_error("D3DCompileFromFile: {}", (const char*)error->GetBufferPointer());
+		}
+		else {
+			log_error("D3DCompileFromFile: (HRESULT){:08X}", hr);
+		}
+	}
+
+	#if DEV && OUTPUT_ASSEMBLY
+	Com_ptr<ID3DBlob> disassembly;
+	D3DDisassemble((*code)->GetBufferPointer(), (*code)->GetBufferSize(), 0, nullptr, disassembly.put());
+	std::ofstream assembly(path.replace_filename(path.filename().string() + "_" + entry_point + ".asm"));
+	assembly.write((const char*)disassembly->GetBufferPointer(), disassembly->GetBufferSize());
+	#endif
+}
+
+inline void create_vertex_shader(ID3D10Device* device, ID3D10VertexShader** vs, const wchar_t* file, const char* entry_point = "main", const D3D_SHADER_MACRO* defines = nullptr)
+{
+	Com_ptr<ID3DBlob> code;
+	compile_shader(code.put(), file, "vs_4_1", entry_point, defines);
+	ensure(device->CreateVertexShader(code->GetBufferPointer(), code->GetBufferSize(), vs), >= 0);
+}
+
+inline void create_pixel_shader(ID3D10Device* device, ID3D10PixelShader** ps, const wchar_t* file, const char* entry_point = "main", const D3D_SHADER_MACRO* defines = nullptr)
+{
+	Com_ptr<ID3DBlob> code;
+	compile_shader(code.put(), file, "ps_4_1", entry_point, defines);
+	ensure(device->CreatePixelShader(code->GetBufferPointer(), code->GetBufferSize(), ps), >= 0);
+}
+
+inline void create_constant_buffer(ID3D10Device* device, ID3D10Buffer** buffer, UINT size)
+{
+	D3D10_BUFFER_DESC buffer_desc = {};
+	buffer_desc.ByteWidth = size;
+	buffer_desc.Usage = D3D10_USAGE_DYNAMIC;
+	buffer_desc.BindFlags = D3D10_BIND_CONSTANT_BUFFER;
+	buffer_desc.CPUAccessFlags = D3D10_CPU_ACCESS_WRITE;
+	ensure(device->CreateBuffer(&buffer_desc, nullptr, buffer), >= 0);
+}
+
+inline void update_constant_buffer(ID3D10Buffer* buffer, void* data, size_t size)
+{
+	void* mapped;
+	ensure(buffer->Map(D3D10_MAP_WRITE_DISCARD, 0, &mapped), >= 0);
+	std::memcpy(mapped, data, size);
+	buffer->Unmap();
+}
+
+inline void create_sampler_point_clamp(ID3D10Device* device, ID3D10SamplerState** smp)
+{
+	auto sampler_desc = default_D3D10_SAMPLER_DESC();
+	ensure(device->CreateSamplerState(&sampler_desc, smp), >= 0);
+}
+
+// Fowler–Noll–Vo hash function (FNV-1a 32bit)
+// https://en.wikipedia.org/wiki/Fowler%E2%80%93Noll%E2%80%93Vo_hash_function
+//
+// str has to be null terminated!
+consteval uint32_t hash_name(const char* str)
+{
+	constexpr uint32_t fnv_offset_basis = 2166136261u;
+	constexpr uint32_t fnv_prime = 16777619u;
+	uint32_t hash = fnv_offset_basis;
+	while (*str) {
+		hash ^= (uint8_t)*str;
+		hash *= fnv_prime;
+		++str;
+	}
+	return hash;
+}
+
+inline void release_com_array(auto& array)
+{
+	for (auto*& ptr : array) {
+		if (ptr) {
+			ptr->Release();
+			ptr = nullptr;
+		}
+	}
 }
 
 inline auto to_string(reshade::api::format format)

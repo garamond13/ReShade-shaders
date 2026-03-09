@@ -6,23 +6,23 @@
 
 cbuffer _Globals : register(b12)
 {
-  float4 fogColor : packoffset(c0);
-  float3 fogTransform : packoffset(c1);
-  float4x3 screenDataToCamera : packoffset(c2);
-  float globalScale : packoffset(c5);
-  float sceneDepthAlphaMask : packoffset(c5.y);
-  float globalOpacity : packoffset(c5.z);
-  float distortionBufferScale : packoffset(c5.w);
-  float2 wToZScaleAndBias : packoffset(c6);
-  float4 screenTransform[2] : packoffset(c7);
-  float4 textureToPixel : packoffset(c9);
-  float4 pixelToTexture : packoffset(c10);
-  float maxScale : packoffset(c11);
-  float bloomAlpha : packoffset(c11.y);
-  float sceneBias : packoffset(c11.z);
-  float exposure : packoffset(c11.w);
-  float deltaExposure : packoffset(c12);
-  float4 ColorFill : packoffset(c13);
+	float4 fogColor : packoffset(c0);
+	float3 fogTransform : packoffset(c1);
+	float4x3 screenDataToCamera : packoffset(c2);
+	float globalScale : packoffset(c5);
+	float sceneDepthAlphaMask : packoffset(c5.y);
+	float globalOpacity : packoffset(c5.z);
+	float distortionBufferScale : packoffset(c5.w);
+	float2 wToZScaleAndBias : packoffset(c6);
+	float4 screenTransform[2] : packoffset(c7);
+	float4 textureToPixel : packoffset(c9);
+	float4 pixelToTexture : packoffset(c10);
+	float maxScale : packoffset(c11);
+	float bloomAlpha : packoffset(c11.y);
+	float sceneBias : packoffset(c11.z);
+	float exposure : packoffset(c11.w);
+	float deltaExposure : packoffset(c12);
+	float4 ColorFill : packoffset(c13);
 }
 
 // THESE MUST BE DEFINED!
@@ -41,6 +41,22 @@ cbuffer _Globals : register(b12)
 #endif
 
 //
+
+#ifndef XE_GTAO_QUALITY
+#define XE_GTAO_QUALITY 2
+#endif
+
+#if XE_GTAO_QUALITY == 0 // Low
+	#define SLICE_COUNT 4.0
+#elif XE_GTAO_QUALITY == 1 // Medium
+	#define SLICE_COUNT 7.0
+#elif XE_GTAO_QUALITY == 2 // High
+	#define SLICE_COUNT 10.0
+	#elif XE_GTAO_QUALITY == 3 // Very High
+	#define SLICE_COUNT 13.0
+#elif XE_GTAO_QUALITY == 4 // Ultra
+	#define SLICE_COUNT 16.0
+#endif
 
 // User configurable
 //

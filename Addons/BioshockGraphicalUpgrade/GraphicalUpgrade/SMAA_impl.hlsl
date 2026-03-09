@@ -22,21 +22,30 @@ SamplerState PointSampler : register(s0);
 #include "SMAA.hlsli"
 
 #include "FullscreenTriangle.hlsli"
+#include "Color.hlsli"
 
 Texture2D tex0 : register(t0);
 Texture2D tex1 : register(t1);
 Texture2D tex2 : register(t2);
 
+// SMAA Pre Pass.
+float4 smaa_pre_pass_ps(float4 pos : SV_Position) : SV_Target
+{
+	float4 color = tex0.Load(int3(pos.xy, 0));
+	color.rgb = linear_to_srgb(color.rgb);
+	return color;
+}
+
 // SMAAEdgeDetection
 //
 
-void smaa_edge_detection_vs(uint id : SV_VertexID, out float4 position : SV_Position, out float2 texcoord : TEXCOORD0, out float4 offset[3] : TEXCOORD1)
+void smaa_edge_detection_vs(uint vid : SV_VertexID, out float4 pos : SV_Position, out float2 texcoord : TEXCOORD0, out float4 offset[3] : TEXCOORD1)
 {
-	fullscreen_triangle(id, position, texcoord);
+	fullscreen_triangle(vid, pos, texcoord);
 	SMAAEdgeDetectionVS(texcoord, offset);
 }
 
-float2 smaa_edge_detection_ps(float4 position : SV_Position, float2 texcoord : TEXCOORD0, float4 offset[3] : TEXCOORD1) : SV_Target
+float2 smaa_edge_detection_ps(float4 pos : SV_Position, float2 texcoord : TEXCOORD0, float4 offset[3] : TEXCOORD1) : SV_Target
 {
 	// tex0 = colorTexGamma
 	// tex1 = predicationTex
@@ -48,13 +57,13 @@ float2 smaa_edge_detection_ps(float4 position : SV_Position, float2 texcoord : T
 // SMAABlendingWeightCalculation
 //
 
-void smaa_blending_weight_calculation_vs(uint id : SV_VertexID, out float4 position : SV_Position, out float2 texcoord : TEXCOORD0, out float2 pixcoord : TEXCOORD1, out float4 offset[3] : TEXCOORD2)
+void smaa_blending_weight_calculation_vs(uint vid : SV_VertexID, out float4 pos : SV_Position, out float2 texcoord : TEXCOORD0, out float2 pixcoord : TEXCOORD1, out float4 offset[3] : TEXCOORD2)
 {
-	fullscreen_triangle(id, position, texcoord);
+	fullscreen_triangle(vid, pos, texcoord);
 	SMAABlendingWeightCalculationVS(texcoord, pixcoord, offset);
 }
 
-float4 smaa_blending_weight_calculation_ps(float4 position : SV_Position, float2 texcoord : TEXCOORD0, float2 pixcoord : TEXCOORD1, float4 offset[3] : TEXCOORD2) : SV_Target
+float4 smaa_blending_weight_calculation_ps(float4 pos : SV_Position, float2 texcoord : TEXCOORD0, float2 pixcoord : TEXCOORD1, float4 offset[3] : TEXCOORD2) : SV_Target
 {
 	// tex0 = edgesTex
 	// tex1 = areaTex
@@ -67,13 +76,13 @@ float4 smaa_blending_weight_calculation_ps(float4 position : SV_Position, float2
 // SMAANeighborhoodBlending
 //
 
-void smaa_neighborhood_blending_vs(uint id : SV_VertexID, out float4 position : SV_Position, out float2 texcoord : TEXCOORD0, out float4 offset : TEXCOORD1)
+void smaa_neighborhood_blending_vs(uint vid : SV_VertexID, out float4 pos : SV_Position, out float2 texcoord : TEXCOORD0, out float4 offset : TEXCOORD1)
 {
-	fullscreen_triangle(id, position, texcoord);
+	fullscreen_triangle(vid, pos, texcoord);
 	SMAANeighborhoodBlendingVS(texcoord, offset);
 }
 
-float4 smaa_neighborhood_blending_ps(float4 position : SV_Position, float2 texcoord : TEXCOORD0, float4 offset : TEXCOORD1) : SV_Target
+float4 smaa_neighborhood_blending_ps(float4 pos : SV_Position, float2 texcoord : TEXCOORD0, float4 offset : TEXCOORD1) : SV_Target
 {
 	// tex0 = colorTex
 	// tex1 = blendTex

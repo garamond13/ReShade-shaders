@@ -3,18 +3,12 @@
 #include "AreaTex.h"
 #include "SearchTex.h"
 #include "BlueNoiseTex.h"
+#include "HLSLTypes.h"
+#include "TRC.h"
 
 #define DEV 0
 #define OUTPUT_ASSEMBLY 0
 #define SHOW_AO 0
-
-// Tone responce curve.
-enum TRC_
-{
-	TRC_SRGB,
-	TRC_GAMMA
-};
-typedef int TRC;
 
 struct alignas(16) CB_graphical_upgrade_data
 {
@@ -25,89 +19,7 @@ struct alignas(16) CB_graphical_upgrade_data
 	float tex_noise_index;
 };
 
-// We need to pass this to XeGTAO PSes on resolution change or XeGTAO user settings change.
-class XeGTAO_defines
-{
-public:
-
-	void set(float width, float height, float fov_y, float radius, int quality)
-	{
-		// Values to strings.
-		const float tan_half_fov_y = std::tan(fov_y * std::numbers::pi_v<float> / 180.0f * 0.5f); // radians = degrees * pi / 180.
-		const float tan_half_fov_x = tan_half_fov_y * width / height;
-		viewport_pixel_size_str = std::format("float2({},{})", 1.0f / width, 1.0f / height);
-		ndc_to_view_mul_str = std::format("float2({},{})", tan_half_fov_x * 2.0f, tan_half_fov_y * -2.0f);
-		ndc_to_view_add_str = std::format("float2({},{})", -tan_half_fov_x, tan_half_fov_y);
-		radius_str = std::to_string(radius);
-		slice_count_str = std::to_string(get_slice_count(quality));
-
-		// Defines.
-		defines[0] = { "VIEWPORT_PIXEL_SIZE", viewport_pixel_size_str.c_str() };
-		defines[1] = { "NDC_TO_VIEW_MUL", ndc_to_view_mul_str.c_str() };
-		defines[2] = { "NDC_TO_VIEW_ADD", ndc_to_view_add_str.c_str() };
-		defines[3] = { "EFFECT_RADIUS", radius_str.c_str() };
-		defines[4] = { "SLICE_COUNT", slice_count_str.c_str() };
-		defines[5] = { nullptr, nullptr };
-	}
-
-	const D3D_SHADER_MACRO* get() const
-	{
-		return defines;
-	}
-
-private:
-
-	float get_slice_count(int quality) const
-	{
-		switch (quality) {
-			case 0:
-				return 4.0f;
-			case 1:
-				return 7.0f;
-			case 2:
-				return 10.0f;
-			case 3:
-				return 13.0f;
-			case 4:
-				return 16.0f;
-		}
-	}
-
-	std::string viewport_pixel_size_str;
-	std::string ndc_to_view_mul_str;
-	std::string ndc_to_view_add_str;
-	std::string radius_str;
-	std::string slice_count_str;
-	D3D_SHADER_MACRO defines[6] = {};
-};
-
-// We need to pass this to all SMAA shaders on resolution change.
-class SMAA_rt_metrics
-{
-public:
-
-	void set(float width, float height)
-	{
-		val_str = std::format("float4({},{},{},{})", 1.0f / width, 1.0f / height, width, height);
-		defines[0] = { "SMAA_RT_METRICS", val_str.c_str() };
-		defines[1] = { nullptr, nullptr };
-	}
-
-	const D3D10_SHADER_MACRO* get() const
-	{
-		return defines;
-	}
-
-private:
-
-	std::string val_str;
-	D3D10_SHADER_MACRO defines[2] = {};
-};
-
-// Path to the GraphicalUpgrade folder.
-static std::filesystem::path g_graphical_upgrade_path;
-
-// Shader hooks and replacemnt shaders.
+// Shader hooks.
 //
 
 constexpr uint32_t g_ps_fog_0xB69D6558_hash = 0xB69D6558;
@@ -157,53 +69,25 @@ constexpr GUID g_ps_bloom_0xBD24CC87_guid = { 0x96e8e31a, 0x856c, 0x4044, { 0xa6
 
 constexpr uint32_t g_ps_tonemap_0x87A0B43D_hash = 0x87A0B43D;
 constexpr GUID g_ps_tonemap_0x87A0B43D_guid = { 0x476ef3b9, 0xe14e, 0x49f2, { 0xa6, 0x5c, 0x8c, 0x7a, 0x41, 0xd4, 0xa6, 0x12 } };
-static Com_ptr<ID3D10PixelShader> g_ps_tonemap_0x87A0B43D;
 
 //
 
 static UINT g_swapchain_width;
 static UINT g_swapchain_height;
 static CB_graphical_upgrade_data g_cb_data;
-static Com_ptr<ID3D10Buffer> g_cb;
-static Com_ptr<ID3D10VertexShader> g_vs_fullscreen_triangle;
-static Com_ptr<ID3D10ShaderResourceView> g_srv_depth;
 
 // SMAA
 constexpr float g_smaa_clear_color[4] = {};
 static SMAA_rt_metrics g_smaa_rt_metrics;
-static Com_ptr<ID3D10ShaderResourceView> g_srv_smaa_area_tex;
-static Com_ptr<ID3D10ShaderResourceView> g_srv_smaa_search_tex;
-static Com_ptr<ID3D10VertexShader> g_vs_smaa_edge_detection;
-static Com_ptr<ID3D10PixelShader> g_ps_smaa_edge_detection;
-static Com_ptr<ID3D10VertexShader> g_vs_smaa_blending_weight_calculation;
-static Com_ptr<ID3D10PixelShader> g_ps_smaa_blending_weight_calculation;
-static Com_ptr<ID3D10VertexShader> g_vs_smaa_neighborhood_blending;
-static Com_ptr<ID3D10PixelShader> g_ps_smaa_neighborhood_blending;
-static Com_ptr<ID3D10DepthStencilState> g_ds_smaa_disable_depth_replace_stencil;
-static Com_ptr<ID3D10DepthStencilState> g_ds_smaa_disable_depth_use_stencil;
 
 // AMD FFX CAS
-static Com_ptr<ID3D10PixelShader> g_ps_amd_ffx_cas;
 static float g_amd_ffx_cas_sharpness = 0.4f;
 
 // AMD FFX LFGA
-static Com_ptr<ID3D10ShaderResourceView> g_srv_blue_noise_tex;
-static Com_ptr<ID3D10PixelShader> g_ps_amd_ffx_lfga;
 static float g_amd_ffx_lfga_amount = 0.4f;
-
-static Com_ptr<ID3D10SamplerState> g_smp_point_wrap;
-static Com_ptr<ID3D10SamplerState> g_smp_point_clamp;
 
 // XeGTAO
 constexpr int XE_GTAO_DEPTH_MIP_LEVELS = 5;
-static XeGTAO_defines g_xegtao_defines;
-static Com_ptr<ID3D10PixelShader> g_ps_xegtao_prefilter_depth_mip0;
-static Com_ptr<ID3D10PixelShader> g_ps_xegtao_prefilter_depths;
-static Com_ptr<ID3D10PixelShader> g_ps_xegtao_main_pass;
-static Com_ptr<ID3D10PixelShader> g_ps_xegtao_denoise1_pass;
-static Com_ptr<ID3D10PixelShader> g_ps_xegtao_denoise2_pass;
-static Com_ptr<ID3D10BlendState> g_blend_xegtao;
-static Com_ptr<ID3D10Buffer> g_cb_tonemap; // We only need depth linearization.
 static bool g_xegtao_enable = true;
 static float g_xegtao_fov_y = 47.0f; // in degrees
 static float g_xegtao_radius = 0.4f;
@@ -211,11 +95,6 @@ static int g_xegtao_quality = 2; // 0 - Low, 1 - Medium, 2 - High, 3 - Very High
 static bool is_xegtao_drawn;
 
 // Bloom
-static Com_ptr<ID3D10PixelShader> g_ps_bloom_prefilter;
-static Com_ptr<ID3D10PixelShader> g_ps_bloom_downsample;
-static Com_ptr<ID3D10PixelShader> g_ps_bloom_upsample;
-static Com_ptr<ID3D10BlendState> g_blend_bloom;
-static Com_ptr<ID3D10Buffer> g_cb_bloom;
 static int g_bloom_nmips = 6;
 static std::vector<float> g_bloom_sigmas;
 static float g_bloom_intensity = 1.0f;
@@ -245,118 +124,22 @@ static std::chrono::duration<double> g_accounted_error; // in seconds
 typedef HRESULT(__stdcall *IDXGISwapChain__Present)(IDXGISwapChain* swapchain, UINT sync_interval, UINT flags);
 static IDXGISwapChain__Present g_original_present;
 
-static std::filesystem::path get_shaders_path()
-{
-	wchar_t filename[MAX_PATH];
-	GetModuleFileNameW(nullptr, filename, ARRAYSIZE(filename));
-	std::filesystem::path path = filename;
-	path = path.parent_path();
-	path /= L".\\GraphicalUpgrade";
-	return path;
-}
-
-static void compile_shader(ID3DBlob** code, const wchar_t* file, const char* target, const char* entry_point = "main", const D3D_SHADER_MACRO* defines = nullptr)
-{
-	std::filesystem::path path = g_graphical_upgrade_path;
-	path /= file;
-	Com_ptr<ID3DBlob> error;
-	auto hr = D3DCompileFromFile(path.c_str(), defines, D3D_COMPILE_STANDARD_FILE_INCLUDE, entry_point, target, D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, code, error.put());
-	if (FAILED(hr)) {
-		if (error) {
-			log_error("D3DCompileFromFile: {}", (const char*)error->GetBufferPointer());
-		}
-		else {
-			log_error("D3DCompileFromFile: (HRESULT){:08X}", hr);
-		}
-	}
-
-	#if DEV && OUTPUT_ASSEMBLY
-	Com_ptr<ID3DBlob> disassembly;
-	D3DDisassemble((*code)->GetBufferPointer(), (*code)->GetBufferSize(), 0, nullptr, disassembly.put());
-	std::ofstream assembly(path.replace_filename(path.filename().string() + "_" + entry_point + ".asm"));
-	assembly.write((const char*)disassembly->GetBufferPointer(), disassembly->GetBufferSize());
-	#endif
-}
-
-static void create_vertex_shader(ID3D10Device* device, ID3D10VertexShader** vs, const wchar_t* file, const char* entry_point = "main", const D3D_SHADER_MACRO* defines = nullptr)
-{
-	Com_ptr<ID3DBlob> code;
-	compile_shader(code.put(), file, "vs_4_1", entry_point, defines);
-	ensure(device->CreateVertexShader(code->GetBufferPointer(), code->GetBufferSize(), vs), >= 0);
-}
-
-static void create_pixel_shader(ID3D10Device* device, ID3D10PixelShader** ps, const wchar_t* file, const char* entry_point = "main", const D3D_SHADER_MACRO* defines = nullptr)
-{
-	Com_ptr<ID3DBlob> code;
-	compile_shader(code.put(), file, "ps_4_1", entry_point, defines);
-	ensure(device->CreatePixelShader(code->GetBufferPointer(), code->GetBufferSize(), ps), >= 0);
-}
-
-static void create_constant_buffer(ID3D10Device* device, ID3D10Buffer** buffer, UINT size)
-{
-	D3D10_BUFFER_DESC buffer_desc = {};
-	buffer_desc.ByteWidth = size;
-	buffer_desc.Usage = D3D10_USAGE_DYNAMIC;
-	buffer_desc.BindFlags = D3D10_BIND_CONSTANT_BUFFER;
-	buffer_desc.CPUAccessFlags = D3D10_CPU_ACCESS_WRITE;
-	ensure(device->CreateBuffer(&buffer_desc, nullptr, buffer), >= 0);
-}
-
-static void update_constant_buffer(ID3D10Buffer* buffer, void* data, size_t size)
-{
-	void* mapped;
-	ensure(buffer->Map(D3D10_MAP_WRITE_DISCARD, 0, &mapped), >= 0);
-	std::memcpy(mapped, data, size);
-	buffer->Unmap();
-}
-
-// Used by AMD FFX LFGA.
-static void create_srv_blue_noise_tex(ID3D10Device* device, ID3D10ShaderResourceView** srv)
-{
-	D3D10_TEXTURE2D_DESC tex_desc = {};
-	tex_desc.Width = BLUE_NOISE_TEX_WIDTH;
-	tex_desc.Height = BLUE_NOISE_TEX_HEIGHT;
-	tex_desc.MipLevels = 1;
-	tex_desc.ArraySize = BLUE_NOISE_TEX_ARRAY_SIZE;
-	tex_desc.Format = DXGI_FORMAT_R8_UNORM;
-	tex_desc.SampleDesc.Count = 1;
-	tex_desc.Usage = D3D10_USAGE_IMMUTABLE;
-	tex_desc.BindFlags = D3D10_BIND_SHADER_RESOURCE;
-	std::array<D3D10_SUBRESOURCE_DATA, BLUE_NOISE_TEX_ARRAY_SIZE> subresource_data;
-	for (size_t i = 0; i < subresource_data.size(); ++i) {
-		subresource_data[i].pSysMem = BLUE_NOISE_TEX + i * BLUE_NOISE_TEX_PITCH * BLUE_NOISE_TEX_HEIGHT;
-		subresource_data[i].SysMemPitch = BLUE_NOISE_TEX_PITCH;
-	}
-	Com_ptr<ID3D10Texture2D> tex;
-	ensure(device->CreateTexture2D(&tex_desc, subresource_data.data(), tex.put()), >= 0);
-	ensure(device->CreateShaderResourceView(tex.get(), nullptr, srv), >= 0);
-}
-
-// Used by AMD FFX LFGA.
-static void create_sampler_point_wrap(ID3D10Device* device, ID3D10SamplerState** smp)
-{
-	auto sampler_desc = default_D3D10_SAMPLER_DESC();
-	sampler_desc.AddressU = D3D10_TEXTURE_ADDRESS_WRAP;
-	sampler_desc.AddressV = D3D10_TEXTURE_ADDRESS_WRAP;
-	sampler_desc.AddressW = D3D10_TEXTURE_ADDRESS_WRAP;
-	ensure(device->CreateSamplerState(&sampler_desc, smp), >= 0);
-}
-
-// Used by XeGTAO.
-static void create_sampler_point_clamp(ID3D10Device* device, ID3D10SamplerState** smp)
-{
-	auto sampler_desc = default_D3D10_SAMPLER_DESC();
-	ensure(device->CreateSamplerState(&sampler_desc, smp), >= 0);
-}
-
-static void reset_xegtao()
-{
-	g_ps_xegtao_prefilter_depth_mip0.reset();
-	g_ps_xegtao_prefilter_depths.reset();
-	g_ps_xegtao_main_pass.reset();
-	g_ps_xegtao_denoise1_pass.reset();
-	g_ps_xegtao_denoise2_pass.reset();
-}
+// COM resources.
+static std::unordered_map<uint32_t, Com_ptr<ID3D10RenderTargetView>> g_rtv;
+static std::unordered_map<uint32_t, Com_ptr<ID3D10ShaderResourceView>> g_srv;
+static std::unordered_map<uint32_t, Com_ptr<ID3D10VertexShader>> g_vs;
+static std::unordered_map<uint32_t, Com_ptr<ID3D10PixelShader>> g_ps;
+static std::unordered_map<uint32_t, Com_ptr<ID3D10SamplerState>> g_smp;
+static std::unordered_map<uint32_t, Com_ptr<ID3D10Buffer>> g_cb;
+static std::unordered_map<uint32_t, Com_ptr<ID3D10BlendState>> g_blend;
+static std::unordered_map<uint32_t, Com_ptr<ID3D10DepthStencilState>> g_ds;
+static std::unordered_map<uint32_t, Com_ptr<ID3D10DepthStencilView>> g_dsv;
+static std::array<ID3D10RenderTargetView*, XE_GTAO_DEPTH_MIP_LEVELS> g_rtv_xe_gtao_working_depth_mips;
+static std::array<ID3D10ShaderResourceView*, XE_GTAO_DEPTH_MIP_LEVELS> g_srv_xe_gtao_working_depth_mips;
+static std::vector<ID3D10RenderTargetView*> g_rtv_bloom_mips_y;
+static std::vector<ID3D10ShaderResourceView*> g_srv_bloom_mips_y;
+static std::vector<ID3D10RenderTargetView*> g_rtv_bloom_mips_x;
+static std::vector<ID3D10ShaderResourceView*> g_srv_bloom_mips_x;
 
 static void draw_xegtao(ID3D10Device* device, ID3D10RenderTargetView*const* rtv)
 {
@@ -384,7 +167,7 @@ static void draw_xegtao(ID3D10Device* device, ID3D10RenderTargetView*const* rtv)
 	// PS.
 	Com_ptr<ID3D10PixelShader> ps_original;
 	device->PSGetShader(ps_original.put());
-	std::array<ID3D10ShaderResourceView*, 2> srvs_original;
+	std::array<ID3D10ShaderResourceView*, 2> srvs_original = {};
 	device->PSGetShaderResources(0, srvs_original.size(), srvs_original.data());
 	Com_ptr<ID3D10SamplerState> smp_original;
 	device->PSGetSamplers(0, 1, smp_original.put());
@@ -403,67 +186,50 @@ static void draw_xegtao(ID3D10Device* device, ID3D10RenderTargetView*const* rtv)
 
 	//
 
-	// Set common states.
-	//
-
-	device->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-
-	// Create and bind Fullscreen Triangle VS.
-	[[unlikely]] if (!g_vs_fullscreen_triangle) {
-		create_vertex_shader(device, g_vs_fullscreen_triangle.put(), L"FullscreenTriangle_vs.hlsl");
-	}
-	device->VSSetShader(g_vs_fullscreen_triangle.get());
-
-	device->RSSetState(nullptr);
-	device->PSSetConstantBuffers(12, 1, &g_cb_tonemap);
-
-	// Create and bind point clamp sampler.
-	[[unlikely]] if (!g_smp_point_clamp) {
-		create_sampler_point_clamp(device, g_smp_point_clamp.put());
-	}
-	device->PSSetSamplers(0, 1, &g_smp_point_clamp);
-
-	device->OMSetBlendState(nullptr, nullptr, UINT_MAX);
-
-	//
-
-	// Common texture description.
-	D3D10_TEXTURE2D_DESC tex_desc = {};
-	tex_desc.Width = g_swapchain_width;
-	tex_desc.Height = g_swapchain_height;
-	tex_desc.ArraySize = 1;
-	tex_desc.SampleDesc.Count = 1;
-	tex_desc.BindFlags = D3D10_BIND_SHADER_RESOURCE | D3D10_BIND_RENDER_TARGET;
-
 	// PrefilterDepths passes.
 	//
 
-	// Create texture.
-	tex_desc.MipLevels = XE_GTAO_DEPTH_MIP_LEVELS;
-	tex_desc.Format = DXGI_FORMAT_R32_FLOAT;
-	Com_ptr<ID3D10Texture2D> tex;
-	ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
-
-	// Create RTVs and SRVs for working depth mips.
-	std::array<Com_ptr<ID3D10RenderTargetView>, XE_GTAO_DEPTH_MIP_LEVELS> rtv_working_depth_mips;
-	D3D10_RENDER_TARGET_VIEW_DESC rtv_desc = {};
-	rtv_desc.Format = tex_desc.Format;
-	rtv_desc.ViewDimension = D3D10_RTV_DIMENSION_TEXTURE2D;
-	std::array<Com_ptr<ID3D10ShaderResourceView>, XE_GTAO_DEPTH_MIP_LEVELS> srv_working_depth_mips;
-	D3D10_SHADER_RESOURCE_VIEW_DESC srv_desc = {};
-	srv_desc.Format = tex_desc.Format;
-	srv_desc.ViewDimension = D3D10_SRV_DIMENSION_TEXTURE2D;
-	srv_desc.Texture2D.MipLevels = 1;
-	for (UINT i = 0; i < XE_GTAO_DEPTH_MIP_LEVELS; ++i) {
-		rtv_desc.Texture2D.MipSlice = i;
-		ensure(device->CreateRenderTargetView(tex.get(), &rtv_desc, rtv_working_depth_mips[i].put()), >= 0);
-		srv_desc.Texture2D.MostDetailedMip = i;
-		ensure(device->CreateShaderResourceView(tex.get(), &srv_desc, srv_working_depth_mips[i].put()), >= 0);
+	// Create and bind Fullscreen Triangle VS.
+	[[unlikely]] if (!g_vs[hash_name("fullscreen_triangle")]) {
+		create_vertex_shader(device, g_vs[hash_name("fullscreen_triangle")].put(), L"FullscreenTriangle_vs.hlsl");
 	}
 
-	// Create working depth SRV with all mips.
-	Com_ptr<ID3D10ShaderResourceView> srv_working_depth;
-	ensure(device->CreateShaderResourceView(tex.get(), nullptr, srv_working_depth.put()), >= 0);
+	// Create point clamp sampler.
+	[[unlikely]] if (!g_smp[hash_name("point_clamp")]) {
+		create_sampler_point_clamp(device, g_smp[hash_name("point_clamp")].put());
+	}
+
+	[[unlikely]] if (!g_rtv_xe_gtao_working_depth_mips[0]) {
+		// Create texture.
+		D3D10_TEXTURE2D_DESC tex_desc = {};
+		tex_desc.Width = g_swapchain_width;
+		tex_desc.Height = g_swapchain_height;
+		tex_desc.ArraySize = 1;
+		tex_desc.SampleDesc.Count = 1;
+		tex_desc.BindFlags = D3D10_BIND_SHADER_RESOURCE | D3D10_BIND_RENDER_TARGET;
+		tex_desc.MipLevels = XE_GTAO_DEPTH_MIP_LEVELS;
+		tex_desc.Format = DXGI_FORMAT_R32_FLOAT;
+		Com_ptr<ID3D10Texture2D> tex;
+		ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
+
+		// Create RTVs and SRVs for working depth mips.
+		D3D10_RENDER_TARGET_VIEW_DESC rtv_desc = {};
+		rtv_desc.Format = tex_desc.Format;
+		rtv_desc.ViewDimension = D3D10_RTV_DIMENSION_TEXTURE2D;
+		D3D10_SHADER_RESOURCE_VIEW_DESC srv_desc = {};
+		srv_desc.Format = tex_desc.Format;
+		srv_desc.ViewDimension = D3D10_SRV_DIMENSION_TEXTURE2D;
+		srv_desc.Texture2D.MipLevels = 1;
+		for (UINT i = 0; i < XE_GTAO_DEPTH_MIP_LEVELS; ++i) {
+			rtv_desc.Texture2D.MipSlice = i;
+			ensure(device->CreateRenderTargetView(tex.get(), &rtv_desc, &g_rtv_xe_gtao_working_depth_mips[i]), >= 0);
+			srv_desc.Texture2D.MostDetailedMip = i;
+			ensure(device->CreateShaderResourceView(tex.get(), &srv_desc, &g_srv_xe_gtao_working_depth_mips[i]), >= 0);
+		}
+
+		// Create working depth SRV with all mips.
+		ensure(device->CreateShaderResourceView(tex.get(), nullptr, g_srv[hash_name("xe_gtao_working_depth")].put()), >= 0);
+	}
 
 	// Prefilter depths viewport, for mip0.
 	D3D10_VIEWPORT viewport = {};
@@ -471,67 +237,106 @@ static void draw_xegtao(ID3D10Device* device, ID3D10RenderTargetView*const* rtv)
 	viewport.Height = g_swapchain_height;
 
 	// Create prefilter depths PS, for mip0.
-	[[unlikely]] if (!g_ps_xegtao_prefilter_depth_mip0) {
-		g_xegtao_defines.set(g_swapchain_width, g_swapchain_height, g_xegtao_fov_y, g_xegtao_radius, g_xegtao_quality);
-		create_pixel_shader(device, g_ps_xegtao_prefilter_depth_mip0.put(), L"XeGTAO.hlsl", "prefilter_depths_mip0_ps", g_xegtao_defines.get());
+	[[unlikely]] if (!g_ps[hash_name("xe_gtao_prefilter_depths_mip0")]) {
+		const std::string radius_str = std::to_string(g_xegtao_radius);
+		D3D_SHADER_MACRO defines[] = {
+			{ "EFFECT_RADIUS", radius_str.c_str() },
+			{ nullptr, nullptr }
+		};
+		create_pixel_shader(device, g_ps[hash_name("xe_gtao_prefilter_depths_mip0")].put(), L"XeGTAO.hlsl", "prefilter_depths_mip0_ps", defines);
 	}
 
 	// Bindings.
-	device->OMSetRenderTargets(1, &rtv_working_depth_mips[0], nullptr);
+	device->OMSetRenderTargets(1, &g_rtv_xe_gtao_working_depth_mips[0], nullptr);
+	device->OMSetBlendState(nullptr, nullptr, UINT_MAX);
+	device->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+	device->VSSetShader(g_vs[hash_name("fullscreen_triangle")].get());
+	device->PSSetShader(g_ps[hash_name("xe_gtao_prefilter_depths_mip0")].get());
+	device->PSSetConstantBuffers(12, 1, &g_cb[hash_name("tonemap_0x87A0B43D")]);
+	device->PSSetSamplers(0, 1, &g_smp[hash_name("point_clamp")]);
+	device->PSSetShaderResources(0, 1, &g_srv[hash_name("depth")]);
+	device->RSSetState(nullptr);
 	device->RSSetViewports(1, &viewport);
-	device->PSSetShader(g_ps_xegtao_prefilter_depth_mip0.get());
-	device->PSSetShaderResources(0, 1, &g_srv_depth);
 
 	// Prefilter depths, mip0.
 	device->Draw(3, 0);
 
 	// Create prefilter depths PS, for mips 1 to 4.
-	[[unlikely]] if (!g_ps_xegtao_prefilter_depths) {
-		create_pixel_shader(device, g_ps_xegtao_prefilter_depths.put(), L"XeGTAO.hlsl", "prefilter_depths_ps", g_xegtao_defines.get());
+	[[unlikely]] if (!g_ps[hash_name("xe_gtao_prefilter_depths")]) {
+		const std::string radius_str = std::to_string(g_xegtao_radius);
+		D3D_SHADER_MACRO defines[] = {
+			{ "EFFECT_RADIUS", radius_str.c_str() },
+			{ nullptr, nullptr }
+		};
+		create_pixel_shader(device, g_ps[hash_name("xe_gtao_prefilter_depths")].put(), L"XeGTAO.hlsl", "prefilter_depths_ps", defines);
 	}
-	device->PSSetShader(g_ps_xegtao_prefilter_depths.get());
+	device->PSSetShader(g_ps[hash_name("xe_gtao_prefilter_depths")].get());
 
-	// Prefilter depths, mips 1 to 4.
-	for (UINT i = 1; i < 5; ++i) {
+	// Prefilter depths, mips 1 to XE_GTAO_DEPTH_MIP_LEVELS.
+	for (UINT i = 1; i < XE_GTAO_DEPTH_MIP_LEVELS; ++i) {
 		viewport.Width = std::max(1u, g_swapchain_width >> i);
 		viewport.Height = std::max(1u, g_swapchain_height >> i);
 
 		// Bindings.
-		device->OMSetRenderTargets(1, &rtv_working_depth_mips[i], nullptr);
+		device->OMSetRenderTargets(1, &g_rtv_xe_gtao_working_depth_mips[i], nullptr);
 		device->RSSetViewports(1, &viewport);
-		device->PSSetShaderResources(0, 1, &srv_working_depth_mips[i - 1]);
+		device->PSSetShaderResources(0, 1, &g_srv_xe_gtao_working_depth_mips[i - 1]);
 
 		device->Draw(3, 0);
 	}
 
-	//
-
-	// Set common viewport.
+	// Reset viewport.
 	viewport.Width = g_swapchain_width;
 	viewport.Height = g_swapchain_height;
 	device->RSSetViewports(1, &viewport);
+
+	//
 
 	// MainPass pass.
 	//
 
 	// Create PS.
-	[[unlikely]] if (!g_ps_xegtao_main_pass) {
-		create_pixel_shader(device, g_ps_xegtao_main_pass.put(), L"XeGTAO.hlsl", "main_pass_ps", g_xegtao_defines.get());
+	[[unlikely]] if (!g_ps[hash_name("xe_gtao_main_pass")]) {
+		const float tan_half_fov_y = std::tan(g_xegtao_fov_y * std::numbers::pi_v<float> / 180.0f * 0.5f); // radians = degrees * pi / 180.
+		const float tan_half_fov_x = tan_half_fov_y * (float)g_swapchain_width / (float)g_swapchain_height;
+		const std::string viewport_pixel_size_str = std::format("float2({},{})", 1.0f / (float)g_swapchain_width, 1.0f / (float)g_swapchain_height);
+		const std::string ndc_to_view_mul_str = std::format("float2({},{})", tan_half_fov_x * 2.0f, tan_half_fov_y * -2.0f);
+		const std::string ndc_to_view_add_str = std::format("float2({},{})", -tan_half_fov_x, tan_half_fov_y);
+		const std::string quality_str = std::to_string(g_xegtao_quality);
+		const std::string radius_str = std::to_string(g_xegtao_radius);
+		D3D_SHADER_MACRO defines[] = {
+			{ "VIEWPORT_PIXEL_SIZE", viewport_pixel_size_str.c_str() },
+			{ "NDC_TO_VIEW_MUL", ndc_to_view_mul_str.c_str() },
+			{ "NDC_TO_VIEW_ADD", ndc_to_view_add_str.c_str() },
+			{ "XE_GTAO_QUALITY", quality_str.c_str() },
+			{ "EFFECT_RADIUS", radius_str.c_str() },
+			{ nullptr, nullptr }
+		};
+		create_pixel_shader(device, g_ps[hash_name("xe_gtao_main_pass")].put(), L"XeGTAO.hlsl", "main_pass_ps", defines);
 	}
 
 	// Create RT views.
-	tex_desc.MipLevels = 1;
-	tex_desc.Format = DXGI_FORMAT_R8G8_UNORM;
-	ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
-	Com_ptr<ID3D10RenderTargetView> rtv_main_pass;
-	ensure(device->CreateRenderTargetView(tex.get(), nullptr, rtv_main_pass.put()), >= 0);
-	Com_ptr<ID3D10ShaderResourceView> srv_main_pass;
-	ensure(device->CreateShaderResourceView(tex.get(), nullptr, srv_main_pass.put()), >= 0);
+	[[unlikely]] if (!g_rtv[hash_name("xe_gtao_main_pass")]) {
+		// Create texture.
+		D3D10_TEXTURE2D_DESC tex_desc = {};
+		tex_desc.Width = g_swapchain_width;
+		tex_desc.Height = g_swapchain_height;
+		tex_desc.ArraySize = 1;
+		tex_desc.SampleDesc.Count = 1;
+		tex_desc.BindFlags = D3D10_BIND_SHADER_RESOURCE | D3D10_BIND_RENDER_TARGET;
+		tex_desc.MipLevels = 1;
+		tex_desc.Format = DXGI_FORMAT_R8G8_UNORM;
+		Com_ptr<ID3D10Texture2D> tex;
+		ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
+		
+		ensure(device->CreateRenderTargetView(tex.get(), nullptr, g_rtv[hash_name("xe_gtao_main_pass")].put()), >= 0);
+		ensure(device->CreateShaderResourceView(tex.get(), nullptr, g_srv[hash_name("xe_gtao_main_pass")].put()), >= 0);
+	}
 
 	// Bindings.
-	device->OMSetRenderTargets(1, &rtv_main_pass, nullptr);
-	device->PSSetShader(g_ps_xegtao_main_pass.get());
-	device->PSSetShaderResources(0, 1, &srv_working_depth);
+	device->OMSetRenderTargets(1, &g_rtv[hash_name("xe_gtao_main_pass")], nullptr);
+	device->PSSetShader(g_ps[hash_name("xe_gtao_main_pass")].get());
+	device->PSSetShaderResources(0, 1, &g_srv[hash_name("xe_gtao_working_depth")]);
 
 	device->Draw(3, 0);
 
@@ -543,21 +348,32 @@ static void draw_xegtao(ID3D10Device* device, ID3D10RenderTargetView*const* rtv)
 	//
 
 	// Create PS.
-	[[unlikely]] if (!g_ps_xegtao_denoise1_pass) {
-		create_pixel_shader(device, g_ps_xegtao_denoise1_pass.put(), L"XeGTAO.hlsl", "denoise_pass_ps");
+	[[unlikely]] if (!g_ps[hash_name("xe_gtao_denoise1_pass")]) {
+		create_pixel_shader(device, g_ps[hash_name("xe_gtao_denoise1_pass")].put(), L"XeGTAO.hlsl", "denoise_pass_ps");
 	}
 
 	// Create RT views.
-	ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
-	Com_ptr<ID3D10RenderTargetView> rtv_denoise1_pass;
-	ensure(device->CreateRenderTargetView(tex.get(), nullptr, rtv_denoise1_pass.put()), >= 0);
-	Com_ptr<ID3D10ShaderResourceView> srv_denoise1_pass;
-	ensure(device->CreateShaderResourceView(tex.get(), nullptr, srv_denoise1_pass.put()), >= 0);
+	[[unlikely]] if (!g_rtv[hash_name("xe_gtao_denoise1_pass")]) {
+		// Create texture.
+		D3D10_TEXTURE2D_DESC tex_desc = {};
+		tex_desc.Width = g_swapchain_width;
+		tex_desc.Height = g_swapchain_height;
+		tex_desc.ArraySize = 1;
+		tex_desc.SampleDesc.Count = 1;
+		tex_desc.BindFlags = D3D10_BIND_SHADER_RESOURCE | D3D10_BIND_RENDER_TARGET;
+		tex_desc.MipLevels = 1;
+		tex_desc.Format = DXGI_FORMAT_R8G8_UNORM;
+		Com_ptr<ID3D10Texture2D> tex;
+		ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
+
+		ensure(device->CreateRenderTargetView(tex.get(), nullptr, g_rtv[hash_name("xe_gtao_denoise1_pass")].put()), >= 0);
+		ensure(device->CreateShaderResourceView(tex.get(), nullptr, g_srv[hash_name("xe_gtao_denoise1_pass")].put()), >= 0);
+	}
 
 	// Bindings.
-	device->OMSetRenderTargets(1, &rtv_denoise1_pass, nullptr);
-	device->PSSetShader(g_ps_xegtao_denoise1_pass.get());
-	device->PSSetShaderResources(1, 1, &srv_main_pass);
+	device->OMSetRenderTargets(1, &g_rtv[hash_name("xe_gtao_denoise1_pass")], nullptr);
+	device->PSSetShader(g_ps[hash_name("xe_gtao_denoise1_pass")].get());
+	device->PSSetShaderResources(1, 1, &g_srv[hash_name("xe_gtao_main_pass")]);
 
 	device->Draw(3, 0);
 
@@ -567,31 +383,31 @@ static void draw_xegtao(ID3D10Device* device, ID3D10RenderTargetView*const* rtv)
 	//
 
 	// Create PS.
-	[[unlikely]] if (!g_ps_xegtao_denoise2_pass) {
-		const D3D10_SHADER_MACRO defines[] = {
+	[[unlikely]] if (!g_ps[hash_name("xe_gtao_denoise2_pass")]) {
+		const D3D_SHADER_MACRO defines[] = {
 			{ "FINAL_APPLY", "" },
 			{ nullptr, nullptr }
 		};
-		create_pixel_shader(device, g_ps_xegtao_denoise2_pass.put(), L"XeGTAO.hlsl", "denoise_pass_ps", defines);
+		create_pixel_shader(device, g_ps[hash_name("xe_gtao_denoise2_pass")].put(), L"XeGTAO.hlsl", "denoise_pass_ps", defines);
 	}
 
 	// Create blend.
-	[[unlikely]] if (!g_blend_xegtao) {
+	[[unlikely]] if (!g_blend[hash_name("xe_gtao")]) {
 		auto blend_desc = default_D3D10_BLEND_DESC();
 		blend_desc.BlendEnable[0] = TRUE;
 		blend_desc.SrcBlend = D3D10_BLEND_DEST_COLOR;
-		ensure(device->CreateBlendState(&blend_desc, g_blend_xegtao.put()), >= 0);
+		ensure(device->CreateBlendState(&blend_desc, g_blend[hash_name("xe_gtao")].put()), >= 0);
 	}
 
 	// Bindings.
 	////
 
 	device->OMSetRenderTargets(1, rtv, nullptr);
-	device->PSSetShader(g_ps_xegtao_denoise2_pass.get());
-	device->PSSetShaderResources(1, 1, &srv_denoise1_pass);
+	device->PSSetShader(g_ps[hash_name("xe_gtao_denoise2_pass")].get());
+	device->PSSetShaderResources(1, 1, &g_srv[hash_name("xe_gtao_denoise1_pass")]);
 
 	#if !(DEV && SHOW_AO)
-	device->OMSetBlendState(g_blend_xegtao.get(), nullptr, UINT_MAX);
+	device->OMSetBlendState(g_blend[hash_name("xe_gtao")].get(), nullptr, UINT_MAX);
 	#endif
 
 	////
@@ -611,12 +427,7 @@ static void draw_xegtao(ID3D10Device* device, ID3D10RenderTargetView*const* rtv)
 	device->PSSetSamplers(0, 1, &smp_original);
 	device->OMSetBlendState(blend_original.get(), blend_factor_original, sample_mask_original);
 
-	// Have to manualy release these.
-	for (size_t i = 0; i < srvs_original.size(); ++i) {
-		if (srvs_original[i]) {
-			srvs_original[i]->Release();
-		}
-	}
+	release_com_array(srvs_original);
 }
 
 static HRESULT __stdcall detour_present(IDXGISwapChain* swapchain, UINT sync_interval, UINT flags)
@@ -682,11 +493,6 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 	if (!ps) {
 		return false;
 	}
-
-	// We can't reliably track shaders that we need via handle alone,
-	// so we will use private data.
-	//
-	// The order doesn't matter, this will be equivalent to the logical OR.
 
 	uint32_t hash;
 	UINT size = sizeof(hash);
@@ -983,11 +789,6 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		return false;
 	}
 
-	// We can't reliably track shaders that we need via handle alone,
-	// so we will use private data.
-	//
-	// The order doesn't matter, this will be equivalent to the logical OR.
-
 	uint32_t hash;
 	UINT size = sizeof(hash);
 	auto hr = ps->GetPrivateData(g_ps_fog_0xE2683E33_guid, &size, &hash);
@@ -1033,7 +834,7 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 			is_xegtao_drawn = true;
 		}
 
-		device->PSGetConstantBuffers(0, 1, g_cb_bloom.put());
+		device->PSGetConstantBuffers(0, 1, g_cb[hash_name("bloom")].put());
 		
 		return false;
 	}
@@ -1060,9 +861,9 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 	hr = ps->GetPrivateData(g_ps_tonemap_0x87A0B43D_guid, &size, &hash);
 	if (SUCCEEDED(hr) && hash == g_ps_tonemap_0x87A0B43D_hash) {
 
-		device->PSGetConstantBuffers(0, 1, g_cb_tonemap.put());
+		device->PSGetConstantBuffers(0, 1, g_cb[hash_name("tonemap_0x87A0B43D")].put());
 
-		// We expect RTV to be a back buffer.
+		// We expect RTV to be the back buffer.
 		Com_ptr<ID3D10RenderTargetView> rtv_original;
 		device->OMGetRenderTargets(1, rtv_original.put(), nullptr);
 
@@ -1070,21 +871,13 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		draw_xegtao(device, &rtv_original);
 		return true;
 		#endif
-		
+
 		Com_ptr<ID3D10VertexShader> vs_original;
 		device->VSGetShader(vs_original.put());
 
 		// We expect SRV0 to be the scene.
 		Com_ptr<ID3D10ShaderResourceView> srv_scene;
 		device->PSGetShaderResources(0, 1, srv_scene.put());
-
-		// Get scenes texture description.
-		Com_ptr<ID3D10Resource> resource;
-		srv_scene->GetResource(resource.put());
-		Com_ptr<ID3D10Texture2D> tex;
-		ensure(resource->QueryInterface(tex.put()), >= 0);
-		D3D10_TEXTURE2D_DESC tex_desc;
-		tex->GetDesc(&tex_desc);
 
 		#if DEV
 		// Primitive topology should be D3D10_PRIMITIVE_TOPOLOGY_TRIANGLELIST.
@@ -1122,76 +915,80 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		// Bloom
 		//
 
+		const UINT y_mip0_width = g_swapchain_width / 2;
+		const UINT y_mip0_height = g_swapchain_height / 2;
+
 		// Create Y MIPs and views.
-		tex_desc.Width /= 2;
-		tex_desc.Height /= 2;
-		tex_desc.MipLevels = g_bloom_nmips;
-		tex_desc.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
-		tex_desc.BindFlags = D3D10_BIND_SHADER_RESOURCE | D3D10_BIND_RENDER_TARGET;
-		ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
-		std::vector<ID3D10RenderTargetView*> rtv_mips_y(g_bloom_nmips);
-		std::vector<ID3D10ShaderResourceView*> srv_mips_y(g_bloom_nmips);
-		D3D10_RENDER_TARGET_VIEW_DESC rtv_desc = {};
-		rtv_desc.Format = tex_desc.Format;
-		rtv_desc.ViewDimension = D3D10_RTV_DIMENSION_TEXTURE2D;
-		D3D10_SHADER_RESOURCE_VIEW_DESC srv_desc = {};
-		srv_desc.Format = tex_desc.Format;
-		srv_desc.ViewDimension = D3D10_SRV_DIMENSION_TEXTURE2D;
-		srv_desc.Texture2D.MipLevels = 1;
-		for (int i = 0; i < g_bloom_nmips; ++i) {
-		    rtv_desc.Texture2D.MipSlice = i;
-		    ensure(device->CreateRenderTargetView(tex.get(), &rtv_desc, &rtv_mips_y[i]), >= 0);
-		    srv_desc.Texture2D.MostDetailedMip = i;
-		    ensure(device->CreateShaderResourceView(tex.get(), &srv_desc, &srv_mips_y[i]), >= 0);
+		[[unlikely]] if (!g_rtv_bloom_mips_y[0]) {
+			// Create texture.
+			D3D10_TEXTURE2D_DESC tex_desc = {};
+			tex_desc.Width = y_mip0_width;
+			tex_desc.Height = y_mip0_height;
+			tex_desc.MipLevels = g_bloom_nmips;
+			tex_desc.ArraySize = 1;
+			tex_desc.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+			tex_desc.SampleDesc.Count = 1;
+			tex_desc.BindFlags = D3D10_BIND_SHADER_RESOURCE | D3D10_BIND_RENDER_TARGET;
+			Com_ptr<ID3D10Texture2D> tex;
+			ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
+
+			D3D10_RENDER_TARGET_VIEW_DESC rtv_desc = {};
+			rtv_desc.Format = tex_desc.Format;
+			rtv_desc.ViewDimension = D3D10_RTV_DIMENSION_TEXTURE2D;
+			D3D10_SHADER_RESOURCE_VIEW_DESC srv_desc = {};
+			srv_desc.Format = tex_desc.Format;
+			srv_desc.ViewDimension = D3D10_SRV_DIMENSION_TEXTURE2D;
+			srv_desc.Texture2D.MipLevels = 1;
+			for (int i = 0; i < g_bloom_nmips; ++i) {
+			    rtv_desc.Texture2D.MipSlice = i;
+			    ensure(device->CreateRenderTargetView(tex.get(), &rtv_desc, &g_rtv_bloom_mips_y[i]), >= 0);
+			    srv_desc.Texture2D.MostDetailedMip = i;
+			    ensure(device->CreateShaderResourceView(tex.get(), &srv_desc, &g_srv_bloom_mips_y[i]), >= 0);
+			}
 		}
 
-		const UINT y_mip0_width = tex_desc.Width;
-		const UINT y_mip0_height = tex_desc.Height;
+		const UINT x_mip0_width = g_swapchain_width / 2;
+		const UINT x_mip0_height = g_swapchain_height;
 
-		std::vector<ID3D10RenderTargetView*> rtv_mips_x(g_bloom_nmips);
-		std::vector<ID3D10ShaderResourceView*> srv_mips_x(g_bloom_nmips);
-		
-		// Create X MIP0 and views.
-		tex_desc.Width = g_swapchain_width / 2;
-		tex_desc.Height = g_swapchain_height;
-		tex_desc.MipLevels = 1;
-		ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
-		ensure(device->CreateRenderTargetView(tex.get(), nullptr, &rtv_mips_x[0]), >= 0);
-		ensure(device->CreateShaderResourceView(tex.get(), nullptr, &srv_mips_x[0]), >= 0);
-
-		const UINT x_mip0_width = tex_desc.Width;
-		const UINT x_mip0_height = tex_desc.Height;
-
-		// Create rest of the X MIPs and views.
-		for (UINT i = 1; i < g_bloom_nmips; ++i) {
-			tex_desc.Width = std::max(1u, x_mip0_width >> i);
-			tex_desc.Height = std::max(1u, x_mip0_height >> i);
-			ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
-			ensure(device->CreateRenderTargetView(tex.get(), nullptr, &rtv_mips_x[i]), >= 0);
-			ensure(device->CreateShaderResourceView(tex.get(), nullptr, &srv_mips_x[i]), >= 0);
+		// Create X MIPs and views.
+		[[unlikely]] if (!g_rtv_bloom_mips_x[0]) {
+			D3D10_TEXTURE2D_DESC tex_desc = {};
+			tex_desc.MipLevels = 1;
+			tex_desc.ArraySize = 1;
+			tex_desc.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+			tex_desc.SampleDesc.Count = 1;
+			tex_desc.BindFlags = D3D10_BIND_SHADER_RESOURCE | D3D10_BIND_RENDER_TARGET;
+			Com_ptr<ID3D10Texture2D> tex;
+			for (UINT i = 0; i < g_bloom_nmips; ++i) {
+				tex_desc.Width = std::max(1u, x_mip0_width >> i);
+				tex_desc.Height = std::max(1u, x_mip0_height >> i);
+				ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
+				ensure(device->CreateRenderTargetView(tex.get(), nullptr, &g_rtv_bloom_mips_x[i]), >= 0);
+				ensure(device->CreateShaderResourceView(tex.get(), nullptr, &g_srv_bloom_mips_x[i]), >= 0);
+			}
 		}
 
 		// Prefilter + downsample pass
 		////
 
 		// Create VS.
-		[[unlikely]] if (!g_vs_fullscreen_triangle) {
-			create_vertex_shader(device, g_vs_fullscreen_triangle.put(), L"FullscreenTriangle_vs.hlsl");
+		[[unlikely]] if (!g_vs[hash_name("fullscreen_triangle")]) {
+			create_vertex_shader(device, g_vs[hash_name("fullscreen_triangle")].put(), L"FullscreenTriangle_vs.hlsl");
 		}
 
 		// Create downsample PS.
-		[[unlikely]] if (!g_ps_bloom_downsample) {
-			create_pixel_shader(device, g_ps_bloom_downsample.put(), L"Bloom_ps.hlsl", "bloom_downsample_ps");
+		[[unlikely]] if (!g_ps[hash_name("bloom_downsample")]) {
+			create_pixel_shader(device, g_ps[hash_name("bloom_downsample")].put(), L"Bloom_ps.hlsl", "bloom_downsample_ps");
 		}
 
 		// Create prefilter PS.
-		[[unlikely]] if (!g_ps_bloom_prefilter) {
-			create_pixel_shader(device, g_ps_bloom_prefilter.put(), L"Bloom_ps.hlsl", "bloom_prefilter_ps");
+		[[unlikely]] if (!g_ps[hash_name("bloom_prefilter")]) {
+			create_pixel_shader(device, g_ps[hash_name("bloom_prefilter")].put(), L"Bloom_ps.hlsl", "bloom_prefilter_ps");
 		}
 
 		// Create constant buffer.
-		[[unlikely]] if (!g_cb) {
-			create_constant_buffer(device, g_cb.put(), sizeof(g_cb_data));
+		[[unlikely]] if (!g_cb[hash_name("cb")]) {
+			create_constant_buffer(device, g_cb[hash_name("cb")].put(), sizeof(g_cb_data));
 		}
 
 		D3D10_VIEWPORT viewport_x = {};
@@ -1204,14 +1001,14 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		g_cb_data.inv_src_size.y = 1.0f / g_cb_data.src_size.y;
 		g_cb_data.axis = float2(1.0f, 0.0f);
 		g_cb_data.sigma = g_bloom_sigmas[0];
-		update_constant_buffer(g_cb.get(), &g_cb_data, sizeof(g_cb_data));
+		update_constant_buffer(g_cb[hash_name("cb")].get(), &g_cb_data, sizeof(g_cb_data));
 
 		// Bindings.
-		device->OMSetRenderTargets(1, &rtv_mips_x[0], nullptr);
-		device->VSSetShader(g_vs_fullscreen_triangle.get());
-		device->PSSetShader(g_ps_bloom_downsample.get());
-		device->PSSetConstantBuffers(12, 1, &g_cb_bloom);
-		device->PSSetConstantBuffers(13, 1, &g_cb);
+		device->OMSetRenderTargets(1, &g_rtv_bloom_mips_x[0], nullptr);
+		device->VSSetShader(g_vs[hash_name("fullscreen_triangle")].get());
+		device->PSSetShader(g_ps[hash_name("bloom_downsample")].get());
+		device->PSSetConstantBuffers(13, 1, &g_cb[hash_name("cb")]);
+		device->PSSetConstantBuffers(12, 1, &g_cb[hash_name("bloom")]);
 		device->PSSetShaderResources(0, 1, &srv_scene);
 		device->RSSetViewports(1, &viewport_x);
 
@@ -1227,12 +1024,12 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		g_cb_data.axis = float2(0.0f, 1.0f);
 		g_cb_data.inv_src_size.x = 1.0f / g_cb_data.src_size.x;
 		g_cb_data.inv_src_size.y = 1.0f / g_cb_data.src_size.y;
-		update_constant_buffer(g_cb.get(), &g_cb_data, sizeof(g_cb_data));
+		update_constant_buffer(g_cb[hash_name("cb")].get(), &g_cb_data, sizeof(g_cb_data));
 
 		// Bindings.
-		device->OMSetRenderTargets(1, &rtv_mips_y[0], nullptr);
-		device->PSSetShader(g_ps_bloom_prefilter.get());
-		device->PSSetShaderResources(0, 1, &srv_mips_x[0]);
+		device->OMSetRenderTargets(1, &g_rtv_bloom_mips_y[0], nullptr);
+		device->PSSetShader(g_ps[hash_name("bloom_prefilter")].get());
+		device->PSSetShaderResources(0, 1, &g_srv_bloom_mips_x[0]);
 		device->RSSetViewports(1, &viewports_y[0]);
 
 		// Draw Y pass.
@@ -1244,7 +1041,7 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		////
 
 		// Common bindings.
-		device->PSSetShader(g_ps_bloom_downsample.get());
+		device->PSSetShader(g_ps[hash_name("bloom_downsample")].get());
 
 		// Render downsample passes.
 		for (UINT i = 1; i < g_bloom_nmips; ++i) {
@@ -1257,11 +1054,11 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 			g_cb_data.inv_src_size.x = 1.0f / g_cb_data.src_size.x;
 			g_cb_data.inv_src_size.y = 1.0f / g_cb_data.src_size.y;
 			g_cb_data.sigma = g_bloom_sigmas[i];
-			update_constant_buffer(g_cb.get(), &g_cb_data, sizeof(g_cb_data));
+			update_constant_buffer(g_cb[hash_name("cb")].get(), &g_cb_data, sizeof(g_cb_data));
 
 			// Bindings.
-		    device->OMSetRenderTargets(1, &rtv_mips_x[i], nullptr);
-		    device->PSSetShaderResources(0, 1, &srv_mips_y[i - 1]);
+		    device->OMSetRenderTargets(1, &g_rtv_bloom_mips_x[i], nullptr);
+		    device->PSSetShaderResources(0, 1, &g_srv_bloom_mips_y[i - 1]);
 		    device->RSSetViewports(1, &viewport_x);
 
 			// Draw X pass.
@@ -1275,11 +1072,11 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 			g_cb_data.axis = float2(0.0f, 1.0f);
 			g_cb_data.inv_src_size.x = 1.0f / g_cb_data.src_size.x;
 			g_cb_data.inv_src_size.y = 1.0f / g_cb_data.src_size.y;
-			update_constant_buffer(g_cb.get(), &g_cb_data, sizeof(g_cb_data));
+			update_constant_buffer(g_cb[hash_name("cb")].get(), &g_cb_data, sizeof(g_cb_data));
 
 			// Bindings.
-		    device->OMSetRenderTargets(1, &rtv_mips_y[i], nullptr);
-		    device->PSSetShaderResources(0, 1, &srv_mips_x[i]);
+		    device->OMSetRenderTargets(1, &g_rtv_bloom_mips_y[i], nullptr);
+		    device->PSSetShaderResources(0, 1, &g_srv_bloom_mips_x[i]);
 		    device->RSSetViewports(1, &viewports_y[i]);
 
 			// Draw Y pass.
@@ -1292,103 +1089,88 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		////
 
 		// Create PS.
-		[[unlikely]] if (!g_ps_bloom_upsample) {
-			create_pixel_shader(device, g_ps_bloom_upsample.put(), L"Bloom_ps.hlsl", "bloom_upsample_ps");
+		[[unlikely]] if (!g_ps[hash_name("bloom_upsample")]) {
+			create_pixel_shader(device, g_ps[hash_name("bloom_upsample")].put(), L"Bloom_ps.hlsl", "bloom_upsample_ps");
 		}
 
 		// Create blend.
-		[[unlikely]] if (!g_blend_bloom) {
+		[[unlikely]] if (!g_blend[hash_name("bloom")]) {
 			auto blend_desc = default_D3D10_BLEND_DESC();
 			blend_desc.BlendEnable[0] = TRUE;
 			blend_desc.SrcBlend = D3D10_BLEND_BLEND_FACTOR;
 			blend_desc.DestBlend = D3D10_BLEND_BLEND_FACTOR;
-			ensure(device->CreateBlendState(&blend_desc, g_blend_bloom.put()), >= 0);
+			ensure(device->CreateBlendState(&blend_desc, g_blend[hash_name("bloom")].put()), >= 0);
 		}
 
+		// If both dst and src are D3D10_BLEND_BLEND_FACTOR
+		// factor of 0.5 is enegrgy preserving.
+		static constexpr float bloom_blend_factor[] = { 0.5f, 0.5f, 0.5f, 0.0f };
+
 		// Common bindings.
-		device->PSSetShader(g_ps_bloom_upsample.get());
+		device->PSSetShader(g_ps[hash_name("bloom_upsample")].get());
+		device->OMSetBlendState(g_blend[hash_name("bloom")].get(), bloom_blend_factor, UINT_MAX);
 
 		// Render upsample passes.
 		for (int i = g_bloom_nmips - 1; i > 0; --i) {
-
-			// If both dst and src are D3D10_BLEND_BLEND_FACTOR
-			// factor of 0.5 is enegrgy preserving.
-			static constexpr float blend_factor[] = { 0.5f, 0.5f, 0.5f, 0.0f };
-
 			// Update CB.
 			g_cb_data.src_size = float2(viewports_y[i].Width, viewports_y[i].Height);
 			g_cb_data.inv_src_size.x = 1.0f / g_cb_data.src_size.x;
 			g_cb_data.inv_src_size.y = 1.0f / g_cb_data.src_size.y;
-			update_constant_buffer(g_cb.get(), &g_cb_data, sizeof(g_cb_data));
+			update_constant_buffer(g_cb[hash_name("cb")].get(), &g_cb_data, sizeof(g_cb_data));
 
 			// Bindings.
-			device->OMSetRenderTargets(1, &rtv_mips_y[i - 1], nullptr);
-		    device->PSSetShaderResources(0, 1, &srv_mips_y[i]);
+			device->OMSetRenderTargets(1, &g_rtv_bloom_mips_y[i - 1], nullptr);
+		    device->PSSetShaderResources(0, 1, &g_srv_bloom_mips_y[i]);
 		    device->RSSetViewports(1, &viewports_y[i - 1]);
-			device->OMSetBlendState(g_blend_bloom.get(), blend_factor, UINT_MAX);
 
 		    device->Draw(3, 0);
 		}
 
 		////
 
+		// Reset viewport.
+		D3D10_VIEWPORT viewport = {};
+		viewport.Width = g_swapchain_width;
+		viewport.Height = g_swapchain_height;
+		device->RSSetViewports(1, &viewport);
+
+		// Reset blend state.
+		device->OMSetBlendState(nullptr, nullptr, UINT_MAX);
+
 		//
 
-		// Tonemap_0x87A0B43D pass
+		// SMAAPrePass pass
 		//
 
 		// Create PS.
-		[[unlikely]] if (!g_ps_tonemap_0x87A0B43D) {
-			const std::string bloom_intensity_str = std::to_string(g_bloom_intensity);
-			const std::string srgb_str = g_trc == TRC_SRGB ? "SRGB" : "";
-			const std::string gamma_str = std::to_string(g_gamma);
-			const D3D10_SHADER_MACRO defines[] = {
-				{ "BLOOM_INTENSITY", bloom_intensity_str.c_str() },
-				{ srgb_str.c_str(), nullptr },
-				{ "GAMMA", gamma_str.c_str() },
-				{ nullptr, nullptr }
-			};
-			create_pixel_shader(device, g_ps_tonemap_0x87A0B43D.put(), L"Tonemap_0x87A0B43D_ps.hlsl", "main", defines);
+		[[unlikely]] if (!g_ps[hash_name("smaa_pre_pass")]) {
+			create_pixel_shader(device, g_ps[hash_name("smaa_pre_pass")].put(), L"SMAA_impl.hlsl", "smaa_pre_pass_ps", g_smaa_rt_metrics.get());
 		}
 
-		// Create RTs and views.
-		////
+		// Create RT and views.
+		[[unlikely]] if (!g_rtv[hash_name("smaa_srgb_scene")]) {
+			// Create texture.
+			D3D10_TEXTURE2D_DESC tex_desc = {};
+			tex_desc.Width = g_swapchain_width;
+			tex_desc.Height = g_swapchain_height;
+			tex_desc.MipLevels = 1;
+			tex_desc.ArraySize = 1;
+			tex_desc.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+			tex_desc.SampleDesc.Count = 1;
+			tex_desc.BindFlags = D3D10_BIND_SHADER_RESOURCE | D3D10_BIND_RENDER_TARGET;
+			Com_ptr<ID3D10Texture2D> tex;
+			ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
 
-		tex_desc.Width = g_swapchain_width;
-		tex_desc.Height = g_swapchain_height;
-		tex_desc.MipLevels = 1;
-
-		// Linear.
-		ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
-		Com_ptr<ID3D10RenderTargetView> rtv_0x87A0B43D_linear;
-		ensure(device->CreateRenderTargetView(tex.get(), nullptr, rtv_0x87A0B43D_linear.put()), >= 0);
-		Com_ptr<ID3D10ShaderResourceView> srv_0x87A0B43D_linear;
-		ensure(device->CreateShaderResourceView(tex.get(), nullptr, srv_0x87A0B43D_linear.put()), >= 0);
-
-		// Delinearized.
-		ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
-		Com_ptr<ID3D10RenderTargetView> rtv_0x87A0B43D_delinearized;
-		ensure(device->CreateRenderTargetView(tex.get(), nullptr, rtv_0x87A0B43D_delinearized.put()), >= 0);
-		Com_ptr<ID3D10ShaderResourceView> srv_0x87A0B43D_delinearized;
-		ensure(device->CreateShaderResourceView(tex.get(), nullptr, srv_0x87A0B43D_delinearized.put()), >= 0);
-
-		////
-
-		D3D10_VIEWPORT viewport = {};
-		viewport.Width = tex_desc.Width;
-		viewport.Height = tex_desc.Height;
+			ensure(device->CreateRenderTargetView(tex.get(), nullptr, g_rtv[hash_name("smaa_srgb_scene")].put()), >= 0);
+			ensure(device->CreateShaderResourceView(tex.get(), nullptr, g_srv[hash_name("smaa_srgb_scene")].put()), >= 0);
+		}
 
 		// Bindings.
-		const std::array rtvs_0x87A0B43D = { rtv_0x87A0B43D_linear.get(), rtv_0x87A0B43D_delinearized.get() };
-		device->OMSetRenderTargets(rtvs_0x87A0B43D.size(), rtvs_0x87A0B43D.data(), nullptr);
-		device->VSSetShader(vs_original.get());
-		device->PSSetShader(g_ps_tonemap_0x87A0B43D.get());
-		const std::array srvs_0x87A0B43D = { srv_scene.get(), srv_mips_y[0] };
-		device->PSSetShaderResources(0, srvs_0x87A0B43D.size(), srvs_0x87A0B43D.data());
-		device->RSSetViewports(1, &viewport);
-		device->OMSetBlendState(nullptr, nullptr, UINT_MAX);
+		device->OMSetRenderTargets(1, &g_rtv[hash_name("smaa_srgb_scene")], nullptr);
+		device->PSSetShader(g_ps[hash_name("smaa_pre_pass")].get());
+		device->PSSetShaderResources(0, 1, &srv_scene);
 
-		cmd_list->draw(vertex_count, instance_count, first_vertex, first_instance);
+		device->Draw(3, 0);
 
 		//
 
@@ -1396,51 +1178,67 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		//
 
 		// Create VS.
-		[[unlikely]] if (!g_vs_smaa_edge_detection) {
-			g_smaa_rt_metrics.set(tex_desc.Width, tex_desc.Height);
-			create_vertex_shader(device, g_vs_smaa_edge_detection.put(), L"SMAA_impl.hlsl", "smaa_edge_detection_vs", g_smaa_rt_metrics.get());
+		[[unlikely]] if (!g_vs[hash_name("smaa_edge_detection")]) {
+			create_vertex_shader(device, g_vs[hash_name("smaa_edge_detection")].put(), L"SMAA_impl.hlsl", "smaa_edge_detection_vs", g_smaa_rt_metrics.get());
 		}
 
 		// Create PS.
-		[[unlikely]] if (!g_ps_smaa_edge_detection) {
-			create_pixel_shader(device, g_ps_smaa_edge_detection.put(), L"SMAA_impl.hlsl", "smaa_edge_detection_ps", g_smaa_rt_metrics.get());
+		[[unlikely]] if (!g_ps[hash_name("smaa_edge_detection")]) {
+			create_pixel_shader(device, g_ps[hash_name("smaa_edge_detection")].put(), L"SMAA_impl.hlsl", "smaa_edge_detection_ps", g_smaa_rt_metrics.get());
 		}
 
 		// Create DS.
-		[[unlikely]] if (!g_ds_smaa_disable_depth_replace_stencil) {
+		[[unlikely]] if (!g_ds[hash_name("smaa_disable_depth_replace_stencil")]) {
 			D3D10_DEPTH_STENCIL_DESC desc = default_D3D10_DEPTH_STENCIL_DESC();
 			desc.DepthEnable = FALSE;
 			desc.StencilEnable = TRUE;
 			desc.FrontFace.StencilPassOp = D3D10_STENCIL_OP_REPLACE;
-			ensure(device->CreateDepthStencilState(&desc, g_ds_smaa_disable_depth_replace_stencil.put()), >= 0);
+			ensure(device->CreateDepthStencilState(&desc, g_ds[hash_name("smaa_disable_depth_replace_stencil")].put()), >= 0);
 		}
 
 		// Create DSV.
-		tex_desc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
-		tex_desc.BindFlags = D3D10_BIND_DEPTH_STENCIL;
-		ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
-		Com_ptr<ID3D10DepthStencilView> dsv;
-		ensure(device->CreateDepthStencilView(tex.get(), nullptr, dsv.put()), >= 0);
+		[[unlikely]] if (!g_dsv[hash_name("smaa")]) {
+			D3D10_TEXTURE2D_DESC tex_desc = {};
+			tex_desc.Width = g_swapchain_width;
+			tex_desc.Height = g_swapchain_height;
+			tex_desc.MipLevels = 1;
+			tex_desc.ArraySize = 1;
+			tex_desc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
+			tex_desc.SampleDesc.Count = 1;
+			tex_desc.BindFlags = D3D10_BIND_DEPTH_STENCIL;
+			Com_ptr<ID3D10Texture2D> tex;
+			ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
+			ensure(device->CreateDepthStencilView(tex.get(), nullptr, g_dsv[hash_name("smaa")].put()), >= 0);
+		}
 
 		// Create RT and views.
-		tex_desc.Format = DXGI_FORMAT_R8G8_UNORM;
-		tex_desc.BindFlags = D3D10_BIND_SHADER_RESOURCE | D3D10_BIND_RENDER_TARGET;
-		ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
-		Com_ptr<ID3D10RenderTargetView> rtv_smaa_edge_detection;
-		ensure(device->CreateRenderTargetView(tex.get(), nullptr, rtv_smaa_edge_detection.put()), >= 0);
-		Com_ptr<ID3D10ShaderResourceView> srv_smaa_edge_detection;
-		ensure(device->CreateShaderResourceView(tex.get(), nullptr, srv_smaa_edge_detection.put()), >= 0);
+		[[unlikely]] if (!g_rtv[hash_name("smaa_edge_detection")]) {
+			// Create texture.
+			D3D10_TEXTURE2D_DESC tex_desc = {};
+			tex_desc.Width = g_swapchain_width;
+			tex_desc.Height = g_swapchain_height;
+			tex_desc.MipLevels = 1;
+			tex_desc.ArraySize = 1;
+			tex_desc.Format = DXGI_FORMAT_R8G8_UNORM;
+			tex_desc.SampleDesc.Count = 1;
+			tex_desc.BindFlags = D3D10_BIND_SHADER_RESOURCE | D3D10_BIND_RENDER_TARGET;
+			Com_ptr<ID3D10Texture2D> tex;
+			ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
+
+			ensure(device->CreateRenderTargetView(tex.get(), nullptr, g_rtv[hash_name("smaa_edge_detection")].put()), >= 0);
+			ensure(device->CreateShaderResourceView(tex.get(), nullptr, g_srv[hash_name("smaa_edge_detection")].put()), >= 0);
+		}
 
 		// Bindings.
-		device->OMSetDepthStencilState(g_ds_smaa_disable_depth_replace_stencil.get(), 1);
-		device->OMSetRenderTargets(1, &rtv_smaa_edge_detection, dsv.get());
-		device->VSSetShader(g_vs_smaa_edge_detection.get());
-		device->PSSetShader(g_ps_smaa_edge_detection.get());
-		const std::array ps_srvs_smaa_edge_detection = { srv_0x87A0B43D_delinearized.get(), g_srv_depth.get() };
-		device->PSSetShaderResources(0, ps_srvs_smaa_edge_detection.size(), ps_srvs_smaa_edge_detection.data());
+		device->OMSetRenderTargets(1, &g_rtv[hash_name("smaa_edge_detection")], g_dsv[hash_name("smaa")].get());
+		device->OMSetDepthStencilState(g_ds[hash_name("smaa_disable_depth_replace_stencil")].get(), 1);
+		device->VSSetShader(g_vs[hash_name("smaa_edge_detection")].get());
+		device->PSSetShader(g_ps[hash_name("smaa_edge_detection")].get());
+		const std::array srvs_smaa_edge_detection = { g_srv[hash_name("smaa_srgb_scene")].get(), g_srv[hash_name("depth")].get() };
+		device->PSSetShaderResources(0, srvs_smaa_edge_detection.size(), srvs_smaa_edge_detection.data());
 
-		device->ClearRenderTargetView(rtv_smaa_edge_detection.get(), g_smaa_clear_color);
-		device->ClearDepthStencilView(dsv.get(), D3D10_CLEAR_STENCIL, 1.0f, 0);
+		device->ClearRenderTargetView(g_rtv[hash_name("smaa_edge_detection")].get(), g_smaa_clear_color);
+		device->ClearDepthStencilView(g_dsv[hash_name("smaa")].get(), D3D10_CLEAR_STENCIL, 1.0f, 0);
 		device->Draw(3, 0);
 
 		//
@@ -1449,17 +1247,17 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		//
 
 		// Create VS.
-		[[unlikely]] if (!g_vs_smaa_blending_weight_calculation) {
-			create_vertex_shader(device, g_vs_smaa_blending_weight_calculation.put(), L"SMAA_impl.hlsl", "smaa_blending_weight_calculation_vs", g_smaa_rt_metrics.get());
+		[[unlikely]] if (!g_vs[hash_name("smaa_blending_weight_calculation")]) {
+			create_vertex_shader(device, g_vs[hash_name("smaa_blending_weight_calculation")].put(), L"SMAA_impl.hlsl", "smaa_blending_weight_calculation_vs", g_smaa_rt_metrics.get());
 		}
 
 		// Create PS.
-		[[unlikely]] if (!g_ps_smaa_blending_weight_calculation) {
-			create_pixel_shader(device, g_ps_smaa_blending_weight_calculation.put(), L"SMAA_impl.hlsl", "smaa_blending_weight_calculation_ps", g_smaa_rt_metrics.get());
+		[[unlikely]] if (!g_ps[hash_name("smaa_blending_weight_calculation")]) {
+			create_pixel_shader(device, g_ps[hash_name("smaa_blending_weight_calculation")].put(), L"SMAA_impl.hlsl", "smaa_blending_weight_calculation_ps", g_smaa_rt_metrics.get());
 		}
 
 		// Create area texture.
-		[[unlikely]] if (!g_srv_smaa_area_tex) {
+		[[unlikely]] if (!g_srv[hash_name("smaa_area_tex")]) {
 			D3D10_TEXTURE2D_DESC tex_desc = {};
 			tex_desc.Width = AREATEX_WIDTH;
 			tex_desc.Height = AREATEX_HEIGHT;
@@ -1472,12 +1270,13 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 			D3D10_SUBRESOURCE_DATA subresource_data = {};
 			subresource_data.pSysMem = areaTexBytes;
 			subresource_data.SysMemPitch = AREATEX_PITCH;
+			Com_ptr<ID3D10Texture2D> tex;
 			ensure(device->CreateTexture2D(&tex_desc, &subresource_data, tex.put()), >= 0);
-			ensure(device->CreateShaderResourceView(tex.get(), nullptr, g_srv_smaa_area_tex.put()), >= 0);
+			ensure(device->CreateShaderResourceView(tex.get(), nullptr, g_srv[hash_name("smaa_area_tex")].put()), >= 0);
 		}
 
 		// Create search texture.
-		[[unlikely]] if (!g_srv_smaa_search_tex) {
+		[[unlikely]] if (!g_srv[hash_name("smaa_search_tex")]) {
 			D3D10_TEXTURE2D_DESC tex_desc = {};
 			tex_desc.Width = SEARCHTEX_WIDTH;
 			tex_desc.Height = SEARCHTEX_HEIGHT;
@@ -1490,36 +1289,47 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 			D3D10_SUBRESOURCE_DATA subresource_data = {};
 			subresource_data.pSysMem = searchTexBytes;
 			subresource_data.SysMemPitch = SEARCHTEX_PITCH;
+			Com_ptr<ID3D10Texture2D> tex;
 			ensure(device->CreateTexture2D(&tex_desc, &subresource_data, tex.put()), >= 0);
-			ensure(device->CreateShaderResourceView(tex.get(), nullptr, g_srv_smaa_search_tex.put()), >= 0);
+			ensure(device->CreateShaderResourceView(tex.get(), nullptr, g_srv[hash_name("smaa_search_tex")].put()), >= 0);
 		}
 
 		// Create DS.
-		[[unlikely]] if (!g_ds_smaa_disable_depth_use_stencil) {
+		[[unlikely]] if (!g_ds[hash_name("smaa_disable_depth_use_stencil")]) {
 			auto desc = default_D3D10_DEPTH_STENCIL_DESC();
 			desc.DepthEnable = FALSE;
 			desc.StencilEnable = TRUE;
 			desc.FrontFace.StencilFunc = D3D10_COMPARISON_EQUAL;
-			ensure(device->CreateDepthStencilState(&desc, g_ds_smaa_disable_depth_use_stencil.put()), >= 0);
+			ensure(device->CreateDepthStencilState(&desc, g_ds[hash_name("smaa_disable_depth_use_stencil")].put()), >= 0);
 		}
 
 		// Create RT and views.
-		tex_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-		ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
-		Com_ptr<ID3D10RenderTargetView> rtv_smaa_blending_weight_calculation;
-		ensure(device->CreateRenderTargetView(tex.get(), nullptr, rtv_smaa_blending_weight_calculation.put()), >= 0);
-		Com_ptr<ID3D10ShaderResourceView> srv_smaa_blending_weight_calculation;
-		ensure(device->CreateShaderResourceView(tex.get(), nullptr, srv_smaa_blending_weight_calculation.put()), >= 0);
+		[[unlikely]] if (!g_rtv[hash_name("smaa_blending_weight_calculation")]) {
+			// Create texture.
+			D3D10_TEXTURE2D_DESC tex_desc = {};
+			tex_desc.Width = g_swapchain_width;
+			tex_desc.Height = g_swapchain_height;
+			tex_desc.MipLevels = 1;
+			tex_desc.ArraySize = 1;
+			tex_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+			tex_desc.SampleDesc.Count = 1;
+			tex_desc.BindFlags = D3D10_BIND_SHADER_RESOURCE | D3D10_BIND_RENDER_TARGET;
+			Com_ptr<ID3D10Texture2D> tex;
+			ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
+
+			ensure(device->CreateRenderTargetView(tex.get(), nullptr, g_rtv[hash_name("smaa_blending_weight_calculation")].put()), >= 0);
+			ensure(device->CreateShaderResourceView(tex.get(), nullptr, g_srv[hash_name("smaa_blending_weight_calculation")].put()), >= 0);
+		}
 
 		// Bindings.
-		device->OMSetDepthStencilState(g_ds_smaa_disable_depth_use_stencil.get(), 1);
-		device->OMSetRenderTargets(1, &rtv_smaa_blending_weight_calculation, dsv.get());
-		device->VSSetShader(g_vs_smaa_blending_weight_calculation.get());
-		device->PSSetShader(g_ps_smaa_blending_weight_calculation.get());
-		const std::array ps_srvs_smaa_blending_weight_calculation = { srv_smaa_edge_detection.get(), g_srv_smaa_area_tex.get(), g_srv_smaa_search_tex.get() };
-		device->PSSetShaderResources(0, ps_srvs_smaa_blending_weight_calculation.size(), ps_srvs_smaa_blending_weight_calculation.data());
+		device->OMSetRenderTargets(1, &g_rtv[hash_name("smaa_blending_weight_calculation")], g_dsv[hash_name("smaa")].get());
+		device->OMSetDepthStencilState(g_ds[hash_name("smaa_disable_depth_use_stencil")].get(), 1);
+		device->VSSetShader(g_vs[hash_name("smaa_blending_weight_calculation")].get());
+		device->PSSetShader(g_ps[hash_name("smaa_blending_weight_calculation")].get());
+		const std::array srvs_smaa_blending_weight_calculation = { g_srv[hash_name("smaa_edge_detection")].get(), g_srv[hash_name("smaa_area_tex")].get(), g_srv[hash_name("smaa_search_tex")].get() };
+		device->PSSetShaderResources(0, srvs_smaa_blending_weight_calculation.size(), srvs_smaa_blending_weight_calculation.data());
 
-		device->ClearRenderTargetView(rtv_smaa_blending_weight_calculation.get(), g_smaa_clear_color);
+		device->ClearRenderTargetView(g_rtv[hash_name("smaa_blending_weight_calculation")].get(), g_smaa_clear_color);
 		device->Draw(3, 0);
 
 		//
@@ -1528,64 +1338,122 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		//
 
 		// Create VS.
-		[[unlikely]] if (!g_vs_smaa_neighborhood_blending) {
-			create_vertex_shader(device, g_vs_smaa_neighborhood_blending.put(), L"SMAA_impl.hlsl", "smaa_neighborhood_blending_vs", g_smaa_rt_metrics.get());
+		[[unlikely]] if (!g_vs[hash_name("smaa_neighborhood_blending")]) {
+			create_vertex_shader(device, g_vs[hash_name("smaa_neighborhood_blending")].put(), L"SMAA_impl.hlsl", "smaa_neighborhood_blending_vs", g_smaa_rt_metrics.get());
 		}
 
 		// Create PS.
-		[[unlikely]] if (!g_ps_smaa_neighborhood_blending) {
-			create_pixel_shader(device, g_ps_smaa_neighborhood_blending.put(), L"SMAA_impl.hlsl", "smaa_neighborhood_blending_ps", g_smaa_rt_metrics.get());
+		[[unlikely]] if (!g_ps[hash_name("smaa_neighborhood_blending")]) {
+			create_pixel_shader(device, g_ps[hash_name("smaa_neighborhood_blending")].put(), L"SMAA_impl.hlsl", "smaa_neighborhood_blending_ps", g_smaa_rt_metrics.get());
 		}
 
 		// Create RT and views.
-		tex_desc.Format = DXGI_FORMAT_R16G16B16A16_UNORM;
-		ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
-		Com_ptr<ID3D10RenderTargetView> rtv_smaa_neighborhood_blending;
-		ensure(device->CreateRenderTargetView(tex.get(), nullptr, rtv_smaa_neighborhood_blending.put()), >= 0);
-		Com_ptr<ID3D10ShaderResourceView> srv_smaa_neighborhood_blending;
-		ensure(device->CreateShaderResourceView(tex.get(), nullptr, srv_smaa_neighborhood_blending.put()), >= 0);
+		[[unlikely]] if (!g_rtv[hash_name("smaa_neighborhood_blending")]) {
+			// Create texture.
+			D3D10_TEXTURE2D_DESC tex_desc = {};
+			tex_desc.Width = g_swapchain_width;
+			tex_desc.Height = g_swapchain_height;
+			tex_desc.MipLevels = 1;
+			tex_desc.ArraySize = 1;
+			tex_desc.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+			tex_desc.SampleDesc.Count = 1;
+			tex_desc.BindFlags = D3D10_BIND_SHADER_RESOURCE | D3D10_BIND_RENDER_TARGET;
+			Com_ptr<ID3D10Texture2D> tex;
+			ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
+			
+			ensure(device->CreateRenderTargetView(tex.get(), nullptr, g_rtv[hash_name("smaa_neighborhood_blending")].put()), >= 0);
+			ensure(device->CreateShaderResourceView(tex.get(), nullptr, g_srv[hash_name("smaa_neighborhood_blending")].put()), >= 0);
+		}
 
 		// Bindings.
-		device->OMSetRenderTargets(1, &rtv_smaa_neighborhood_blending, nullptr);
-		device->VSSetShader(g_vs_smaa_neighborhood_blending.get());
-		device->PSSetShader(g_ps_smaa_neighborhood_blending.get());
-		const std::array ps_srvs_neighborhood_blending = { srv_0x87A0B43D_linear.get(), srv_smaa_blending_weight_calculation.get() };
-		device->PSSetShaderResources(0, ps_srvs_neighborhood_blending.size(), ps_srvs_neighborhood_blending.data());
+		device->OMSetRenderTargets(1, &g_rtv[hash_name("smaa_neighborhood_blending")], nullptr);
+		device->VSSetShader(g_vs[hash_name("smaa_neighborhood_blending")].get());
+		device->PSSetShader(g_ps[hash_name("smaa_neighborhood_blending")].get());
+		const std::array srvs_neighborhood_blending = { srv_scene.get(), g_srv[hash_name("smaa_blending_weight_calculation")].get() };
+		device->PSSetShaderResources(0, srvs_neighborhood_blending.size(), srvs_neighborhood_blending.data());
 
 		device->Draw(3, 0);
+
+		//
+
+		// Tonemap_0x87A0B43D pass
+		//
+
+		// Create PS.
+		[[unlikely]] if (!g_ps[hash_name("tonemap_0x87A0B43D")]) {
+			const std::string bloom_intensity_str = std::to_string(g_bloom_intensity);
+			const D3D_SHADER_MACRO defines[] = {
+				{ "BLOOM_INTENSITY", bloom_intensity_str.c_str() },
+				{ nullptr, nullptr }
+			};
+			create_pixel_shader(device, g_ps[hash_name("tonemap_0x87A0B43D")].put(), L"Tonemap_0x87A0B43D_ps.hlsl", "main", defines);
+		}
+
+		// Create RTs and views.
+		[[unlikely]] if (!g_rtv[hash_name("tonemap_0x87A0B43D")]) {
+			// Create texture.
+			D3D10_TEXTURE2D_DESC tex_desc = {};
+			tex_desc.Width = g_swapchain_width;
+			tex_desc.Height = g_swapchain_height;
+			tex_desc.MipLevels = 1;
+			tex_desc.ArraySize = 1;
+			tex_desc.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+			tex_desc.SampleDesc.Count = 1;
+			tex_desc.BindFlags = D3D10_BIND_SHADER_RESOURCE | D3D10_BIND_RENDER_TARGET;
+			Com_ptr<ID3D10Texture2D> tex;
+			ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
+			
+			ensure(device->CreateRenderTargetView(tex.get(), nullptr, g_rtv[hash_name("tonemap_0x87A0B43D")].put()), >= 0);
+			ensure(device->CreateShaderResourceView(tex.get(), nullptr, g_srv[hash_name("tonemap_0x87A0B43D")].put()), >= 0);
+		}
+
+		// Bindings.
+		device->OMSetRenderTargets(1, &g_rtv[hash_name("tonemap_0x87A0B43D")], nullptr);
+		device->VSSetShader(vs_original.get());
+		device->PSSetShader(g_ps[hash_name("tonemap_0x87A0B43D")].get());
+		const std::array srvs_tonemap_0x87A0B43D = { g_srv[hash_name("smaa_neighborhood_blending")].get(), g_srv_bloom_mips_y[0] };
+		device->PSSetShaderResources(0, srvs_tonemap_0x87A0B43D.size(), srvs_tonemap_0x87A0B43D.data());
+
+		cmd_list->draw(vertex_count, instance_count, first_vertex, first_instance);
 
 		//
 
 		// AMD FFX CAS pass
 		//
 
-		// Create VS.
-		[[unlikely]] if (!g_vs_fullscreen_triangle) {
-			create_vertex_shader(device, g_vs_fullscreen_triangle.put(), L"FullscreenTriangle_vs.hlsl");
-		}
-
 		// Create PS.
-		[[unlikely]] if (!g_ps_amd_ffx_cas) {
+		[[unlikely]] if (!g_ps[hash_name("amd_ffx_cas")]) {
 			const std::string amd_ffx_cas_sharpness_str = std::to_string(g_amd_ffx_cas_sharpness);
-			const D3D10_SHADER_MACRO defines[] = {
+			const D3D_SHADER_MACRO defines[] = {
 				{ "SHARPNESS", amd_ffx_cas_sharpness_str.c_str() },
 				{ nullptr, nullptr }
 			};
-			create_pixel_shader(device, g_ps_amd_ffx_cas.put(), L"AMD_FFX_CAS_ps.hlsl", "main", defines);
+			create_pixel_shader(device, g_ps[hash_name("amd_ffx_cas")].put(), L"AMD_FFX_CAS_ps.hlsl", "main", defines);
 		}
 
 		// Create RT and views.
-		ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
-		Com_ptr<ID3D10RenderTargetView> rtv_amd_ffx_cas;
-		ensure(device->CreateRenderTargetView(tex.get(), nullptr, rtv_amd_ffx_cas.put()), >= 0);
-		Com_ptr<ID3D10ShaderResourceView> srv_amd_ffx_cas;
-		ensure(device->CreateShaderResourceView(tex.get(), nullptr, srv_amd_ffx_cas.put()), >= 0);
+		[[unlikely]] if (!g_rtv[hash_name("amd_ffx_cas")]) {
+			// Create texture.
+			D3D10_TEXTURE2D_DESC tex_desc = {};
+			tex_desc.Width = g_swapchain_width;
+			tex_desc.Height = g_swapchain_height;
+			tex_desc.MipLevels = 1;
+			tex_desc.ArraySize = 1;
+			tex_desc.Format = DXGI_FORMAT_R16G16B16A16_UNORM;
+			tex_desc.SampleDesc.Count = 1;
+			tex_desc.BindFlags = D3D10_BIND_SHADER_RESOURCE | D3D10_BIND_RENDER_TARGET;
+			Com_ptr<ID3D10Texture2D> tex;
+			ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
+			
+			ensure(device->CreateRenderTargetView(tex.get(), nullptr, g_rtv[hash_name("amd_ffx_cas")].put()), >= 0);
+			ensure(device->CreateShaderResourceView(tex.get(), nullptr, g_srv[hash_name("amd_ffx_cas")].put()), >= 0);
+		}
 
 		// Bindings.
-		device->OMSetRenderTargets(1, &rtv_amd_ffx_cas, nullptr);
-		device->VSSetShader(g_vs_fullscreen_triangle.get());
-		device->PSSetShader(g_ps_amd_ffx_cas.get());
-		device->PSSetShaderResources(0, 1, &srv_smaa_neighborhood_blending);
+		device->OMSetRenderTargets(1, &g_rtv[hash_name("amd_ffx_cas")], nullptr);
+		device->VSSetShader(g_vs[hash_name("fullscreen_triangle")].get());
+		device->PSSetShader(g_ps[hash_name("amd_ffx_cas")].get());
+		device->PSSetShaderResources(0, 1, &g_srv[hash_name("tonemap_0x87A0B43D")]);
 
 		device->Draw(3, 0);
 
@@ -1595,34 +1463,38 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		//
 
 		// Create PS.
-		[[unlikely]] if (!g_ps_amd_ffx_lfga) {
-			const std::string viewport_dims = std::format("float2({},{})", (float)tex_desc.Width, (float)tex_desc.Height);
+		[[unlikely]] if (!g_ps[hash_name("amd_ffx_lfga")]) {
 			const std::string amd_ffx_lfga_amount_str = std::to_string(g_amd_ffx_lfga_amount);
 			const std::string srgb_str = g_trc == TRC_SRGB ? "SRGB" : "";
 			const std::string gamma_str = std::to_string(g_gamma);
-			const D3D10_SHADER_MACRO defines[] = {
-				{ "WIEWPORT_DIMS", viewport_dims.c_str() },
+			const D3D_SHADER_MACRO defines[] = {
 				{ "AMOUNT", amd_ffx_lfga_amount_str.c_str() },
 				{ srgb_str.c_str(), nullptr },
 				{ "GAMMA", gamma_str.c_str() },
 				{ nullptr, nullptr }
 			};
-			create_pixel_shader(device, g_ps_amd_ffx_lfga.put(), L"AMD_FFX_LFGA_ps.hlsl", "main", defines);
-		}
-
-		// Create constant buffer.
-		[[unlikely]] if (!g_cb) {
-			create_constant_buffer(device, g_cb.put(), sizeof(g_cb_data));
+			create_pixel_shader(device, g_ps[hash_name("amd_ffx_lfga")].put(), L"AMD_FFX_LFGA_ps.hlsl", "main", defines);
 		}
 
 		// Create blue noise texture.
-		[[unlikely]] if (!g_srv_blue_noise_tex) {
-			create_srv_blue_noise_tex(device, g_srv_blue_noise_tex.put());
-		}
-
-		// Create point wrap sampler.
-		[[unlikely]] if (!g_smp_point_wrap) {
-			create_sampler_point_wrap(device, g_smp_point_wrap.put());
+		[[unlikely]] if (!g_srv[hash_name("blue_noise_tex")]) {
+			D3D10_TEXTURE2D_DESC tex_desc = {};
+			tex_desc.Width = BLUE_NOISE_TEX_WIDTH;
+			tex_desc.Height = BLUE_NOISE_TEX_HEIGHT;
+			tex_desc.MipLevels = 1;
+			tex_desc.ArraySize = BLUE_NOISE_TEX_ARRAY_SIZE;
+			tex_desc.Format = DXGI_FORMAT_R8_UNORM;
+			tex_desc.SampleDesc.Count = 1;
+			tex_desc.Usage = D3D10_USAGE_IMMUTABLE;
+			tex_desc.BindFlags = D3D10_BIND_SHADER_RESOURCE;
+			std::array<D3D10_SUBRESOURCE_DATA, BLUE_NOISE_TEX_ARRAY_SIZE> subresource_data = {};
+			for (size_t i = 0; i < subresource_data.size(); ++i) {
+				subresource_data[i].pSysMem = BLUE_NOISE_TEX + i * BLUE_NOISE_TEX_PITCH * BLUE_NOISE_TEX_HEIGHT;
+				subresource_data[i].SysMemPitch = BLUE_NOISE_TEX_PITCH;
+			}
+			Com_ptr<ID3D10Texture2D> tex;
+			ensure(device->CreateTexture2D(&tex_desc, subresource_data.data(), tex.put()), >= 0);
+			ensure(device->CreateShaderResourceView(tex.get(), nullptr, g_srv[hash_name("blue_noise_tex")].put()), >= 0);
 		}
 
 		// Update the constant buffer.
@@ -1635,40 +1507,20 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 			if (g_cb_data.tex_noise_index >= (float)BLUE_NOISE_TEX_ARRAY_SIZE) {
 				g_cb_data.tex_noise_index = 0.0f;
 			}
-			update_constant_buffer(g_cb.get(), &g_cb_data, sizeof(g_cb_data));
+			update_constant_buffer(g_cb[hash_name("cb")].get(), &g_cb_data, sizeof(g_cb_data));
 			last_update += interval;
 		}
 
 		// Bindings.
-		////
-
 		device->OMSetRenderTargets(1, &rtv_original, nullptr);
-		device->PSSetShader(g_ps_amd_ffx_lfga.get());
-		device->PSSetConstantBuffers(13, 1, &g_cb); // The game should never be using CB slot 13.
-		const std::array ps_srvs_amd_ffx_lfga = { srv_amd_ffx_cas.get(), g_srv_blue_noise_tex.get() };
-		device->PSSetShaderResources(0, ps_srvs_amd_ffx_lfga.size(), ps_srvs_amd_ffx_lfga.data());
-
-		// Backup the original sampler.
-		Com_ptr<ID3D10SamplerState> smp_original0;
-		device->PSGetSamplers(0, 1, smp_original0.put());
-
-		device->PSSetSamplers(0, 1, &g_smp_point_wrap);
-
-		////
+		device->PSSetShader(g_ps[hash_name("amd_ffx_lfga")].get());
+		device->PSSetConstantBuffers(13, 1, &g_cb[hash_name("cb")]);
+		const std::array srvs_amd_ffx_lfga = { g_srv[hash_name("amd_ffx_cas")].get(), g_srv[hash_name("blue_noise_tex")].get() };
+		device->PSSetShaderResources(0, srvs_amd_ffx_lfga.size(), srvs_amd_ffx_lfga.data());
 
 		device->Draw(3, 0);
 
 		//
-
-		// Restore original states.
-		device->PSSetSamplers(0, 1, &smp_original0);
-
-		// Release com arrays.
-		auto release_com_array = [](auto& array){ for (auto* p : array) if (p) p->Release(); };
-		release_com_array(rtv_mips_y);
-		release_com_array(srv_mips_y);
-		release_com_array(rtv_mips_x);
-		release_com_array(srv_mips_x);
 
 		return true;
 	}
@@ -1757,7 +1609,7 @@ static void on_init_resource(reshade::api::device* device, const reshade::api::r
 {
 	if (desc.texture.format == reshade::api::format::r24_unorm_x8_uint) {
 		auto native_device = (ID3D10Device*)device->get_native();
-		ensure(native_device->CreateShaderResourceView((ID3D10Resource*)resource.handle, nullptr, g_srv_depth.put()), >= 0);
+		ensure(native_device->CreateShaderResourceView((ID3D10Resource*)resource.handle, nullptr, g_srv[hash_name("depth")].put()), >= 0);
 	}
 }
 
@@ -1821,15 +1673,55 @@ static void on_init_swapchain(reshade::api::swapchain* swapchain, bool resize)
 	g_swapchain_width = desc.BufferDesc.Width;
 	g_swapchain_height = desc.BufferDesc.Height;
 
+	g_smaa_rt_metrics.set(g_swapchain_width, g_swapchain_height);
+
 	// Reset resolution dependent resources.
-	reset_xegtao();
-	g_vs_smaa_edge_detection.reset();
-	g_ps_smaa_edge_detection.reset();
-	g_vs_smaa_blending_weight_calculation.reset();
-	g_ps_smaa_blending_weight_calculation.reset();
-	g_vs_smaa_neighborhood_blending.reset();
-	g_ps_smaa_neighborhood_blending.reset();
-	g_ps_amd_ffx_lfga.reset();
+	//
+
+	// XeGTAO.
+	// FIXME: There is an issue when going from lower resoulution to higher,
+	// AO stops drawing if we clear all resources or static AO gets stuck otherwise.
+	// This doesn't happen if going from higher to lower resolution.
+	g_ps[hash_name("xe_gtao_prefilter_depths_mip0")].reset();		
+	g_srv[hash_name("xe_gtao_working_depth")].reset();
+	g_ps[hash_name("xe_gtao_main_pass")].reset();
+	g_rtv[hash_name("xe_gtao_main_pass")].reset();
+	g_srv[hash_name("xe_gtao_main_pass")].reset();
+	g_rtv[hash_name("xe_gtao_denoise1_pass")].reset();
+	g_srv[hash_name("xe_gtao_denoise1_pass")].reset();
+	release_com_array(g_rtv_xe_gtao_working_depth_mips);
+	release_com_array(g_srv_xe_gtao_working_depth_mips);
+
+	// SMAA.
+	g_ps[hash_name("smaa_pre_pass")].reset();
+	g_rtv[hash_name("smaa_srgb_scene")].reset();
+	g_srv[hash_name("smaa_srgb_scene")].reset();
+	g_vs[hash_name("smaa_edge_detection")].reset();
+	g_ps[hash_name("smaa_edge_detection")].reset();
+	g_dsv[hash_name("smaa")].reset();
+	g_rtv[hash_name("smaa_edge_detection")].reset();
+	g_srv[hash_name("smaa_edge_detection")].reset();
+	g_vs[hash_name("smaa_blending_weight_calculation")].reset();
+	g_ps[hash_name("smaa_blending_weight_calculation")].reset();
+	g_rtv[hash_name("smaa_blending_weight_calculation")].reset();
+	g_srv[hash_name("smaa_blending_weight_calculation")].reset();
+	g_vs[hash_name("smaa_neighborhood_blending")].reset();
+	g_ps[hash_name("smaa_neighborhood_blending")].reset();
+	g_rtv[hash_name("smaa_neighborhood_blending")].reset();
+	g_srv[hash_name("smaa_neighborhood_blending")].reset();
+
+	// Bloom.
+	release_com_array(g_rtv_bloom_mips_y);
+	release_com_array(g_srv_bloom_mips_y);
+	release_com_array(g_rtv_bloom_mips_x);
+	release_com_array(g_srv_bloom_mips_x);
+
+	g_rtv[hash_name("tonemap_0x87A0B43D")].reset();
+	g_srv[hash_name("tonemap_0x87A0B43D")].reset();
+	g_rtv[hash_name("amd_ffx_cas")].reset();
+	g_srv[hash_name("amd_ffx_cas")].reset();
+
+	//
 }
 
 static void on_init_device(reshade::api::device* device)
@@ -1845,46 +1737,21 @@ static void on_init_device(reshade::api::device* device)
 
 static void on_destroy_device(reshade::api::device *device)
 {
-	g_cb.reset();
-	g_vs_fullscreen_triangle.reset();
-	g_ps_tonemap_0x87A0B43D.reset();
-	g_srv_depth.reset();
-
-	// SMAA
-	g_srv_smaa_area_tex.reset();
-	g_srv_smaa_search_tex.reset();
-	g_vs_smaa_edge_detection.reset();
-	g_ps_smaa_edge_detection.reset();
-	g_vs_smaa_blending_weight_calculation.reset();
-	g_ps_smaa_blending_weight_calculation.reset();
-	g_vs_smaa_neighborhood_blending.reset();
-	g_ps_smaa_neighborhood_blending.reset();
-	g_ds_smaa_disable_depth_replace_stencil.reset();
-	g_ds_smaa_disable_depth_use_stencil.reset();
-
-	// AMD FFX CAS
-	g_ps_amd_ffx_cas.reset();
-
-	// AMD FFX LFGA
-	g_srv_blue_noise_tex.reset();
-	g_ps_amd_ffx_lfga.reset();
-
-	g_smp_point_wrap.reset();
-	g_smp_point_clamp.reset();
-
-	// XeGTAO
-	g_ps_xegtao_prefilter_depth_mip0.reset();
-	g_ps_xegtao_prefilter_depths.reset();
-	g_ps_xegtao_main_pass.reset();
-	g_ps_xegtao_denoise1_pass.reset();
-	g_ps_xegtao_denoise2_pass.reset();
-	g_blend_xegtao.reset();
-
-	// Bloom.
-	g_ps_bloom_prefilter.reset();
-	g_ps_bloom_downsample.reset();
-	g_ps_bloom_upsample.reset();
-	g_blend_bloom.reset();
+	g_rtv.clear();
+	g_srv.clear();
+	g_vs.clear();
+	g_ps.clear();
+	g_smp.clear();
+	g_cb.clear();
+	g_blend.clear();
+	g_ds.clear();
+	g_dsv.clear();
+	release_com_array(g_rtv_xe_gtao_working_depth_mips);
+	release_com_array(g_srv_xe_gtao_working_depth_mips);
+	release_com_array(g_rtv_bloom_mips_y);
+	release_com_array(g_srv_bloom_mips_y);
+	release_com_array(g_rtv_bloom_mips_x);
+	release_com_array(g_srv_bloom_mips_x);
 }
 
 static void read_config()
@@ -1929,8 +1796,20 @@ static void read_config()
 static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 {
 	#if DEV
+	if (ImGui::Button("Dev button")) {
+	}
+	ImGui::Spacing();
+
 	if (ImGui::SliderInt("Bloom nmips", &g_bloom_nmips, 1.0, 10.0)) {
 		g_bloom_sigmas.resize(g_bloom_nmips);
+		release_com_array(g_rtv_bloom_mips_y);
+		release_com_array(g_srv_bloom_mips_y);
+		release_com_array(g_rtv_bloom_mips_x);
+		release_com_array(g_srv_bloom_mips_x);
+		g_rtv_bloom_mips_x.resize(g_bloom_nmips);
+		g_srv_bloom_mips_x.resize(g_bloom_nmips);
+		g_rtv_bloom_mips_y.resize(g_bloom_nmips);
+		g_srv_bloom_mips_y.resize(g_bloom_nmips);
 	}
 	for (int i = 0; i < g_bloom_nmips; ++i) {
 		const std::string name = "Sigma" + std::to_string(i);
@@ -1940,53 +1819,73 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 
 	if (ImGui::Checkbox("XeGTAO enable", &g_xegtao_enable)) {
 		reshade::set_config_value(nullptr, "BioshockGraphicalUpgrade", "XeGTAOEnable", g_xegtao_enable);
-		reset_xegtao();
+		if (!g_xegtao_enable) {
+			g_ps[hash_name("xe_gtao_prefilter_depths_mip0")].reset();
+			g_ps[hash_name("xe_gtao_prefilter_depths")].reset();
+			g_srv[hash_name("xe_gtao_working_depth")].reset();
+			g_ps[hash_name("xe_gtao_main_pass")].reset();
+			g_rtv[hash_name("xe_gtao_main_pass")].reset();
+			g_srv[hash_name("xe_gtao_main_pass")].reset();
+			g_ps[hash_name("xe_gtao_denoise1_pass")].reset();
+			g_rtv[hash_name("xe_gtao_denoise1_pass")].reset();
+			g_srv[hash_name("xe_gtao_denoise1_pass")].reset();
+			g_ps[hash_name("xe_gtao_denoise2_pass")].reset();
+			g_blend[hash_name("xe_gtao")].reset();
+			release_com_array(g_rtv_xe_gtao_working_depth_mips);
+			release_com_array(g_srv_xe_gtao_working_depth_mips);
+		}
 	}
 	ImGui::BeginDisabled(!g_xegtao_enable);
 	ImGui::InputFloat("XeGTAO FOV Y", &g_xegtao_fov_y);
 	if (ImGui::IsItemDeactivatedAfterEdit()) {
 		g_xegtao_fov_y = std::clamp(g_xegtao_fov_y, 0.0f, 360.0f);
 		reshade::set_config_value(nullptr, "BioshockGraphicalUpgrade", "XeGTAOFOVY", g_xegtao_fov_y);
-		reset_xegtao();
+		g_ps[hash_name("xe_gtao_main_pass")].reset();
 	}
 	if (ImGui::SliderFloat("XeGTAO radius", &g_xegtao_radius, 0.01f, 1.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp)) {
 		reshade::set_config_value(nullptr, "BioshockGraphicalUpgrade", "XeGTAORadius", g_xegtao_radius);
-		reset_xegtao();
+		g_ps[hash_name("xe_gtao_main_pass")].reset();
+		g_ps[hash_name("xe_gtao_prefilter_depths")].reset();
 	}
 	static constexpr std::array xegtao_quality_items = { "Low", "Medium", "High", "Very High", "Ultra" };
 	if (ImGui::Combo("XeGTAO Quality", &g_xegtao_quality, xegtao_quality_items.data(), xegtao_quality_items.size())) {
 		reshade::set_config_value(nullptr, "BioshockGraphicalUpgrade", "XeGTAOQuality", g_xegtao_quality);
-		reset_xegtao();
+		g_ps[hash_name("xe_gtao_main_pass")].reset();
 	}
 	ImGui::EndDisabled();
 	ImGui::Spacing();
+	
 	static constexpr std::array trc_items = { "sRGB", "Gamma" };
 	if (ImGui::Combo("TRC", &g_trc, trc_items.data(), trc_items.size())) {
 		reshade::set_config_value(nullptr, "BioshockGraphicalUpgrade", "TRC", g_trc);
-		g_ps_amd_ffx_lfga.reset();
+		g_ps[hash_name("amd_ffx_lfga")].reset();
 	}
 	ImGui::BeginDisabled(g_trc == TRC_SRGB);
 	if (ImGui::SliderFloat("Gamma", &g_gamma, 1.0f, 3.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp)) {
 		reshade::set_config_value(nullptr, "BioshockGraphicalUpgrade", "Gamma", g_gamma);
-		g_ps_amd_ffx_lfga.reset();
+		g_ps[hash_name("amd_ffx_lfga")].reset();
 	}
 	ImGui::EndDisabled();
 	ImGui::Spacing();
+	
 	if (ImGui::SliderFloat("Bloom Intensity", &g_bloom_intensity, 0.0f, 3.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp)) {
 		reshade::set_config_value(nullptr, "BioshockGraphicalUpgrade", "BloomIntensity", g_bloom_intensity);
-		g_ps_tonemap_0x87A0B43D.reset();
+		g_ps[hash_name("tonemap_0x87A0B43D")].reset();
 	}
 	ImGui::Spacing();
+	
 	if (ImGui::SliderFloat("Sharpness", &g_amd_ffx_cas_sharpness, 0.0f, 1.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp)) {
 		reshade::set_config_value(nullptr, "BioshockGraphicalUpgrade", "Sharpness", g_amd_ffx_cas_sharpness);
-		g_ps_amd_ffx_cas.reset();
+		g_ps[hash_name("amd_ffx_cas")].reset();
 	}
 	ImGui::Spacing();
+	
 	if (ImGui::SliderFloat("Grain amount", &g_amd_ffx_lfga_amount, 0.0f, 1.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp)) {
 		reshade::set_config_value(nullptr, "BioshockGraphicalUpgrade", "GrainAmount", g_amd_ffx_lfga_amount);
-		g_ps_amd_ffx_lfga.reset();
+		g_ps[hash_name("amd_ffx_lfga")].reset();
 	}
 	ImGui::Spacing();
+	
 	ImGui::InputFloat("FPS limit", &g_user_set_fps_limit);
 	if (ImGui::IsItemDeactivatedAfterEdit()) {
 		g_user_set_fps_limit = std::clamp(g_user_set_fps_limit, 20.0f, 1000.0f);
@@ -2002,7 +1901,7 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 }
 
 extern "C" __declspec(dllexport) const char* NAME = "BioshockGrapicalUpgrade";
-extern "C" __declspec(dllexport) const char* DESCRIPTION = "BioshockGrapicalUpgrade v7.1.0";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "BioshockGrapicalUpgrade v8.0.0";
 extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/BioshockGraphicalUpgrade";
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)
@@ -2012,9 +1911,15 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)
 			if (!reshade::register_addon(hModule) || MH_Initialize() != MH_OK) {
 				return FALSE;
 			}
-			g_graphical_upgrade_path = get_shaders_path();
+			g_graphical_upgrade_path = get_graphical_upgrade_path();
 			read_config();
+			
+			// Bloom.
 			g_bloom_sigmas.resize(g_bloom_nmips);
+			g_rtv_bloom_mips_x.resize(g_bloom_nmips);
+			g_srv_bloom_mips_x.resize(g_bloom_nmips);
+			g_rtv_bloom_mips_y.resize(g_bloom_nmips);
+			g_srv_bloom_mips_y.resize(g_bloom_nmips);
 			assert(g_bloom_nmips == 6);
 			g_bloom_sigmas[0] = 1.5f;
 			g_bloom_sigmas[1] = 1.0f;
@@ -2022,6 +1927,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)
 			g_bloom_sigmas[3] = 1.0f;
 			g_bloom_sigmas[4] = 1.0f;
 			g_bloom_sigmas[5] = 1.0f;
+
 			reshade::register_event<reshade::addon_event::draw_indexed>(on_draw_indexed);
 			reshade::register_event<reshade::addon_event::draw>(on_draw);
 			reshade::register_event<reshade::addon_event::init_pipeline>(on_init_pipeline);
