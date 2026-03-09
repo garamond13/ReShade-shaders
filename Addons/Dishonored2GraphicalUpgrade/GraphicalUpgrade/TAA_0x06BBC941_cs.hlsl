@@ -72,13 +72,17 @@ RWTexture2D<float4> rw_taahistory_write : register(u0);
 RWTexture2D<float4> rw_taaresult : register(u1);
 
 // MUST BE DEFINED!
+//
+
 #ifndef VIEWPORT_SIZE
-#define VIEWPORT_SIZE float2(0.0, 0.0)
+#define VIEWPORT_SIZE cb_taatexsize.xy
 #endif
 
 #ifndef INV_VIEWPORT_SIZE
-#define INV_VIEWPORT_SIZE (1.0 / VIEWPORT_SIZE)
+#define INV_VIEWPORT_SIZE cb_taatexsize.zw
 #endif
+
+//
 
 #ifndef MIN_ALPHA
 #define MIN_ALPHA 0.04

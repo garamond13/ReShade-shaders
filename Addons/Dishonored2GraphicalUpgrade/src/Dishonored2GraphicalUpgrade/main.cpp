@@ -169,6 +169,13 @@ static void on_execute_secondary_command_list(reshade::api::command_list* cmd_li
 		ctx->CSSetShaderResources(0, 1, &g_srv[hash_name("ro_postfx_luminance_buffautoexposure")]);
 
 		ctx->Dispatch((g_swapchain_width + 8 - 1) / 8, (g_swapchain_height + 8 - 1) / 8, 1);
+
+		// Unbind.
+		// This doesn't seem to be necessary, but the game has random issues.
+		static constexpr ID3D11UnorderedAccessView* uav_null = {};
+		static constexpr ID3D11ShaderResourceView* srv_null = {};
+		ctx->CSSetUnorderedAccessViews(0, 1, &uav_null, nullptr);
+		ctx->CSSetShaderResources(0, 1, &srv_null);
 		
 		//
 
@@ -225,6 +232,11 @@ static void on_execute_secondary_command_list(reshade::api::command_list* cmd_li
 		ctx->CSSetShaderResources(0, 1, &g_srv[hash_name("ro_postfx_luminance_buffautoexposure")]);
 
 		ctx->Dispatch((g_swapchain_width + 8 - 1) / 8, (g_swapchain_height + 8 - 1) / 8, 1);
+
+		// Unbind.
+		// This doesn't seem to be necessary, but the game has random issues.
+		ctx->CSSetUnorderedAccessViews(0, 1, &uav_null, nullptr);
+		ctx->CSSetShaderResources(0, 1, &srv_null);
 		
 		//
 	}
@@ -666,12 +678,7 @@ static bool on_dispatch(reshade::api::command_list* cmd_list, uint32_t group_cou
 		[[unlikely]] if (!g_cs[hash_name("TAA_0x06BBC941")]) {
 			Com_ptr<ID3D11Device> device;
 			ctx->GetDevice(device.put());
-			const std::string viewport_size_str = std::format("float2({},{})", (float)g_swapchain_width, (float)g_swapchain_height);
-			const D3D_SHADER_MACRO defines[] = {
-				{ "VIEWPORT_SIZE", viewport_size_str.c_str() },
-				{ nullptr, nullptr }
-			};
-			create_compute_shader(device.get(), g_cs[hash_name("TAA_0x06BBC941")].put(), L"TAA_0x06BBC941_cs.hlsl", "main", defines);
+			create_compute_shader(device.get(), g_cs[hash_name("TAA_0x06BBC941")].put(), L"TAA_0x06BBC941_cs.hlsl");
 		}
 
 		// Bindings.
@@ -779,10 +786,6 @@ static bool on_create_resource_view(reshade::api::device* device, reshade::api::
 			desc.format = reshade::api::format::r16g16b16a16_unorm;
 			return true;
 		}
-		if (resource_desc.texture.format == reshade::api::format::r32g32_float) {
-			desc.format = reshade::api::format::r32g32_float;
-			return true;
-		}
 	}
 
 	return false;
@@ -799,10 +802,6 @@ static bool on_create_resource(reshade::api::device* device, reshade::api::resou
 		}
 		if (desc.texture.format == reshade::api::format::r8g8b8a8_unorm_srgb) {
 			desc.texture.format = reshade::api::format::r16g16b16a16_unorm;
-			return true;
-		}
-		if (desc.texture.format == reshade::api::format::r16g16_float) {
-			desc.texture.format = reshade::api::format::r32g32_float;
 			return true;
 		}
 		return false;
@@ -901,7 +900,6 @@ static void on_init_swapchain(reshade::api::swapchain* swapchain, bool resize)
 	g_cs[hash_name("xe_gtao_prefilter_depths16x16")].reset();
 	release_com_array(g_uav_xe_gtao_prefilter_depths16x16);
 	g_ps[hash_name("xe_gtao_main_pass")].reset();
-	g_cs[hash_name("TAA_0x06BBC941")].reset();
 }
 
 static void on_init_device(reshade::api::device* device)
@@ -1082,7 +1080,7 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 }
 
 extern "C" __declspec(dllexport) const char* NAME = "Dishonored2GraphicalUpgrade";
-extern "C" __declspec(dllexport) const char* DESCRIPTION = "Dishonored2GraphicalUpgrade v1.8.0";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "Dishonored2GraphicalUpgrade v1.9.0";
 extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/Dishonored2GraphicalUpgrade";
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)
