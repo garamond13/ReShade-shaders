@@ -79,6 +79,9 @@ constexpr GUID g_ps_motion_blur_and_lens_distortion_mvs_0xC97890C8_guid = { 0x51
 constexpr uint32_t g_ps_motion_blur_and_lens_distortion_mvs_0xE908E905_hash = 0xE908E905;
 constexpr GUID g_ps_motion_blur_and_lens_distortion_mvs_0xE908E905_guid = { 0x337d2791, 0xda14, 0x48f1, { 0x85, 0x2d, 0x5b, 0xcc, 0x3, 0x7e, 0xfa, 0x60 } };
 
+constexpr uint32_t g_ps_denoise_0x4CD2BE39_hash = 0x4CD2BE39;
+constexpr GUID g_ps_denoise_0x4CD2BE39_guid = { 0x1cbed7cf, 0xf, 0x4e33, { 0xaf, 0x2c, 0x6a, 0x45, 0x88, 0x7d, 0xd9, 0xd8 } };
+
 //
 
 static CB_data g_cb_data;
@@ -378,6 +381,22 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		ctx->PSSetSamplers(0, 1, &smp_original);
 
 		return true;
+	}
+
+	size = sizeof(hash);
+	hr = ps->GetPrivateData(g_ps_denoise_0x4CD2BE39_guid, &size, &hash);
+	if (SUCCEEDED(hr) && hash == g_ps_denoise_0x4CD2BE39_hash) {
+		// Create PS.
+		[[unlikely]] if (!g_ps[hash_name("denoise_0x4CD2BE39")]) {
+			Com_ptr<ID3D11Device> device;
+			ctx->GetDevice(device.put());
+			create_pixel_shader(device.get(), g_ps[hash_name("denoise_0x4CD2BE39")].put(), L"Denoise_0x4CD2BE39_ps.hlsl");
+		}
+
+		// Bindings.
+		ctx->PSSetShader(g_ps[hash_name("denoise_0x4CD2BE39")].get(), nullptr, 0);
+		
+		return false;
 	}
 
 	size = sizeof(hash);
@@ -717,6 +736,9 @@ static void on_init_pipeline(reshade::api::device* device, reshade::api::pipelin
 					break;
 				case g_ps_motion_blur_and_lens_distortion_mvs_0xE908E905_hash:
 					ensure(((ID3D11PixelShader*)pipeline.handle)->SetPrivateData(g_ps_motion_blur_and_lens_distortion_mvs_0xE908E905_guid, sizeof(g_ps_motion_blur_and_lens_distortion_mvs_0xE908E905_hash), &g_ps_motion_blur_and_lens_distortion_mvs_0xE908E905_hash), >= 0);
+					break;
+				case g_ps_denoise_0x4CD2BE39_hash:
+					ensure(((ID3D11PixelShader*)pipeline.handle)->SetPrivateData(g_ps_denoise_0x4CD2BE39_guid, sizeof(g_ps_denoise_0x4CD2BE39_hash), &g_ps_denoise_0x4CD2BE39_hash), >= 0);
 					break;
 			}
 		}
@@ -1080,7 +1102,7 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 }
 
 extern "C" __declspec(dllexport) const char* NAME = "Dishonored2GraphicalUpgrade";
-extern "C" __declspec(dllexport) const char* DESCRIPTION = "Dishonored2GraphicalUpgrade v1.9.0";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "Dishonored2GraphicalUpgrade v1.10.0";
 extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/Dishonored2GraphicalUpgrade";
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)
