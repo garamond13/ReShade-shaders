@@ -46,6 +46,9 @@ Notes: Use only on DX10+ games.
 **UpgradeRenderTargets**  
 Upgrades render targets to higher precision formats.
 
+**AfterimageGraphicalUpgrade**  
+Graphical upgrade for Afterimage. See Addons/AfaterimageGraphicalUpgrade for details.
+
 **BFBC2GraphicalUpgrade**  
 Graphical upgrade for Battlefield: Bad Company 2. See Addons/BFBC2GraphicalUpgrade for details.
 
