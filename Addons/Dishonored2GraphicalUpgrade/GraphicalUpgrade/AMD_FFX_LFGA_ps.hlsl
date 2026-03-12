@@ -16,7 +16,7 @@ Texture2DArray<float> tex_noise : register(t1);
 
 // int2(width, height)
 #ifndef TEX_NOISE_DIMS
-#define TEX_NOISE_DIMS int2(128, 128)
+#define TEX_NOISE_DIMS int2(256, 256)
 #endif
 
 #ifndef AMOUNT
