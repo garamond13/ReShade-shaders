@@ -19,7 +19,7 @@
 ## Usage
 
 - Install ReShade 6.7.1 or newer with full add-on support.
-- Copy **Dishonored2GraphicalUpgrade.addon32**, **nvngx_dlss.dll** and **GraphicalUpgrade** folder into the game folder where **Dishonored2.exe** is (ReShade should be installed in the same folder).
+- Copy **Dishonored2GraphicalUpgrade.addon64**, **nvngx_dlss.dll** and **GraphicalUpgrade** folder into the game folder where **Dishonored2.exe** is (ReShade should be installed in the same folder).
 
 ## Notes
 

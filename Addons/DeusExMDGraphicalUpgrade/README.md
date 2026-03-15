@@ -12,8 +12,12 @@
 ## Usage
 
 - Install ReShade 6.7.3 or newer with full add-on support.
-- Copy **DeusExMDGraphicalUpgrade.addon32**, **nvngx_dlss.dll** and **GraphicalUpgrade** folder into the game folder where **DXMD.exe** is (ReShade should be installed in the same folder).
-- Note that it works (should be used) with DirectX 11 only.
+- Copy **DeusExMDGraphicalUpgrade.addon64**, **nvngx_dlss.dll** and **GraphicalUpgrade** folder into the game folder where **DXMD.exe** is (ReShade should be installed in the same folder).
+
+## Notes
+
+- It works (should be used) with DirectX 11 only.
+- "OPTIONS->DISPLAY->Fullscreen exclusive" should be turned off in game's settings otherwise DLSS may fail to load, or the game may crash on launch. If this doesn't fix the issue, launch the game with DLSS disabled in the DeusExMDGraphicalUpgrade and than in the game's settings toggle (on/off) "OPTIONS->DISPLAY->Fullscreen". After this DLSS should work properly if enabled. This entire issue may be exclusive to Epic Games version of the game.
 
 ## Compilation
 
