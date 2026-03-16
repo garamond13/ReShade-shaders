@@ -25,10 +25,13 @@ constexpr GUID g_ps_last_known_location_0xA6A0E453_guid = { 0x76699d13, 0x2d88, 
 static uint32_t g_swapchain_width;
 static uint32_t g_swapchain_height;
 static bool g_force_vsync_off = true;
-static bool g_enable_dlss = false;
-static DLSS_PRESET g_dlss_preset = DLSS_PRESET_F;
 static float g_amd_ffx_cas_sharpness = 0.4f;
 static bool g_disable_last_known_location = true;
+
+// DLSS.
+static ID3D11Device* g_dlss_device;
+static bool g_enable_dlss = false;
+static DLSS_PRESET g_dlss_preset = DLSS_PRESET_F;
 
 // Jitters.
 static void* g_cb0_mapped_data;
@@ -71,17 +74,12 @@ static HRESULT __stdcall detour_present(IDXGISwapChain* swapchain, UINT sync_int
 		// We need to account for the acctual frame time.
 		const auto sleep_time = g_frame_interval - std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - start);
 
-		// Precise sleep
-		////
-
+		// Precise sleep.
 		const auto sleep_start = std::chrono::high_resolution_clock::now();
 		std::this_thread::sleep_for(sleep_time - g_accounted_error);
-
 		while (std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - sleep_start) < sleep_time) {
 			continue;
 		}
-
-		////
 
 		start = std::chrono::high_resolution_clock::now();
 
@@ -184,12 +182,14 @@ static bool on_dispatch(reshade::api::command_list* cmd_list, uint32_t group_cou
 	if (SUCCEEDED(hr) && hash == g_cs_taa_0x84EF14ED_hash) {
 		if (g_enable_dlss) {
 			// DLSS requires immediate context.
-			assert(ctx->GetType() == D3D11_DEVICE_CONTEXT_TYPE::D3D11_DEVICE_CONTEXT_IMMEDIATE);
+			assert(ctx->GetType() == D3D11_DEVICE_CONTEXT_IMMEDIATE);
 
 			// DLSS pass
 			//
 			// The game renders all in sRGB (or mixed), should we linearize for DLSS?
-			//
+			// 
+			// This game is fucked no matter what, 3 devices at the same time, and 2 swapchains on epic games version.
+			// DLSS may fail no matter what.
 
 			// Get SRVs and their resources.
 			std::array<ID3D11ShaderResourceView*, 3> srvs = {};
@@ -404,6 +404,12 @@ static void on_init_swapchain(reshade::api::swapchain* swapchain, bool resize)
 		ensure(MH_EnableHook(vtable[8]), == MH_OK);
 	}
 
+	// Minimum supported resolution by DLSS.
+	// The game may create 2nd swapchain that should be 2x2.
+	if (desc.BufferDesc.Width < 32 && desc.BufferDesc.Height < 32) {
+		return;
+	}
+
 	// Save swapchain size.
 	g_swapchain_width = desc.BufferDesc.Width;
 	g_swapchain_height = desc.BufferDesc.Height;
@@ -413,7 +419,9 @@ static void on_init_swapchain(reshade::api::swapchain* swapchain, bool resize)
 		ensure(native_swapchain->GetDevice(IID_PPV_ARGS(device.put())), >= 0);
 		Com_ptr<ID3D11DeviceContext> ctx;
 		device->GetImmediateContext(ctx.put());
+		DLSS::instance().init(device.get());
 		DLSS::instance().create_feature(ctx.get(), g_swapchain_width, g_swapchain_height, g_dlss_preset);
+		g_dlss_device = device.get(); // We just assume that this is correct which is not good, but what is good in this clusterfuck? 
 	}
 }
 
@@ -426,16 +434,13 @@ static void on_init_device(reshade::api::device* device)
 	if (SUCCEEDED(hr)) {
 		ensure(device1->SetMaximumFrameLatency(1), >= 0);
 	}
-
-	if (g_enable_dlss) {
-		DLSS::instance().init(native_device);
-	}
 }
 
-static void on_destroy_device(reshade::api::device *device)
+static void on_destroy_device(reshade::api::device* device)
 {
-	if (g_enable_dlss) {
+	if (g_enable_dlss && (ID3D11Device*)device->get_native() == g_dlss_device) {
 		DLSS::instance().shutdown();
+		g_dlss_device = nullptr;
 	}
 	g_cs.clear();
 	g_ps.clear();
@@ -484,9 +489,11 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 		if (g_enable_dlss) {
 			DLSS::instance().init(device);
 			DLSS::instance().create_feature(ctx.get(), g_swapchain_width, g_swapchain_height, g_dlss_preset);
+			g_dlss_device = device; // We just assume that this is correct which is not good, but what is good in this clusterfuck? 
 		}
 		else {
 			DLSS::instance().shutdown();
+			g_dlss_device = nullptr;
 		}
 		reshade::set_config_value(nullptr, "DeusExMDGraphicalUpgrade", "EnableDLSS", g_enable_dlss);
 	}
@@ -534,7 +541,7 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 }
 
 extern "C" __declspec(dllexport) const char* NAME = "DeusExMDGraphicalUpgrade";
-extern "C" __declspec(dllexport) const char* DESCRIPTION = "DeusExMDGraphicalUpgrade v1.0.0";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "DeusExMDGraphicalUpgrade v1.0.1";
 extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/DeusExMDGraphicalUpgrade";
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)

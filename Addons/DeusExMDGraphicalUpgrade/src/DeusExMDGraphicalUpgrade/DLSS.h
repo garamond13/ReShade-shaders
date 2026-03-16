@@ -15,6 +15,8 @@ enum DLSS_PRESET_
 };
 typedef int DLSS_PRESET;
 
+// DLSS can be initialized per device,
+// regardless we want only one instance.
 class DLSS
 {
 public:
@@ -40,8 +42,10 @@ public:
 
 	void init(ID3D11Device* device) const
 	{
+		if (is_initialized) {
+			return;
+		}
 		NVSDK_NGX_Result result = NVSDK_NGX_D3D11_Init_with_ProjectID("e8962a96-c77c-4ecd-9f35-4ea35b9e0ce1", NVSDK_NGX_ENGINE_TYPE_CUSTOM, "1.0", L".", device);
-		
 		if (NVSDK_NGX_SUCCEED(result)) {
 			log_info("DLSS: Successfully initialized.");
 		}
@@ -52,11 +56,11 @@ public:
 
 	void create_feature(ID3D11DeviceContext* ctx, uint32_t width, uint32_t height, DLSS_PRESET preset)
 	{
+		// Minimum supported resolution by DLSS.
+		assert(width >= 32 && height >= 32);
+
 		// Release old resources first.
 		release_feature();
-		
-		this->width = width;
-		this->height = height;
 
 		// Pick an acctual preset.
 		NVSDK_NGX_DLSS_Hint_Render_Preset dlss_hint_renderer_preset = NVSDK_NGX_DLSS_Hint_Render_Preset_Default;
@@ -89,7 +93,6 @@ public:
 			create_params.InFeatureCreateFlags = flags;
 			result = NGX_D3D11_CREATE_DLSS_EXT(ctx, &handle, feature, &create_params);
 		}
-
 		if (NVSDK_NGX_SUCCEED(result)) {
 			log_info("DLSS: Successfully created feature.");
 		}
@@ -100,20 +103,19 @@ public:
 
 	void draw(ID3D11DeviceContext* ctx, NVSDK_NGX_D3D11_DLSS_Eval_Params& eval_params) const
 	{
-		NVSDK_NGX_Result result = NGX_D3D11_EVALUATE_DLSS_EXT(ctx, handle, feature, &eval_params);
+		auto result = NGX_D3D11_EVALUATE_DLSS_EXT(ctx, handle, feature, &eval_params);
 		assert(NVSDK_NGX_SUCCEED(result));
 	}
 
 	void release_feature()
 	{
-		NVSDK_NGX_Result result;
 		if (handle) {
-			result = NVSDK_NGX_D3D11_ReleaseFeature(handle);
+			auto result = NVSDK_NGX_D3D11_ReleaseFeature(handle);
 			assert(NVSDK_NGX_SUCCEED(result));
 			handle = nullptr;
 		}
 		if (feature) {
-			result = NVSDK_NGX_D3D11_DestroyParameters(feature);
+			auto result = NVSDK_NGX_D3D11_DestroyParameters(feature);
 			assert(NVSDK_NGX_SUCCEED(result));
 			feature = nullptr;
 		}
@@ -121,15 +123,18 @@ public:
 
 	void shutdown()
 	{
+		if (!is_initialized) {
+			return;
+		}
 		release_feature();
 		auto result = NVSDK_NGX_D3D11_Shutdown1(nullptr);
 		assert(NVSDK_NGX_SUCCEED(result));
+		is_initialized = false;
 	}
 
 private:
 
-	int width = 0;
-	int height = 0;
+	bool is_initialized = false;
 	NVSDK_NGX_Handle* handle = nullptr;
 	NVSDK_NGX_Parameter* feature = nullptr;
 };

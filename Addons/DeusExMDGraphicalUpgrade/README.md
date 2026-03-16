@@ -18,7 +18,6 @@
 
 - It works (should be used) with DirectX 11 only.
 - If "OPTIONS->DISPALY->Exclusive fullscreen" is off "OPTIONS->DISPALY->Resolution" should be set to highest available.
-- "OPTIONS->DISPLAY->Fullscreen exclusive" should be turned off in game's settings otherwise DLSS may fail to load, or the game may crash on launch. If this doesn't fix the issue, launch the game with DLSS disabled in the DeusExMDGraphicalUpgrade and than in the game's settings toggle (on/off) "OPTIONS->DISPLAY->Fullscreen". After this DLSS should work properly if enabled. This entire issue may be exclusive to Epic Games version of the game.
 
 ## Compilation
 
