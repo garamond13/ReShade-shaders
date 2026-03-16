@@ -1124,7 +1124,7 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 }
 
 extern "C" __declspec(dllexport) const char* NAME = "Dishonored2GraphicalUpgrade";
-extern "C" __declspec(dllexport) const char* DESCRIPTION = "Dishonored2GraphicalUpgrade v1.11.0";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "Dishonored2GraphicalUpgrade v1.12.0";
 extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/Dishonored2GraphicalUpgrade";
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)
