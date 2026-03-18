@@ -5,6 +5,7 @@
 #include "BlueNoiseTex.h"
 #include "HLSLTypes.h"
 #include "TRC.h"
+#include "minhook\include\MinHook.h"
 
 #define DEV 0
 #define OUTPUT_ASSEMBLY 0
@@ -75,6 +76,7 @@ constexpr GUID g_ps_tonemap_0x87A0B43D_guid = { 0x476ef3b9, 0xe14e, 0x49f2, { 0x
 static UINT g_swapchain_width;
 static UINT g_swapchain_height;
 static CB_graphical_upgrade_data g_cb_data;
+static bool g_force_vsync_off = true;
 
 // SMAA
 constexpr float g_smaa_clear_color[4] = {};
@@ -449,331 +451,24 @@ static HRESULT __stdcall detour_present(IDXGISwapChain* swapchain, UINT sync_int
 	// We need to account for the acctual frame time.
 	const auto sleep_time = g_frame_interval - std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - start);
 
-	// Precise sleep
-	////
-
+	// Precise sleep.
 	const auto sleep_start = std::chrono::high_resolution_clock::now();
-
-	// Looks like we don't need to set timeBeginPeriod(1) for the best accuracy. 
 	std::this_thread::sleep_for(sleep_time - g_accounted_error);
 
 	while (std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - sleep_start) < sleep_time) {
 		continue;
 	}
 
-	////
-
 	start = std::chrono::high_resolution_clock::now();
 
 	//
 
-	flags |= sync_interval ? 0 : DXGI_PRESENT_ALLOW_TEARING;
 	auto hr = g_original_present(swapchain, sync_interval, flags);
 
 	// Rebind back buffer and DS.
 	device->OMSetRenderTargets(1, &rtv, dsv.get());
 
 	return hr;
-}
-
-static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index_count, uint32_t instance_count, uint32_t first_index, int32_t vertex_offset, uint32_t first_instance)
-{
-	#if 0
-	return false;
-	#endif
-
-	// Here, for now we only have XeGTAO, so optimize with early exit.
-	if (!g_xegtao_enable || is_xegtao_drawn) {
-		return false;
-	}
-
-	auto device = (ID3D10Device*)cmd_list->get_native();
-	Com_ptr<ID3D10PixelShader> ps;
-	device->PSGetShader(ps.put());
-	if (!ps) {
-		return false;
-	}
-
-	uint32_t hash;
-	UINT size = sizeof(hash);
-	auto hr = ps->GetPrivateData(g_ps_fog_0xB69D6558_guid, &size, &hash);
-	if (SUCCEEDED(hr) && hash == g_ps_fog_0xB69D6558_hash) {
-		// We expect RTV to be the main scene.
-		Com_ptr<ID3D10RenderTargetView> rtv_original;
-		device->OMGetRenderTargets(1, rtv_original.put(), nullptr);
-
-		// Get RT resource (texture) and texture description.
-		// We won't always have the main scene, check via resorce dimensions do we have it. 
-		Com_ptr<ID3D10Resource> resource;
-		rtv_original->GetResource(resource.put());
-		Com_ptr<ID3D10Texture2D> tex;
-		ensure(resource->QueryInterface(tex.put()), >= 0);
-		D3D10_TEXTURE2D_DESC tex_desc;
-		tex->GetDesc(&tex_desc);
-		if (tex_desc.Width != g_swapchain_width) {
-			return false;
-		}
-
-		draw_xegtao(device, &rtv_original);
-		is_xegtao_drawn = true;
-
-		return false;
-	}
-
-	size = sizeof(hash);
-	hr = ps->GetPrivateData(g_ps_fog_0xE2683E33_guid, &size, &hash);
-	if (SUCCEEDED(hr) && hash == g_ps_fog_0xE2683E33_hash) {
-		// We expect RTV to be the main scene.
-		Com_ptr<ID3D10RenderTargetView> rtv_original;
-		device->OMGetRenderTargets(1, rtv_original.put(), nullptr);
-
-		// Get RT resource (texture) and texture description.
-		// We won't always have the main scene, check via resorce dimensions do we have it. 
-		Com_ptr<ID3D10Resource> resource;
-		rtv_original->GetResource(resource.put());
-		Com_ptr<ID3D10Texture2D> tex;
-		ensure(resource->QueryInterface(tex.put()), >= 0);
-		D3D10_TEXTURE2D_DESC tex_desc;
-		tex->GetDesc(&tex_desc);
-		if (tex_desc.Width != g_swapchain_width) {
-			return false;
-		}
-
-		draw_xegtao(device, &rtv_original);
-		is_xegtao_drawn = true;
-
-		return false;
-	}
-
-	size = sizeof(hash);
-	hr = ps->GetPrivateData(g_ps_fog_0xC907CF9A_guid, &size, &hash);
-	if (SUCCEEDED(hr) && hash == g_ps_fog_0xC907CF9A_hash) {
-		// We expect RTV to be the main scene.
-		Com_ptr<ID3D10RenderTargetView> rtv_original;
-		device->OMGetRenderTargets(1, rtv_original.put(), nullptr);
-
-		// Get RT resource (texture) and texture description.
-		// We won't always have the main scene, check via resorce dimensions do we have it.
-		Com_ptr<ID3D10Resource> resource;
-		rtv_original->GetResource(resource.put());
-		Com_ptr<ID3D10Texture2D> tex;
-		ensure(resource->QueryInterface(tex.put()), >= 0);
-		D3D10_TEXTURE2D_DESC tex_desc;
-		tex->GetDesc(&tex_desc);
-		if (tex_desc.Width != g_swapchain_width) {
-			return false;
-		}
-
-		draw_xegtao(device, &rtv_original);
-		is_xegtao_drawn = true;
-
-		return false;
-	}
-
-	size = sizeof(hash);
-	hr = ps->GetPrivateData(g_ps_fog_0x9CFB96DA_guid, &size, &hash);
-	if (SUCCEEDED(hr) && hash == g_ps_fog_0x9CFB96DA_hash) {
-		// We expect RTV to be the main scene.
-		Com_ptr<ID3D10RenderTargetView> rtv_original;
-		device->OMGetRenderTargets(1, rtv_original.put(), nullptr);
-
-		// Get RT resource (texture) and texture description.
-		// We won't always have the main scene, check via resorce dimensions do we have it.
-		Com_ptr<ID3D10Resource> resource;
-		rtv_original->GetResource(resource.put());
-		Com_ptr<ID3D10Texture2D> tex;
-		ensure(resource->QueryInterface(tex.put()), >= 0);
-		D3D10_TEXTURE2D_DESC tex_desc;
-		tex->GetDesc(&tex_desc);
-		if (tex_desc.Width != g_swapchain_width) {
-			return false;
-		}
-
-		draw_xegtao(device, &rtv_original);
-		is_xegtao_drawn = true;
-
-		return false;
-	}
-
-	size = sizeof(hash);
-	hr = ps->GetPrivateData(g_ps_fog_0x3B177042_guid, &size, &hash);
-	if (SUCCEEDED(hr) && hash == g_ps_fog_0x3B177042_hash) {
-		// We expect RTV to be the main scene.
-		Com_ptr<ID3D10RenderTargetView> rtv_original;
-		device->OMGetRenderTargets(1, rtv_original.put(), nullptr);
-
-		// Get RT resource (texture) and texture description.
-		// We won't always have the main scene, check via resorce dimensions do we have it.
-		Com_ptr<ID3D10Resource> resource;
-		rtv_original->GetResource(resource.put());
-		Com_ptr<ID3D10Texture2D> tex;
-		ensure(resource->QueryInterface(tex.put()), >= 0);
-		D3D10_TEXTURE2D_DESC tex_desc;
-		tex->GetDesc(&tex_desc);
-		if (tex_desc.Width != g_swapchain_width) {
-			return false;
-		}
-
-		draw_xegtao(device, &rtv_original);
-		is_xegtao_drawn = true;
-
-		return false;
-	}
-
-	size = sizeof(hash);
-	hr = ps->GetPrivateData(g_ps_fog_0xEB7BE1D6_guid, &size, &hash);
-	if (SUCCEEDED(hr) && hash == g_ps_fog_0xEB7BE1D6_hash) {
-		// We expect RTV to be the main scene.
-		Com_ptr<ID3D10RenderTargetView> rtv_original;
-		device->OMGetRenderTargets(1, rtv_original.put(), nullptr);
-
-		// Get RT resource (texture) and texture description.
-		// We won't always have the main scene, check via resorce dimensions do we have it.
-		Com_ptr<ID3D10Resource> resource;
-		rtv_original->GetResource(resource.put());
-		Com_ptr<ID3D10Texture2D> tex;
-		ensure(resource->QueryInterface(tex.put()), >= 0);
-		D3D10_TEXTURE2D_DESC tex_desc;
-		tex->GetDesc(&tex_desc);
-		if (tex_desc.Width != g_swapchain_width) {
-			return false;
-		}
-
-		draw_xegtao(device, &rtv_original);
-		is_xegtao_drawn = true;
-
-		return false;
-	}
-
-	size = sizeof(hash);
-	hr = ps->GetPrivateData(g_ps_fog_0xF5E21918_guid, &size, &hash);
-	if (SUCCEEDED(hr) && hash == g_ps_fog_0xF5E21918_hash) {
-		// We expect RTV to be the main scene.
-		Com_ptr<ID3D10RenderTargetView> rtv_original;
-		device->OMGetRenderTargets(1, rtv_original.put(), nullptr);
-
-		// Get RT resource (texture) and texture description.
-		// We won't always have the main scene, check via resorce dimensions do we have it.
-		Com_ptr<ID3D10Resource> resource;
-		rtv_original->GetResource(resource.put());
-		Com_ptr<ID3D10Texture2D> tex;
-		ensure(resource->QueryInterface(tex.put()), >= 0);
-		D3D10_TEXTURE2D_DESC tex_desc;
-		tex->GetDesc(&tex_desc);
-		if (tex_desc.Width != g_swapchain_width) {
-			return false;
-		}
-
-		draw_xegtao(device, &rtv_original);
-		is_xegtao_drawn = true;
-
-		return false;
-	}
-
-	size = sizeof(hash);
-	hr = ps->GetPrivateData(g_ps_ceiling_debris_0xDC232D31_guid, &size, &hash);
-	if (SUCCEEDED(hr) && hash == g_ps_ceiling_debris_0xDC232D31_hash) {
-		// We expect RTV to be the main scene.
-		Com_ptr<ID3D10RenderTargetView> rtv_original;
-		device->OMGetRenderTargets(1, rtv_original.put(), nullptr);
-
-		// Get RT resource (texture) and texture description.
-		// We won't always have the main scene, check via resorce dimensions do we have it.
-		Com_ptr<ID3D10Resource> resource;
-		rtv_original->GetResource(resource.put());
-		Com_ptr<ID3D10Texture2D> tex;
-		ensure(resource->QueryInterface(tex.put()), >= 0);
-		D3D10_TEXTURE2D_DESC tex_desc;
-		tex->GetDesc(&tex_desc);
-		if (tex_desc.Width != g_swapchain_width) {
-			return false;
-		}
-
-		draw_xegtao(device, rtv_original.put());
-		is_xegtao_drawn = true;
-
-		return false;
-	}
-
-	size = sizeof(hash);
-	hr = ps->GetPrivateData(g_ps_r_glass_door_0x59018C97_guid, &size, &hash);
-	if (SUCCEEDED(hr) && hash == g_ps_r_glass_door_0x59018C97_hash) {
-		// We expect RTV to be the main scene.
-		Com_ptr<ID3D10RenderTargetView> rtv_original;
-		device->OMGetRenderTargets(1, rtv_original.put(), nullptr);
-
-		// Get RT resource (texture) and texture description.
-		// We won't always have the main scene, check via resorce dimensions do we have it.
-		Com_ptr<ID3D10Resource> resource;
-		rtv_original->GetResource(resource.put());
-		Com_ptr<ID3D10Texture2D> tex;
-		ensure(resource->QueryInterface(tex.put()), >= 0);
-		D3D10_TEXTURE2D_DESC tex_desc;
-		tex->GetDesc(&tex_desc);
-		if (tex_desc.Width != g_swapchain_width) {
-			return false;
-		}
-
-		draw_xegtao(device, &rtv_original);
-		is_xegtao_drawn = true;
-
-		return false;
-	}
-
-	size = sizeof(hash);
-	hr = ps->GetPrivateData(g_ps_godrays_0xE689FDF8_guid, &size, &hash);
-	if (SUCCEEDED(hr) && hash == g_ps_godrays_0xE689FDF8_hash) {
-		// We expect RTV to be the main scene.
-		Com_ptr<ID3D10RenderTargetView> rtv_original;
-		device->OMGetRenderTargets(1, rtv_original.put(), nullptr);
-
-		// Get RT resource (texture) and texture description.
-		// We won't always have the main scene, check via resorce dimensions do we have it. 
-		Com_ptr<ID3D10Resource> resource;
-		rtv_original->GetResource(resource.put());
-		Com_ptr<ID3D10Texture2D> tex;
-		ensure(resource->QueryInterface(tex.put()), >= 0);
-		D3D10_TEXTURE2D_DESC tex_desc;
-		tex->GetDesc(&tex_desc);
-		if (tex_desc.Width != g_swapchain_width) {
-			return false;
-		}
-
-		draw_xegtao(device, &rtv_original);
-		is_xegtao_drawn = true;
-
-		return false;
-	}
-
-	size = sizeof(hash);
-	hr = ps->GetPrivateData(g_ps_flashing_images_0x7862AA89_guid, &size, &hash);
-	if (SUCCEEDED(hr) && hash == g_ps_flashing_images_0x7862AA89_hash) {
-		// We expect RTV to be the main scene.
-		Com_ptr<ID3D10RenderTargetView> rtv_original;
-		device->OMGetRenderTargets(1, rtv_original.put(), nullptr);
-
-		#if DEV
-		// Get RT resource (texture) and texture description.
-		// Make sure we always have the main scene.
-		Com_ptr<ID3D10Resource> resource;
-		rtv_original->GetResource(resource.put());
-		Com_ptr<ID3D10Texture2D> tex;
-		ensure(resource->QueryInterface(tex.put()), >= 0);
-		D3D10_TEXTURE2D_DESC tex_desc;
-		tex->GetDesc(&tex_desc);
-		if (tex_desc.Width != g_swapchain_width) {
-			log_debug("0x7862AA89 RTV wasnt what we expected it to be.");
-			return false;
-		}
-		#endif
-
-		draw_xegtao(device, &rtv_original);
-		is_xegtao_drawn = true;
-
-		return false;
-	}
-
-	return false;
 }
 
 static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count, uint32_t instance_count, uint32_t first_vertex, uint32_t first_instance)
@@ -1528,6 +1223,306 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 	return false;
 }
 
+static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index_count, uint32_t instance_count, uint32_t first_index, int32_t vertex_offset, uint32_t first_instance)
+{
+	#if 0
+	return false;
+	#endif
+
+	// Here, for now we only have XeGTAO, so optimize with early exit.
+	if (!g_xegtao_enable || is_xegtao_drawn) {
+		return false;
+	}
+
+	auto device = (ID3D10Device*)cmd_list->get_native();
+	Com_ptr<ID3D10PixelShader> ps;
+	device->PSGetShader(ps.put());
+	if (!ps) {
+		return false;
+	}
+
+	uint32_t hash;
+	UINT size = sizeof(hash);
+	auto hr = ps->GetPrivateData(g_ps_fog_0xB69D6558_guid, &size, &hash);
+	if (SUCCEEDED(hr) && hash == g_ps_fog_0xB69D6558_hash) {
+		// We expect RTV to be the main scene.
+		Com_ptr<ID3D10RenderTargetView> rtv_original;
+		device->OMGetRenderTargets(1, rtv_original.put(), nullptr);
+
+		// Get RT resource (texture) and texture description.
+		// We won't always have the main scene, check via resorce dimensions do we have it. 
+		Com_ptr<ID3D10Resource> resource;
+		rtv_original->GetResource(resource.put());
+		Com_ptr<ID3D10Texture2D> tex;
+		ensure(resource->QueryInterface(tex.put()), >= 0);
+		D3D10_TEXTURE2D_DESC tex_desc;
+		tex->GetDesc(&tex_desc);
+		if (tex_desc.Width != g_swapchain_width) {
+			return false;
+		}
+
+		draw_xegtao(device, &rtv_original);
+		is_xegtao_drawn = true;
+
+		return false;
+	}
+
+	size = sizeof(hash);
+	hr = ps->GetPrivateData(g_ps_fog_0xE2683E33_guid, &size, &hash);
+	if (SUCCEEDED(hr) && hash == g_ps_fog_0xE2683E33_hash) {
+		// We expect RTV to be the main scene.
+		Com_ptr<ID3D10RenderTargetView> rtv_original;
+		device->OMGetRenderTargets(1, rtv_original.put(), nullptr);
+
+		// Get RT resource (texture) and texture description.
+		// We won't always have the main scene, check via resorce dimensions do we have it. 
+		Com_ptr<ID3D10Resource> resource;
+		rtv_original->GetResource(resource.put());
+		Com_ptr<ID3D10Texture2D> tex;
+		ensure(resource->QueryInterface(tex.put()), >= 0);
+		D3D10_TEXTURE2D_DESC tex_desc;
+		tex->GetDesc(&tex_desc);
+		if (tex_desc.Width != g_swapchain_width) {
+			return false;
+		}
+
+		draw_xegtao(device, &rtv_original);
+		is_xegtao_drawn = true;
+
+		return false;
+	}
+
+	size = sizeof(hash);
+	hr = ps->GetPrivateData(g_ps_fog_0xC907CF9A_guid, &size, &hash);
+	if (SUCCEEDED(hr) && hash == g_ps_fog_0xC907CF9A_hash) {
+		// We expect RTV to be the main scene.
+		Com_ptr<ID3D10RenderTargetView> rtv_original;
+		device->OMGetRenderTargets(1, rtv_original.put(), nullptr);
+
+		// Get RT resource (texture) and texture description.
+		// We won't always have the main scene, check via resorce dimensions do we have it.
+		Com_ptr<ID3D10Resource> resource;
+		rtv_original->GetResource(resource.put());
+		Com_ptr<ID3D10Texture2D> tex;
+		ensure(resource->QueryInterface(tex.put()), >= 0);
+		D3D10_TEXTURE2D_DESC tex_desc;
+		tex->GetDesc(&tex_desc);
+		if (tex_desc.Width != g_swapchain_width) {
+			return false;
+		}
+
+		draw_xegtao(device, &rtv_original);
+		is_xegtao_drawn = true;
+
+		return false;
+	}
+
+	size = sizeof(hash);
+	hr = ps->GetPrivateData(g_ps_fog_0x9CFB96DA_guid, &size, &hash);
+	if (SUCCEEDED(hr) && hash == g_ps_fog_0x9CFB96DA_hash) {
+		// We expect RTV to be the main scene.
+		Com_ptr<ID3D10RenderTargetView> rtv_original;
+		device->OMGetRenderTargets(1, rtv_original.put(), nullptr);
+
+		// Get RT resource (texture) and texture description.
+		// We won't always have the main scene, check via resorce dimensions do we have it.
+		Com_ptr<ID3D10Resource> resource;
+		rtv_original->GetResource(resource.put());
+		Com_ptr<ID3D10Texture2D> tex;
+		ensure(resource->QueryInterface(tex.put()), >= 0);
+		D3D10_TEXTURE2D_DESC tex_desc;
+		tex->GetDesc(&tex_desc);
+		if (tex_desc.Width != g_swapchain_width) {
+			return false;
+		}
+
+		draw_xegtao(device, &rtv_original);
+		is_xegtao_drawn = true;
+
+		return false;
+	}
+
+	size = sizeof(hash);
+	hr = ps->GetPrivateData(g_ps_fog_0x3B177042_guid, &size, &hash);
+	if (SUCCEEDED(hr) && hash == g_ps_fog_0x3B177042_hash) {
+		// We expect RTV to be the main scene.
+		Com_ptr<ID3D10RenderTargetView> rtv_original;
+		device->OMGetRenderTargets(1, rtv_original.put(), nullptr);
+
+		// Get RT resource (texture) and texture description.
+		// We won't always have the main scene, check via resorce dimensions do we have it.
+		Com_ptr<ID3D10Resource> resource;
+		rtv_original->GetResource(resource.put());
+		Com_ptr<ID3D10Texture2D> tex;
+		ensure(resource->QueryInterface(tex.put()), >= 0);
+		D3D10_TEXTURE2D_DESC tex_desc;
+		tex->GetDesc(&tex_desc);
+		if (tex_desc.Width != g_swapchain_width) {
+			return false;
+		}
+
+		draw_xegtao(device, &rtv_original);
+		is_xegtao_drawn = true;
+
+		return false;
+	}
+
+	size = sizeof(hash);
+	hr = ps->GetPrivateData(g_ps_fog_0xEB7BE1D6_guid, &size, &hash);
+	if (SUCCEEDED(hr) && hash == g_ps_fog_0xEB7BE1D6_hash) {
+		// We expect RTV to be the main scene.
+		Com_ptr<ID3D10RenderTargetView> rtv_original;
+		device->OMGetRenderTargets(1, rtv_original.put(), nullptr);
+
+		// Get RT resource (texture) and texture description.
+		// We won't always have the main scene, check via resorce dimensions do we have it.
+		Com_ptr<ID3D10Resource> resource;
+		rtv_original->GetResource(resource.put());
+		Com_ptr<ID3D10Texture2D> tex;
+		ensure(resource->QueryInterface(tex.put()), >= 0);
+		D3D10_TEXTURE2D_DESC tex_desc;
+		tex->GetDesc(&tex_desc);
+		if (tex_desc.Width != g_swapchain_width) {
+			return false;
+		}
+
+		draw_xegtao(device, &rtv_original);
+		is_xegtao_drawn = true;
+
+		return false;
+	}
+
+	size = sizeof(hash);
+	hr = ps->GetPrivateData(g_ps_fog_0xF5E21918_guid, &size, &hash);
+	if (SUCCEEDED(hr) && hash == g_ps_fog_0xF5E21918_hash) {
+		// We expect RTV to be the main scene.
+		Com_ptr<ID3D10RenderTargetView> rtv_original;
+		device->OMGetRenderTargets(1, rtv_original.put(), nullptr);
+
+		// Get RT resource (texture) and texture description.
+		// We won't always have the main scene, check via resorce dimensions do we have it.
+		Com_ptr<ID3D10Resource> resource;
+		rtv_original->GetResource(resource.put());
+		Com_ptr<ID3D10Texture2D> tex;
+		ensure(resource->QueryInterface(tex.put()), >= 0);
+		D3D10_TEXTURE2D_DESC tex_desc;
+		tex->GetDesc(&tex_desc);
+		if (tex_desc.Width != g_swapchain_width) {
+			return false;
+		}
+
+		draw_xegtao(device, &rtv_original);
+		is_xegtao_drawn = true;
+
+		return false;
+	}
+
+	size = sizeof(hash);
+	hr = ps->GetPrivateData(g_ps_ceiling_debris_0xDC232D31_guid, &size, &hash);
+	if (SUCCEEDED(hr) && hash == g_ps_ceiling_debris_0xDC232D31_hash) {
+		// We expect RTV to be the main scene.
+		Com_ptr<ID3D10RenderTargetView> rtv_original;
+		device->OMGetRenderTargets(1, rtv_original.put(), nullptr);
+
+		// Get RT resource (texture) and texture description.
+		// We won't always have the main scene, check via resorce dimensions do we have it.
+		Com_ptr<ID3D10Resource> resource;
+		rtv_original->GetResource(resource.put());
+		Com_ptr<ID3D10Texture2D> tex;
+		ensure(resource->QueryInterface(tex.put()), >= 0);
+		D3D10_TEXTURE2D_DESC tex_desc;
+		tex->GetDesc(&tex_desc);
+		if (tex_desc.Width != g_swapchain_width) {
+			return false;
+		}
+
+		draw_xegtao(device, rtv_original.put());
+		is_xegtao_drawn = true;
+
+		return false;
+	}
+
+	size = sizeof(hash);
+	hr = ps->GetPrivateData(g_ps_r_glass_door_0x59018C97_guid, &size, &hash);
+	if (SUCCEEDED(hr) && hash == g_ps_r_glass_door_0x59018C97_hash) {
+		// We expect RTV to be the main scene.
+		Com_ptr<ID3D10RenderTargetView> rtv_original;
+		device->OMGetRenderTargets(1, rtv_original.put(), nullptr);
+
+		// Get RT resource (texture) and texture description.
+		// We won't always have the main scene, check via resorce dimensions do we have it.
+		Com_ptr<ID3D10Resource> resource;
+		rtv_original->GetResource(resource.put());
+		Com_ptr<ID3D10Texture2D> tex;
+		ensure(resource->QueryInterface(tex.put()), >= 0);
+		D3D10_TEXTURE2D_DESC tex_desc;
+		tex->GetDesc(&tex_desc);
+		if (tex_desc.Width != g_swapchain_width) {
+			return false;
+		}
+
+		draw_xegtao(device, &rtv_original);
+		is_xegtao_drawn = true;
+
+		return false;
+	}
+
+	size = sizeof(hash);
+	hr = ps->GetPrivateData(g_ps_godrays_0xE689FDF8_guid, &size, &hash);
+	if (SUCCEEDED(hr) && hash == g_ps_godrays_0xE689FDF8_hash) {
+		// We expect RTV to be the main scene.
+		Com_ptr<ID3D10RenderTargetView> rtv_original;
+		device->OMGetRenderTargets(1, rtv_original.put(), nullptr);
+
+		// Get RT resource (texture) and texture description.
+		// We won't always have the main scene, check via resorce dimensions do we have it. 
+		Com_ptr<ID3D10Resource> resource;
+		rtv_original->GetResource(resource.put());
+		Com_ptr<ID3D10Texture2D> tex;
+		ensure(resource->QueryInterface(tex.put()), >= 0);
+		D3D10_TEXTURE2D_DESC tex_desc;
+		tex->GetDesc(&tex_desc);
+		if (tex_desc.Width != g_swapchain_width) {
+			return false;
+		}
+
+		draw_xegtao(device, &rtv_original);
+		is_xegtao_drawn = true;
+
+		return false;
+	}
+
+	size = sizeof(hash);
+	hr = ps->GetPrivateData(g_ps_flashing_images_0x7862AA89_guid, &size, &hash);
+	if (SUCCEEDED(hr) && hash == g_ps_flashing_images_0x7862AA89_hash) {
+		// We expect RTV to be the main scene.
+		Com_ptr<ID3D10RenderTargetView> rtv_original;
+		device->OMGetRenderTargets(1, rtv_original.put(), nullptr);
+
+		#if DEV
+		// Get RT resource (texture) and texture description.
+		// Make sure we always have the main scene.
+		Com_ptr<ID3D10Resource> resource;
+		rtv_original->GetResource(resource.put());
+		Com_ptr<ID3D10Texture2D> tex;
+		ensure(resource->QueryInterface(tex.put()), >= 0);
+		D3D10_TEXTURE2D_DESC tex_desc;
+		tex->GetDesc(&tex_desc);
+		if (tex_desc.Width != g_swapchain_width) {
+			log_debug("0x7862AA89 RTV wasnt what we expected it to be.");
+			return false;
+		}
+		#endif
+
+		draw_xegtao(device, &rtv_original);
+		is_xegtao_drawn = true;
+
+		return false;
+	}
+
+	return false;
+}
+
 static void on_init_pipeline(reshade::api::device* device, reshade::api::pipeline_layout layout, uint32_t subobject_count, const reshade::api::pipeline_subobject* subobjects, reshade::api::pipeline pipeline)
 {
 	for (uint32_t i = 0; i < subobject_count; ++i) {
@@ -1588,6 +1583,25 @@ static void on_init_pipeline(reshade::api::device* device, reshade::api::pipelin
 	}
 }
 
+static bool on_create_resource_view(reshade::api::device* device, reshade::api::resource resource, reshade::api::resource_usage usage_type, reshade::api::resource_view_desc& desc)
+{
+	const auto resource_desc = device->get_resource_desc(resource);
+
+	// Try to filter only render targets that we have upgraded.
+	if ((resource_desc.usage & reshade::api::resource_usage::render_target) != 0) {
+		if (resource_desc.texture.format == reshade::api::format::r16g16b16a16_unorm) {
+			desc.format = reshade::api::format::r16g16b16a16_unorm;
+			return true;
+		}
+		if (resource_desc.texture.format == reshade::api::format::r16g16b16a16_float) {
+			desc.format = reshade::api::format::r16g16b16a16_float;
+			return true;
+		}
+	}
+
+	return false;
+}
+
 static bool on_create_resource(reshade::api::device* device, reshade::api::resource_desc& desc, reshade::api::subresource_data* initial_data, reshade::api::resource_usage initial_state)
 {
 	// Upgrade render targets.
@@ -1613,25 +1627,6 @@ static void on_init_resource(reshade::api::device* device, const reshade::api::r
 	}
 }
 
-static bool on_create_resource_view(reshade::api::device* device, reshade::api::resource resource, reshade::api::resource_usage usage_type, reshade::api::resource_view_desc& desc)
-{
-	const auto resource_desc = device->get_resource_desc(resource);
-
-	// Try to filter only render targets that we have upgraded.
-	if ((resource_desc.usage & reshade::api::resource_usage::render_target) != 0) {
-		if (resource_desc.texture.format == reshade::api::format::r16g16b16a16_unorm) {
-			desc.format = reshade::api::format::r16g16b16a16_unorm;
-			return true;
-		}
-		if (resource_desc.texture.format == reshade::api::format::r16g16b16a16_float) {
-			desc.format = reshade::api::format::r16g16b16a16_float;
-			return true;
-		}
-	}
-
-	return false;
-}
-
 static bool on_create_sampler(reshade::api::device* device, reshade::api::sampler_desc& desc)
 {
 	// The game already uses anisotropic filtering where it matters.
@@ -1652,8 +1647,13 @@ static bool on_create_swapchain(reshade::api::device_api api, reshade::api::swap
 	desc.back_buffer.texture.format = reshade::api::format::r10g10b10a2_unorm;
 	desc.back_buffer_count = 2;
 	desc.present_mode = DXGI_SWAP_EFFECT_FLIP_DISCARD;
-	desc.present_flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
 	desc.fullscreen_state = false;
+
+	if (g_force_vsync_off) {
+		desc.present_flags |= DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
+		desc.sync_interval = 0;
+	}
+
 	return true;
 }
 
@@ -1783,6 +1783,9 @@ static void read_config()
 	if (!reshade::get_config_value(nullptr, "BioshockGraphicalUpgrade", "GrainAmount", g_amd_ffx_lfga_amount)) {
 		reshade::set_config_value(nullptr, "BioshockGraphicalUpgrade", "GrainAmount", g_amd_ffx_lfga_amount);
 	}
+	if (!reshade::get_config_value(nullptr, "BioshockGraphicalUpgrade", "ForceVsyncOff", g_force_vsync_off)) {
+		reshade::set_config_value(nullptr, "BioshockGraphicalUpgrade", "ForceVsyncOff", g_force_vsync_off);
+	}
 	if (!reshade::get_config_value(nullptr, "BioshockGraphicalUpgrade", "FPSLimit", g_user_set_fps_limit)) {
 		reshade::set_config_value(nullptr, "BioshockGraphicalUpgrade", "FPSLimit", g_user_set_fps_limit);
 	}
@@ -1854,7 +1857,7 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 	}
 	ImGui::EndDisabled();
 	ImGui::Spacing();
-	
+
 	static constexpr std::array trc_items = { "sRGB", "Gamma" };
 	if (ImGui::Combo("TRC", &g_trc, trc_items.data(), trc_items.size())) {
 		reshade::set_config_value(nullptr, "BioshockGraphicalUpgrade", "TRC", g_trc);
@@ -1867,28 +1870,36 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 	}
 	ImGui::EndDisabled();
 	ImGui::Spacing();
-	
+
 	if (ImGui::SliderFloat("Bloom Intensity", &g_bloom_intensity, 0.0f, 3.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp)) {
 		reshade::set_config_value(nullptr, "BioshockGraphicalUpgrade", "BloomIntensity", g_bloom_intensity);
 		g_ps[hash_name("tonemap_0x87A0B43D")].reset();
 	}
 	ImGui::Spacing();
-	
+
 	if (ImGui::SliderFloat("Sharpness", &g_amd_ffx_cas_sharpness, 0.0f, 1.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp)) {
 		reshade::set_config_value(nullptr, "BioshockGraphicalUpgrade", "Sharpness", g_amd_ffx_cas_sharpness);
 		g_ps[hash_name("amd_ffx_cas")].reset();
 	}
 	ImGui::Spacing();
-	
+
 	if (ImGui::SliderFloat("Grain amount", &g_amd_ffx_lfga_amount, 0.0f, 1.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp)) {
 		reshade::set_config_value(nullptr, "BioshockGraphicalUpgrade", "GrainAmount", g_amd_ffx_lfga_amount);
 		g_ps[hash_name("amd_ffx_lfga")].reset();
 	}
 	ImGui::Spacing();
-	
+
+	if (ImGui::Checkbox("Force vsync off", &g_force_vsync_off)) {
+		reshade::set_config_value(nullptr, "BioshockGraphicalUpgrade", "ForceVsyncOff", g_force_vsync_off);
+	}
+	if (ImGui::IsItemHovered()) {
+		ImGui::SetItemTooltip("Requires restart.");
+	}
+	ImGui::Spacing();
+
 	ImGui::InputFloat("FPS limit", &g_user_set_fps_limit);
 	if (ImGui::IsItemDeactivatedAfterEdit()) {
-		g_user_set_fps_limit = std::clamp(g_user_set_fps_limit, 20.0f, 1000.0f);
+		g_user_set_fps_limit = std::clamp(g_user_set_fps_limit, 20.0f, FLT_MAX);
 		reshade::set_config_value(nullptr, "BioshockGraphicalUpgrade", "FPSLimit", g_user_set_fps_limit);
 		g_frame_interval = std::chrono::duration<double>(1.0 / (double)g_user_set_fps_limit);
 	}
@@ -1901,7 +1912,7 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 }
 
 extern "C" __declspec(dllexport) const char* NAME = "BioshockGrapicalUpgrade";
-extern "C" __declspec(dllexport) const char* DESCRIPTION = "BioshockGrapicalUpgrade v8.0.0";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "BioshockGrapicalUpgrade v8.1.0";
 extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/BioshockGraphicalUpgrade";
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)
@@ -1931,9 +1942,9 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)
 			reshade::register_event<reshade::addon_event::draw_indexed>(on_draw_indexed);
 			reshade::register_event<reshade::addon_event::draw>(on_draw);
 			reshade::register_event<reshade::addon_event::init_pipeline>(on_init_pipeline);
+			reshade::register_event<reshade::addon_event::create_resource_view>(on_create_resource_view);
 			reshade::register_event<reshade::addon_event::create_resource>(on_create_resource);
 			reshade::register_event<reshade::addon_event::init_resource>(on_init_resource);
-			reshade::register_event<reshade::addon_event::create_resource_view>(on_create_resource_view);
 			reshade::register_event<reshade::addon_event::create_sampler>(on_create_sampler);
 			reshade::register_event<reshade::addon_event::create_swapchain>(on_create_swapchain);
 			reshade::register_event<reshade::addon_event::init_swapchain>(on_init_swapchain);

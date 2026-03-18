@@ -117,6 +117,7 @@
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <AdditionalDependencies>$(CoreLibraryDependencies);%(AdditionalDependencies);d3dcompiler.lib;libMinHook.x86.lib</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(ProjectDir)minhook\lib</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
@@ -140,6 +141,7 @@
       <AdditionalDependencies>$(CoreLibraryDependencies);%(AdditionalDependencies);d3dcompiler.lib;libMinHook.x86.lib</AdditionalDependencies>
       <LinkTimeCodeGeneration>UseLinkTimeCodeGeneration</LinkTimeCodeGeneration>
       <LinkTimeCodeGenerationObjectFile />
+      <AdditionalLibraryDirectories>$(ProjectDir)minhook\lib</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">

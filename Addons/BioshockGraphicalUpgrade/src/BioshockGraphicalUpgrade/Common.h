@@ -4,7 +4,6 @@
 #include <imgui.h> // Has to be included before reshade.hpp
 #include <reshade.hpp>
 #include "crc32_hash.hpp"
-#include <..\..\deps\minhook\include\MinHook.h>
 
 // DirectX
 #include <dxgi1_6.h>

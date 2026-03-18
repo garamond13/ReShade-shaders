@@ -9,6 +9,7 @@
 - Temporal blue noise film grain (AMD FFX LFGA).
 - Adjustable Tone Responce Curve (TRC) (sRGB, gamma).
 - Accurate FPS limiter.
+- Improved tonemapping.
 - Upgraded render targets (greatly reduces color banding).
 - 10bit color output.
 - Greatly reduced input lag.
@@ -22,4 +23,3 @@
 ## Compilation
 
 - You can clone [ReShade](https://github.com/crosire/reshade) and add BioshockGraphicalUpgrade project to Examples solution, then build the project.
-- Depends on [MinHook](https://github.com/TsudaKageyu/minhook) (libMinHook.x86.lib). You can also get precompiled lib from the official github (MinHook_xxx_lib.zip). You can just copy libMinHook.x86.lib into the project folder.

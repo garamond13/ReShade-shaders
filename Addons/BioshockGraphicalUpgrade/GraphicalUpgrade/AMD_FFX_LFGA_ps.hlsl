@@ -19,7 +19,7 @@ Texture2D tex : register(t0);
 Texture2DArray<float> tex_noise : register(t1);
 
 #ifndef TEX_NOISE_DIMS
-#define TEX_NOISE_DIMS float2(128.0, 128.0)
+#define TEX_NOISE_DIMS float2(256.0, 256.0)
 #endif
 
 #ifndef AMOUNT

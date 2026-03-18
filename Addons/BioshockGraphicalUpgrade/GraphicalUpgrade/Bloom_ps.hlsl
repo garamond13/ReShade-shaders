@@ -1,6 +1,3 @@
-// Bloom
-//
-
 cbuffer _Globals : register(b12)
 {
 	float4 fogColor : packoffset(c0);
@@ -40,36 +37,33 @@ SamplerState smp : register(s1); // Should be linear clamp.
 Texture2D tex : register(t0);
 
 #define BLOOM_THRESHOLD PWLThreshold
-#define BLOOM_SOFT_KNEE BLOOM_THRESHOLD
+#define BLOOM_SOFT_KNEE (BLOOM_THRESHOLD / 1.0)
 #define BLOOM_TINT float3(1.0, 1.3, 1.0)
 
 float get_luma(float3 color)
 {
-	return dot(color, float3(0.2126f, 0.7152f, 0.0722f));
+	return dot(color, float3(0.2126, 0.7152, 0.0722));
 }
 
 float3 quadratic_threshold(float3 color)
 {
-	const float epsilon = 1e-6;
-
 	// Pixel brightness.
-	float br = max(max(color.r, color.g), color.b);
-	br = max(epsilon, br);
+	// From the original shader.
+	float br = dot(color, float3(0.270000011,0.670000017,0.0599999987));
 
 	// Under the threshold part, a quadratic curve.
 	// Above the threshold part will be a linear curve.
-	const float k = max(epsilon, BLOOM_SOFT_KNEE);
-	const float3 curve = float3(BLOOM_THRESHOLD - k, k * 2.0, 0.25 / k);
+	const float3 curve = float3(BLOOM_THRESHOLD - BLOOM_SOFT_KNEE, BLOOM_SOFT_KNEE * 2.0, 0.25 / BLOOM_SOFT_KNEE);
 	float rq = clamp(br - curve.x, 0.0, curve.y);
 	rq = curve.z * rq * rq;
 
 	// Combine and apply the brightness response curve.
-	return color * max(rq, br - BLOOM_THRESHOLD) * rcp(br);
+	return color * max(rq, br - BLOOM_THRESHOLD) / max(1e-6, br);
 }
 
 float get_gaussian_weight(float x)
 {
-	return exp(-x * x * rcp(2.0 * sigma * sigma));
+	return exp(-x * x / (2.0 * sigma * sigma));
 }
 
 // Prefilter should only be used as the second axis pass on the first MIP.
@@ -93,7 +87,7 @@ float4 bloom_prefilter_ps(float4 pos : SV_Position, float2 texcoord : TEXCOORD) 
 	}
 
 	// Normalize.
-	csum *= rcp(wsum);
+	csum /= wsum;
 
 	// Apply threshold.
 	float3 color = quadratic_threshold(csum);
@@ -101,7 +95,7 @@ float4 bloom_prefilter_ps(float4 pos : SV_Position, float2 texcoord : TEXCOORD) 
 	// Apply tint.
 	const float luma = get_luma(color);
 	color *= BLOOM_TINT;
-	color *= luma * rcp(max(1e-6, get_luma(color)));
+	color *= luma / max(1e-6, get_luma(color));
 
 	return float4(color, 1.0);
 }
@@ -126,7 +120,7 @@ float4 bloom_downsample_ps(float4 pos : SV_Position, float2 texcoord : TEXCOORD)
 	}
 
 	// Normalize.
-	csum *= rcp(wsum);
+	csum /= wsum;
 
 	return float4(csum, 1.0);
 }
@@ -155,14 +149,14 @@ float4 bloom_upsample_ps(float4 pos : SV_Position, float2 texcoord : TEXCOORD) :
 	float2 g1 = w2 + w3;
 
 	// h0 = w1/g0 - 1, move from [-0.5, extent-0.5] to [0, extent]
-	float2 h0 = (w1 / g0) - 0.5 + index;
-	float2 h1 = (w3 / g1) + 1.5 + index;
+	float2 h0 = ((w1 / g0) - 0.5 + index) * inv_src_size;
+	float2 h1 = ((w3 / g1) + 1.5 + index) * inv_src_size;
 
 	// fetch the four linear interpolations
-	float3 tex00 = tex.SampleLevel(smp, float2(h0.x, h0.y) * inv_src_size, 0.0).rgb;
-	float3 tex10 = tex.SampleLevel(smp, float2(h1.x, h0.y) * inv_src_size, 0.0).rgb;
-	float3 tex01 = tex.SampleLevel(smp, float2(h0.x, h1.y) * inv_src_size, 0.0).rgb;
-	float3 tex11 = tex.SampleLevel(smp, float2(h1.x, h1.y) * inv_src_size, 0.0).rgb;
+	float3 tex00 = tex.SampleLevel(smp, float2(h0.x, h0.y), 0.0).rgb;
+	float3 tex10 = tex.SampleLevel(smp, float2(h1.x, h0.y), 0.0).rgb;
+	float3 tex01 = tex.SampleLevel(smp, float2(h0.x, h1.y), 0.0).rgb;
+	float3 tex11 = tex.SampleLevel(smp, float2(h1.x, h1.y), 0.0).rgb;
 
 	// weigh along the y-direction
 	tex00 = lerp(tex01, tex00, g0.y);
