@@ -69,10 +69,13 @@ constexpr GUID g_ps_lens_flare_0xE5427265_guid = { 0xe92db518, 0x4b0d, 0x4b24, {
 
 constexpr uint32_t g_ps_bloom_prefilter_dof_0xC39285AF_hash = 0xC39285AF;
 constexpr GUID g_ps_bloom_prefilter_dof_0xC39285AF_guid = { 0x5e59c86e, 0xc9f2, 0x47e5, { 0xab, 0x20, 0x1, 0x57, 0xcb, 0xf3, 0x20, 0x0 } };
+
 constexpr uint32_t g_ps_bloom_prefilter_dof_0x6F4F1E8F_hash = 0x6F4F1E8F;
 constexpr GUID g_ps_bloom_prefilter_dof_0x6F4F1E8F_guid = { 0x595508db, 0xa6e9, 0x4bb6, { 0x9c, 0xa2, 0x6e, 0x40, 0x8e, 0x8, 0xda, 0xdb } };
+
 constexpr uint32_t g_ps_bloom_prefilter_dof_0x9113DE68_hash = 0x9113DE68;
 constexpr GUID g_ps_bloom_prefilter_dof_0x9113DE68_guid = { 0xe9d94101, 0xf98d, 0x443d, { 0x98, 0xe5, 0x53, 0xd5, 0x8d, 0xa4, 0xe3, 0xe6 } };
+
 constexpr uint32_t g_ps_bloom_prefilter_dof_0xAD03A911_hash = 0xAD03A911;
 constexpr GUID g_ps_bloom_prefilter_dof_0xAD03A911_guid = { 0x1d600368, 0x3ffd, 0x4b37, { 0x93, 0xa, 0xad, 0x56, 0x8f, 0x8f, 0xc7, 0xf5 } };
 
@@ -81,6 +84,7 @@ constexpr GUID g_ps_starburst_and_lens_dirt_0x2AD953ED_guid = { 0xecdc207f, 0x27
 
 constexpr uint32_t g_ps_object_highlight_white_0x4D93743F_hash = 0x4D93743F;
 constexpr GUID g_ps_object_highlight_white_0x4D93743F_guid = { 0xab06e6f6, 0x4a73, 0x490c, { 0x88, 0xd0, 0x73, 0xfe, 0xbe, 0xa7, 0x29, 0x43 } };
+
 constexpr uint32_t g_ps_object_highlight_red_0x61D986B8_hash = 0x61D986B8;
 constexpr GUID g_ps_object_highlight_red_0x61D986B8_guid = { 0xe180a8e2, 0x2bb, 0x48a1, { 0xab, 0xc8, 0xa3, 0xd8, 0x7a, 0x33, 0xdc, 0x4c } };
 
@@ -1105,11 +1109,6 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 			ensure(device->CreateShaderResourceView(tex.get(), nullptr, g_srv[hash_name("blue_noise_tex")].put()), >= 0);
 		}
 
-		// Create point wrap sampler.
-		[[unlikely]] if (!g_smp[hash_name("point_wrap")]) {
-			create_sampler_point_wrap(device.get(), g_smp[hash_name("point_wrap")].put());
-		}
-
 		// Update the constant buffer.
 		// We need to limit the temporal grain update rate, otherwise grain will flicker.
 		constexpr auto interval = std::chrono::duration_cast<std::chrono::high_resolution_clock::duration>(std::chrono::duration<double>(1.0 / (double)BLUE_NOISE_TEX_ARRAY_SIZE));
@@ -1127,16 +1126,12 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 		// Bindings.
 		ctx->OMSetRenderTargets(1, &rtv_original, nullptr);
 		ctx->PSSetShader(g_ps[hash_name("amd_ffx_lfga")].get(), nullptr, 0);
-		ctx->PSSetSamplers(0, 1, &g_smp[hash_name("point_wrap")]);
 		const std::array ps_srvs_amd_ffx_lfga = { g_srv[hash_name("amd_ffx_cas")].get(), g_srv[hash_name("blue_noise_tex")].get() };
 		ctx->PSSetShaderResources(0, ps_srvs_amd_ffx_lfga.size(), ps_srvs_amd_ffx_lfga.data());
 
 		ctx->Draw(3, 0);
 
 		//
-
-		// Restore.
-		ctx->PSSetSamplers(0, 1, &smp_original);
 
 		release_com_array(srvs_original);
 
@@ -1534,7 +1529,7 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 
 	ImGui::InputFloat("FPS limit", &g_user_set_fps_limit);
 	if (ImGui::IsItemDeactivatedAfterEdit()) {
-		g_user_set_fps_limit = std::clamp(g_user_set_fps_limit, 10.0f, FLT_MAX);
+		g_user_set_fps_limit = std::clamp(g_user_set_fps_limit, 20.0f, FLT_MAX);
 		reshade::set_config_value(nullptr, "BioShockInfiniteGraphicalUpgrade", "FPSLimit", g_user_set_fps_limit);
 		g_frame_interval = std::chrono::duration<double>(1.0 / (double)g_user_set_fps_limit);
 	}
@@ -1547,7 +1542,7 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 }
 
 extern "C" __declspec(dllexport) const char* NAME = "BioShockInfiniteGraphicalUpgrade";
-extern "C" __declspec(dllexport) const char* DESCRIPTION = "BioShockInfiniteGraphicalUpgrade v2.1.0";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "BioShockInfiniteGraphicalUpgrade v2.2.0";
 extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/BioShockInfiniteGraphicalUpgrade";
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)

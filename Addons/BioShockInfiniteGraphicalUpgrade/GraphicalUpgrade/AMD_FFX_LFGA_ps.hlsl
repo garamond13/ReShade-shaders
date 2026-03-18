@@ -18,31 +18,25 @@ Texture2D tex : register(t0);
 
 Texture2DArray<float> tex_noise : register(t1);
 
-// Should be point, wrap.
-SamplerState smp : register(s0);
-
-#ifndef WIEWPORT_DIMS
-#define WIEWPORT_DIMS float2(0.0, 0.0)
-#endif
-
-// float2(width, height)
+// int2(width, height)
 #ifndef TEX_NOISE_DIMS
-#define TEX_NOISE_DIMS float2(128.0, 128.0)
+#define TEX_NOISE_DIMS int2(256, 256)
 #endif
 
 #ifndef AMOUNT
 #define AMOUNT 1.0
 #endif
 
-float4 main(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
+float4 main(float4 pos : SV_Position) : SV_Target
 {
-	float grain = tex_noise.SampleLevel(smp, float3(texcoord * WIEWPORT_DIMS / TEX_NOISE_DIMS, tex_noise_index), 0.0);
+	const int2 noise_xy = int2(pos.xy) % TEX_NOISE_DIMS;
+	float noise = tex_noise.Load(int4(noise_xy, tex_noise_index, 0));
 
-	// Scale grain in range [-0.5, 0.5].
-	grain -= 0.5;
+	// Scale noise in range [-0.5, 0.5].
+	noise -= 0.5;
 
 	float4 color = tex.Load(int3(pos.xy, 0));
-	color.rgb += grain * AMOUNT * min(1.0 - color.rgb, color.rgb);
+	color.rgb += noise * AMOUNT * min(1.0 - color.rgb, color.rgb);
 
 	// Delinearize.
 	#ifdef SRGB

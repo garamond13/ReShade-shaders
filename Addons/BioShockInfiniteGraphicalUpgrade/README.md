@@ -10,6 +10,7 @@
 - Optionally disable lens flare.
 - Optionally disable lens dirt.
 - Accurate FPS limiter.
+- Improved tonemapping.
 - Upgraded render targets (greatly reduces color banding).
 - 10bit color output.
 - Greatly reduced input lag.
