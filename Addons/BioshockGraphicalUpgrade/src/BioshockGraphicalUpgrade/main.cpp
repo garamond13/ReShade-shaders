@@ -1912,7 +1912,7 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 }
 
 extern "C" __declspec(dllexport) const char* NAME = "BioshockGrapicalUpgrade";
-extern "C" __declspec(dllexport) const char* DESCRIPTION = "BioshockGrapicalUpgrade v8.1.0";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "BioshockGrapicalUpgrade v8.2.0";
 extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/BioshockGraphicalUpgrade";
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)
@@ -1933,9 +1933,9 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)
 			g_srv_bloom_mips_y.resize(g_bloom_nmips);
 			assert(g_bloom_nmips == 6);
 			g_bloom_sigmas[0] = 1.5f;
-			g_bloom_sigmas[1] = 1.0f;
-			g_bloom_sigmas[2] = 1.0f;
-			g_bloom_sigmas[3] = 1.0f;
+			g_bloom_sigmas[1] = 2.0f;
+			g_bloom_sigmas[2] = 2.0f;
+			g_bloom_sigmas[3] = 2.0f;
 			g_bloom_sigmas[4] = 1.0f;
 			g_bloom_sigmas[5] = 1.0f;
 

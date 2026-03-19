@@ -38,7 +38,7 @@ Texture2D tex : register(t0);
 
 #define BLOOM_THRESHOLD PWLThreshold
 #define BLOOM_SOFT_KNEE (BLOOM_THRESHOLD / 1.0)
-#define BLOOM_TINT float3(1.0, 1.3, 1.0)
+#define BLOOM_TINT float3(1.0, 1.2, 1.0)
 
 float get_luma(float3 color)
 {
