@@ -1,3 +1,6 @@
+#define DEV 0
+#define OUTPUT_ASSEMBLY 0
+#define SHOW_AO 0
 #include "Common.h"
 #include "Helpers.h"
 #include "AreaTex.h"
@@ -6,10 +9,6 @@
 #include "HLSLTypes.h"
 #include "TRC.h"
 #include "minhook\include\MinHook.h"
-
-#define DEV 0
-#define OUTPUT_ASSEMBLY 0
-#define SHOW_AO 0
 
 struct alignas(16) CB_graphical_upgrade_data
 {
@@ -254,7 +253,6 @@ static void draw_xegtao(ID3D10Device* device, ID3D10RenderTargetView*const* rtv)
 	device->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 	device->VSSetShader(g_vs[hash_name("fullscreen_triangle")].get());
 	device->PSSetShader(g_ps[hash_name("xe_gtao_prefilter_depths_mip0")].get());
-	device->PSSetConstantBuffers(12, 1, &g_cb[hash_name("tonemap_0x87A0B43D")]);
 	device->PSSetSamplers(0, 1, &g_smp[hash_name("point_clamp")]);
 	device->PSSetShaderResources(0, 1, &g_srv[hash_name("depth")]);
 	device->RSSetState(nullptr);
@@ -555,9 +553,6 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 	size = sizeof(hash);
 	hr = ps->GetPrivateData(g_ps_tonemap_0x87A0B43D_guid, &size, &hash);
 	if (SUCCEEDED(hr) && hash == g_ps_tonemap_0x87A0B43D_hash) {
-
-		device->PSGetConstantBuffers(0, 1, g_cb[hash_name("tonemap_0x87A0B43D")].put());
-
 		// We expect RTV to be the back buffer.
 		Com_ptr<ID3D10RenderTargetView> rtv_original;
 		device->OMGetRenderTargets(1, rtv_original.put(), nullptr);
@@ -1912,7 +1907,7 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 }
 
 extern "C" __declspec(dllexport) const char* NAME = "BioshockGrapicalUpgrade";
-extern "C" __declspec(dllexport) const char* DESCRIPTION = "BioshockGrapicalUpgrade v8.2.0";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "BioshockGrapicalUpgrade v8.3.0";
 extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/BioshockGraphicalUpgrade";
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)

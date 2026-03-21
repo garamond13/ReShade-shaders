@@ -4,27 +4,6 @@
 //
 // Source: https://github.com/GameTechDev/XeGTAO
 
-cbuffer _Globals : register(b12)
-{
-	float4 fogColor : packoffset(c0);
-	float3 fogTransform : packoffset(c1);
-	float4x3 screenDataToCamera : packoffset(c2);
-	float globalScale : packoffset(c5);
-	float sceneDepthAlphaMask : packoffset(c5.y);
-	float globalOpacity : packoffset(c5.z);
-	float distortionBufferScale : packoffset(c5.w);
-	float2 wToZScaleAndBias : packoffset(c6);
-	float4 screenTransform[2] : packoffset(c7);
-	float4 textureToPixel : packoffset(c9);
-	float4 pixelToTexture : packoffset(c10);
-	float maxScale : packoffset(c11);
-	float bloomAlpha : packoffset(c11.y);
-	float sceneBias : packoffset(c11.z);
-	float exposure : packoffset(c11.w);
-	float deltaExposure : packoffset(c12);
-	float4 ColorFill : packoffset(c13);
-}
-
 // THESE MUST BE DEFINED!
 //
 
@@ -103,6 +82,14 @@ cbuffer _Globals : register(b12)
 #define DENOISE_BLUR_BETA 1.2 // Default 1.2
 #endif
 
+#ifndef CAMERA_CLIP_NEAR
+#define CAMERA_CLIP_NEAR 0.1
+#endif
+
+#ifndef CAMERA_CLIP_FAR
+#define CAMERA_CLIP_FAR 1000.0
+#endif
+
 //
 
 #ifndef NDC_TO_VIEW_MUL_X_PIXEL_SIZE
@@ -117,7 +104,16 @@ cbuffer _Globals : register(b12)
 
 float XeGTAO_ScreenSpaceToViewSpaceDepth(float screenDepth)
 {
-	return wToZScaleAndBias.y / (screenDepth - wToZScaleAndBias.x) / 100.0; // Dividing by 100 makes AO look right.
+	float depthLinearizeMul = CAMERA_CLIP_FAR * CAMERA_CLIP_NEAR / (CAMERA_CLIP_FAR - CAMERA_CLIP_NEAR);
+	float depthLinearizeAdd = CAMERA_CLIP_FAR / (CAMERA_CLIP_FAR - CAMERA_CLIP_NEAR);
+
+	// correct the handedness issue. need to make sure this below is correct, but I think it is.
+	if (depthLinearizeMul * depthLinearizeAdd < 0.0) {
+		depthLinearizeAdd = -depthLinearizeAdd;
+	}
+
+	// Optimised version of "-cameraClipNear / (cameraClipFar - projDepth * (cameraClipFar - cameraClipNear)) * cameraClipFar"
+	return depthLinearizeMul / (depthLinearizeAdd - screenDepth);
 }
 
 // This is also a good place to do non-linear depth conversion for cases where one wants the 'radius' (effectively the threshold between near-field and far-field GI), 
