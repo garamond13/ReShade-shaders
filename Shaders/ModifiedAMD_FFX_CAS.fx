@@ -1,5 +1,8 @@
 // Modified AMD FidelityFX Contrast Adaptive Sharpening
+//
 // Rescaled the effect of sharpening, now sharpness = 0 means no sharpening and sharpness = 1 is same as before.
+// Instead of using only green channel it uses luma.
+//
 // Ported from: https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK/blob/54fbaafdc34716811751bea5032700e78f5a0f33/sdk/include/FidelityFX/gpu/cas/ffx_cas.h
 
 #include "ReShade.fxh"
@@ -41,6 +44,11 @@ float3 _delinearize(float3 rgb)
 #define delinearize(x) (_delinearize(x))
 #endif
 
+float get_luma(float3 color)
+{
+	return dot(color, float3(0.2126, 0.7152, 0.0722));
+}
+
 // With defined FFX_CAS_BETTER_DIAGONALS and FFX_CAS_USE_PRECISE_MATH.
 float3 casFilterNoScaling(float4 pos : SV_Position) : SV_Target
 {
@@ -58,36 +66,46 @@ float3 casFilterNoScaling(float4 pos : SV_Position) : SV_Target
 	float3 sampleH = linearize(tex2Dfetch(smpColor, int2(pos.xy) + int2(0, 1), 0).rgb);
 	float3 sampleI = linearize(tex2Dfetch(smpColor, int2(pos.xy) + int2(1, 1), 0).rgb);
 
+	// Get lumas for samples.
+	float lumaA = get_luma(sampleA);
+	float lumaB = get_luma(sampleB);
+	float lumaC = get_luma(sampleC);
+	float lumaD = get_luma(sampleD);
+	float lumaE = get_luma(sampleE);
+	float lumaF = get_luma(sampleF);
+	float lumaG = get_luma(sampleG);
+	float lumaH = get_luma(sampleH);
+	float lumaI = get_luma(sampleI);
+
 	// Soft min and max.
 	//  a b c             b
 	//  d e f * 0.5  +  d e f * 0.5
 	//  g h i             h
 	// These are 2.0x bigger (factored out the extra multiply).
-	float3 minimumRGB = min3(min3(sampleD, sampleE, sampleF), sampleB, sampleH);
-	float3 minimumRGB2 = min3(min3(minimumRGB, sampleA, sampleC), sampleG, sampleI);
-	minimumRGB += minimumRGB2;
-	float3 maximumRGB = max3(max3(sampleD, sampleE, sampleF), sampleB, sampleH);
-	float3 maximumRGB2 = max3(max3(maximumRGB, sampleA, sampleC), sampleG, sampleI);
-	maximumRGB += maximumRGB2;
+	float minimumLuma = min3(min3(lumaD, lumaE, lumaF), lumaB, lumaH);
+	float minimumLuma2 = min3(min3(minimumLuma, lumaA, lumaC), lumaG, lumaI);
+	minimumLuma += minimumLuma2;
+	float maximumLuma = max3(max3(lumaD, lumaE, lumaF), lumaB, lumaH);
+	float maximumLuma2 = max3(max3(maximumLuma, lumaA, lumaC), lumaG, lumaI);
+	maximumLuma += maximumLuma2;
 
 	// Smooth minimum distance to signal limit divided by smooth max.
-	float3 reciprocalMaximumRGB = rcp(maximumRGB);
-	float3 amplifyRGB = saturate(min(minimumRGB, 2.0 - maximumRGB) * reciprocalMaximumRGB);	
+	float amplifyLuma = saturate(min(minimumLuma, 2.0 - maximumLuma) * rcp(maximumLuma));
 	
 	// Shaping amount of sharpening.
-	amplifyRGB = sqrt(amplifyRGB);
+	amplifyLuma = sqrt(amplifyLuma);
 
 	// Filter shape.
 	//  0 w 0
 	//  w 1 w
 	//  0 w 0
 	float peak = -0.2 * sqrt(saturate(sharpness));
-	float3 weight = amplifyRGB * peak;
+	float weight = amplifyLuma * peak;
 
 	// Filter using green coef only, depending on dead code removal to strip out the extra overhead.
-	float reciprocalWeight = rcp(1.0 + 4.0 * weight.g);
+	float reciprocalWeight = rcp(1.0 + 4.0 * weight);
 
-	return delinearize(saturate((sampleB * weight.g + sampleD * weight.g + sampleF * weight.g + sampleH * weight.g + sampleE) * reciprocalWeight));
+	return delinearize(saturate((sampleB * weight + sampleD * weight + sampleF * weight + sampleH * weight + sampleE) * reciprocalWeight));
 }
 
 technique CAS < ui_label = "Modified AMD FFX CAS"; >
