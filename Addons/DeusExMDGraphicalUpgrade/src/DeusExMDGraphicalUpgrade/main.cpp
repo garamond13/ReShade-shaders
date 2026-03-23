@@ -378,13 +378,13 @@ static bool on_create_swapchain(reshade::api::device_api api, reshade::api::swap
 	#endif
 
 	desc.back_buffer.texture.format = reshade::api::format::r10g10b10a2_unorm;
-	desc.back_buffer_count = 2;
+	desc.back_buffer_count = desc.back_buffer_count < 2 ? 2 : desc.back_buffer_count;
 	desc.present_mode = DXGI_SWAP_EFFECT_FLIP_DISCARD;
 	desc.fullscreen_state = false;
-	desc.fullscreen_refresh_rate = 0.0f;
 
 	if (g_force_vsync_off) {
 		desc.present_flags |= DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
+		desc.fullscreen_refresh_rate = 0.0f;
 		desc.sync_interval = 0;
 	}
 
@@ -405,7 +405,7 @@ static void on_init_swapchain(reshade::api::swapchain* swapchain, bool resize)
 	}
 
 	// Minimum supported resolution by DLSS.
-	// The game may create 2nd swapchain that should be 2x2.
+	// The game may create the 2nd swapchain that should be 2x2.
 	if (desc.BufferDesc.Width < 32 && desc.BufferDesc.Height < 32) {
 		return;
 	}
@@ -541,7 +541,7 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 }
 
 extern "C" __declspec(dllexport) const char* NAME = "DeusExMDGraphicalUpgrade";
-extern "C" __declspec(dllexport) const char* DESCRIPTION = "DeusExMDGraphicalUpgrade v1.0.1";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "DeusExMDGraphicalUpgrade v1.1.0";
 extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/DeusExMDGraphicalUpgrade";
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)
