@@ -3,7 +3,7 @@
 - Modern borderless window (flip mod, tearing).
 - Replaced ambient occlusion (SSAO) with XeGTAO.
 - Replaced TAA.
-- Optionally replaced TAA with DLSS (DLAA).
+- Optionally replace TAA with DLSS (DLAA).
 - Improved bloom.
 - Adjustable bloom intensity.
 - Adjustable vigenette strenghth.
