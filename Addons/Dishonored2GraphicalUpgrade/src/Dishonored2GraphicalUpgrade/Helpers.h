@@ -126,6 +126,11 @@ consteval uint32_t hash_name(const char* str)
 	return hash;
 }
 
+consteval uint32_t operator"" _h(const char* str, size_t len)
+{
+	return hash_name(str);
+}
+
 inline void release_com_array(auto& array)
 {
 	for (auto*& ptr : array) {

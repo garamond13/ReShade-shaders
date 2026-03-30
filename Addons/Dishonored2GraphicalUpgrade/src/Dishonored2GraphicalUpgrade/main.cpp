@@ -208,10 +208,9 @@ static void on_execute_secondary_command_list(reshade::api::command_list* cmd_li
 		eval_params.InRenderSubrectDimensions.Width = g_swapchain_width;
 		eval_params.InRenderSubrectDimensions.Height = g_swapchain_height;
 
-		// We need to swap jitters. They are originally swapped or its just DLSS thing?
 		// Jitters are in UV offsets so we need to scale them to pixel offsets for DLSS.
-		eval_params.InJitterOffsetX = g_per_view_cb.cb_jittervectors.y * (float)g_swapchain_height;
-		eval_params.InJitterOffsetY = g_per_view_cb.cb_jittervectors.x * (float)g_swapchain_width;
+		eval_params.InJitterOffsetX = g_per_view_cb.cb_projectionmatrix._m[2][0] * (float)g_swapchain_width * -0.5;
+		eval_params.InJitterOffsetY = g_per_view_cb.cb_projectionmatrix._m[2][1] * (float)g_swapchain_height * 0.5;
 
 		DLSS::instance().draw(ctx.get(), eval_params);
 
@@ -1124,7 +1123,7 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 }
 
 extern "C" __declspec(dllexport) const char* NAME = "Dishonored2GraphicalUpgrade";
-extern "C" __declspec(dllexport) const char* DESCRIPTION = "Dishonored2GraphicalUpgrade v1.13.0";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "Dishonored2GraphicalUpgrade v1.13.1";
 extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/Dishonored2GraphicalUpgrade";
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)
