@@ -1,6 +1,4 @@
-// The last shader before UI
-//
-// Optionaly (user configurable) disable lens flare.
+#include "Color.hlsli"
 
 cbuffer _Globals : register(b0)
 {
@@ -80,9 +78,16 @@ Texture2D<float4> tonemapBloomTexture : register(t1);
 Texture2D<float4> flareTexture : register(t2);
 Texture2D<float4> exposureTexture : register(t3);
 
+#ifndef BLOOM_INTENSITY
+#define BLOOM_INTENSITY 1.0
+#endif
+
+#ifndef DISABLE_LENS_FLARE
+#define DISABLE_LENS_FLARE 0
+#endif
+
 // 3Dmigoto declarations
 #define cmp -
-
 
 void main(
   float4 v0 : SV_Position0,
@@ -107,7 +112,7 @@ void main(
   r1.xyz = colorScale.xyz * r0.www;
   r2.xyz = tonemapBloomTexture.Sample(tonemapBloomTexture_s, v2.xy).xyz;
   r3.xyzw = mainTexture.Sample(mainTexture_s, v2.xy).xyzw;
-  r2.xyz = r2.xyz * bloomScale.xyz + r3.xyz;
+  r2.xyz = r2.xyz * bloomScale.xyz * BLOOM_INTENSITY + r3.xyz;
   o0.w = r3.w;
   r1.xyz = r2.xyz * r1.xyz + float3(-0.00400000019,-0.00400000019,-0.00400000019);
   r1.xyz = max(float3(0,0,0), r1.xyz);
@@ -117,16 +122,25 @@ void main(
   r1.xyz = r1.xyz * r3.xyz + float3(0.0599999987,0.0599999987,0.0599999987);
   r1.xyz = r2.xyz / r1.xyz;
   r1.xyz = min(float3(1,1,1), r1.xyz);
-  
-  #ifndef DISABLE_LENS_FLARE
+
+  #if !DISABLE_LENS_FLARE
   r2.xyz = flareTexture.Sample(flareTexture_s, v2.xy).xyz;
   r1.xyz = r2.xyz + r1.xyz;
   #endif
-  
+
   r0.xyz = r1.xyz * r0.xyz;
   r0.w = 1;
-  o0.x = dot(r0.xyzw, colorMatrix0.xyzw);
-  o0.y = dot(r0.xyzw, colorMatrix1.xyzw);
-  o0.z = dot(r0.xyzw, colorMatrix2.xyzw);
+
+  // Original RGB out.
+  //o0.x = dot(r0.xyzw, colorMatrix0.xyzw);
+  //o0.y = dot(r0.xyzw, colorMatrix1.xyzw);
+  //o0.z = dot(r0.xyzw, colorMatrix2.xyzw);
+
+  // Linear out.
+  r1.x = dot(r0.xyzw, colorMatrix0.xyzw);
+  r1.y = dot(r0.xyzw, colorMatrix1.xyzw);
+  r1.z = dot(r0.xyzw, colorMatrix2.xyzw);
+  o0.xyz = srgb_to_linear(r1.xyz);
+
   return;
 }
