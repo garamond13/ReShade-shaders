@@ -4,6 +4,30 @@
 #include "TRC.h"
 #include "minhook\include\MinHook.h"
 #include "DLSS.h"
+#include "HLSLTypes.h"
+
+struct alignas(16) cbSharedPerViewData
+{
+    float4x4    mProjection;
+    float4x4    mProjectionInverse;
+    float4x4    mViewToViewport;
+    float4x4    mWorldToView;
+    float4x4    mViewToWorld;
+    float4    vViewRemap;
+    float4    vViewDepthRemap;
+    float4    vEyeVectorUL;
+    float4    vEyeVectorLR;
+    float4    vViewSpaceUpVector;
+    float4    vCheckerModeParams;
+    float4    vViewportSize;
+    float4    vEngineTime;
+    float4    vPrecipitations;
+    float4    vClipPlane;
+    float4    vExtraParams;
+    float4    vScatteringParams;
+    float4    vStereoscopic3DCorrectionParams;
+    float4    vCHSParams;
+};
 
 // Shader hooks and replacemnt shaders.
 //
@@ -22,8 +46,8 @@ constexpr GUID g_ps_last_known_location_0xA6A0E453_guid = { 0x76699d13, 0x2d88, 
 
 //
 
-static uint32_t g_swapchain_width;
-static uint32_t g_swapchain_height;
+static int g_swapchain_width;
+static int g_swapchain_height;
 static bool g_force_vsync_off = true;
 static float g_amd_ffx_cas_sharpness = 0.4f;
 static bool g_disable_last_known_location = true;
@@ -34,10 +58,9 @@ static bool g_enable_dlss = false;
 static DLSS_PRESET g_dlss_preset = DLSS_PRESET_F;
 
 // Jitters.
-static void* g_cb0_mapped_data;
-static uintptr_t g_cb0;
-static float g_jitter_x;
-static float g_jitter_y;
+void* g_cbSharedPerViewData_mapped_data;
+uintptr_t g_cbSharedPerViewData_handle;
+cbSharedPerViewData g_cbSharedPerViewData_data;
 
 // FPS limiter.
 //
@@ -187,9 +210,7 @@ static bool on_dispatch(reshade::api::command_list* cmd_list, uint32_t group_cou
 			// DLSS pass
 			//
 			// The game renders all in sRGB (or mixed), should we linearize for DLSS?
-			// 
-			// This game is fucked no matter what, 3 devices at the same time, and 2 swapchains on epic games version.
-			// DLSS may fail no matter what.
+			//
 
 			// Get SRVs and their resources.
 			std::array<ID3D11ShaderResourceView*, 3> srvs = {};
@@ -215,16 +236,15 @@ static bool on_dispatch(reshade::api::command_list* cmd_list, uint32_t group_cou
 
 			// MVs are in UV space so we need to scale them to screen space for DLSS.
 			// Also for DLSS we need to flip the sign for both x and y.
-			eval_params.InMVScaleX = -(float)g_swapchain_width;
-			eval_params.InMVScaleY = -(float)g_swapchain_height;
+			eval_params.InMVScaleX = -g_swapchain_width;
+			eval_params.InMVScaleY = -g_swapchain_height;
 
 			eval_params.InRenderSubrectDimensions.Width = g_swapchain_width;
 			eval_params.InRenderSubrectDimensions.Height = g_swapchain_height;
 
 			// Jitters are in UV offsets so we need to scale them to pixel offsets for DLSS.
-			// Also we need to halve them, another DLSS thing or?
-			eval_params.InJitterOffsetX = g_jitter_x * (float)g_swapchain_width * 0.5f;
-			eval_params.InJitterOffsetY = g_jitter_y * (float)g_swapchain_height * 0.5f;
+			eval_params.InJitterOffsetX = g_cbSharedPerViewData_data.mProjection.m[2][0] * (float)g_swapchain_width * -0.5f;
+			eval_params.InJitterOffsetY = g_cbSharedPerViewData_data.mProjection.m[2][1] * (float)g_swapchain_height * 0.5f;
 
 			DLSS::instance().draw(ctx, eval_params);
 
@@ -293,21 +313,20 @@ static void on_map_buffer_region(reshade::api::device* device, reshade::api::res
 	D3D11_BUFFER_DESC desc;
 	buffer->GetDesc(&desc);
 	if (desc.BindFlags == D3D11_BIND_CONSTANT_BUFFER && desc.ByteWidth == 544) {
-		g_cb0 = resource.handle;
-		g_cb0_mapped_data = *data;
+		g_cbSharedPerViewData_handle = resource.handle;
+		g_cbSharedPerViewData_mapped_data = *data;
 	}
 }
 
 static void on_unmap_buffer_region(reshade::api::device* device, reshade::api::resource resource)
 {
-	if (g_cb0 == resource.handle) {
-		auto data = (float*)g_cb0_mapped_data;
+	if (g_cbSharedPerViewData_handle == resource.handle) {
+		auto data = (float*)g_cbSharedPerViewData_mapped_data;
 
 		// This should be reliable.
 		if (data[8] && data[9] && data[8] == data[129]) {
-			g_jitter_x = data[8];
-			g_jitter_y = data[9];
-			g_cb0 = 0;
+			std::memcpy(&g_cbSharedPerViewData_data, data, sizeof(g_cbSharedPerViewData_data));
+			g_cbSharedPerViewData_handle = 0;
 		}
 	}
 }
@@ -378,7 +397,7 @@ static bool on_create_swapchain(reshade::api::device_api api, reshade::api::swap
 	#endif
 
 	desc.back_buffer.texture.format = reshade::api::format::r10g10b10a2_unorm;
-	desc.back_buffer_count = desc.back_buffer_count < 2 ? 2 : desc.back_buffer_count;
+	desc.back_buffer_count = std::max(2u, desc.back_buffer_count);
 	desc.present_mode = DXGI_SWAP_EFFECT_FLIP_DISCARD;
 	desc.fullscreen_state = false;
 
@@ -541,7 +560,7 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 }
 
 extern "C" __declspec(dllexport) const char* NAME = "DeusExMDGraphicalUpgrade";
-extern "C" __declspec(dllexport) const char* DESCRIPTION = "DeusExMDGraphicalUpgrade v1.1.0";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "DeusExMDGraphicalUpgrade v1.2.0";
 extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/DeusExMDGraphicalUpgrade";
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)
