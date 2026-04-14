@@ -21,7 +21,7 @@
   <PropertyGroup Label="Globals">
     <VCProjectVersion>17.0</VCProjectVersion>
     <Keyword>Win32Proj</Keyword>
-    <ProjectGuid>{B276ABF0-C7E5-47CE-A426-CB73E1EE74FF}</ProjectGuid>
+    <ProjectGuid>{982824B7-E831-40CA-97D8-83126745E025}</ProjectGuid>
     <RootNamespace>UpgradeSwapEffect</RootNamespace>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
@@ -86,13 +86,13 @@
     <TargetExt>.addon32</TargetExt>
     <OutDir>..\..\bin\$(Platform)\$(Configuration) Examples\</OutDir>
     <IntDir>..\..\intermediate\$(ProjectName)\$(Platform)\$(Configuration)\</IntDir>
-    <TargetName>Dishonored2GraphicalUpgrade</TargetName>
+    <TargetName>TEMPLATEGraphicalUpgrade</TargetName>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <TargetExt>.addon32</TargetExt>
     <OutDir>..\..\bin\$(Platform)\$(Configuration) Examples\</OutDir>
     <IntDir>..\..\intermediate\$(ProjectName)\$(Platform)\$(Configuration)\</IntDir>
-    <TargetName>Dishonored2GraphicalUpgrade</TargetName>
+    <TargetName>TEMPLATEGraphicalUpgrade</TargetName>
   </PropertyGroup>
   <PropertyGroup Label="Vcpkg" Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <VcpkgUseStatic>true</VcpkgUseStatic>
@@ -189,14 +189,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="BlueNoiseTex.h" />
-    <ClInclude Include="Common.h" />
-    <ClInclude Include="ComPtr.h" />
     <ClInclude Include="DLSS.h" />
-    <ClInclude Include="Ensure.h" />
-    <ClInclude Include="GraphicalUpgradePath.h" />
-    <ClInclude Include="Helpers.h" />
-    <ClInclude Include="HLSLTypes.h" />
-    <ClInclude Include="TRC.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

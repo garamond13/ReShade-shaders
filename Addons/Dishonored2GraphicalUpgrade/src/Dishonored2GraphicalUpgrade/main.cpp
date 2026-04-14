@@ -1,16 +1,10 @@
 #define DEV 0
 #define OUTPUT_ASSEMBLY 0
 #define SHOW_AO 0
-#include "Helpers.h"
-#include "TRC.h"
+#include "Include/GraphicalUpgrade.h"
+#include "Include/GraphicalUpgradeCB.hlsli.h"
 #include "DLSS.h"
-#include "HLSLTypes.h"
 #include "BlueNoiseTex.h"
-
-struct alignas(16) CB_data
-{
-   float tex_noise_index;
-};
 
 struct alignas(16) PerViewCB
 {
@@ -25,7 +19,7 @@ struct alignas(16) PerViewCB
 	float4x4 cb_previousprojectionmatrix;
 	float4 cb_mousecursorposition;
 	float4 cb_mousebuttonsdown;
-	float4 cb_jittervectors; // xy current and zw previous, in uv offsets.
+	float4 cb_jittervectors;
 	float4x4 cb_inverseviewprojectionmatrix;
 	float4x4 cb_inverseviewmatrix;
 	float4x4 cb_inverseprojectionmatrix;
@@ -50,50 +44,32 @@ struct alignas(16) PerViewCB
 // Shader hooks.
 //
 
-constexpr uint32_t g_ps_ssao_0x94445D2D_hash = 0x94445D2D;
-constexpr GUID g_ps_ssao_0x94445D2D_guid = { 0x37961341, 0x530f, 0x405b, { 0xa7, 0x38, 0xdf, 0xc2, 0x5c, 0xaa, 0x32, 0xdc } };
-
-constexpr uint32_t g_ps_tonemap_0xA6F33860_hash = 0xA6F33860;
-constexpr GUID g_ps_tonemap_0xA6F33860_guid = { 0xdd2785dc, 0x1465, 0x418a, { 0xa9, 0xaf, 0xe2, 0x4f, 0x1e, 0xd0, 0x4c, 0x29 } };
-
-constexpr uint32_t g_ps_tonemap_0x11E16EF3_hash = 0x11E16EF3;
-constexpr GUID g_ps_tonemap_0x11E16EF3_guid = { 0xd0922fff, 0x1053, 0x46f8, { 0xa0, 0x91, 0x11, 0xd9, 0xa3, 0x4a, 0xdd, 0x89 } };
-
-constexpr uint32_t g_ps_vignette_0xFD4216EA_hash = 0xFD4216EA;
-constexpr GUID g_ps_vignette_0xFD4216EA_guid = { 0x96c298b8, 0xd56a, 0x4e67, { 0x90, 0x12, 0x8, 0x8a, 0xeb, 0x99, 0xb1, 0xf } };
-
-constexpr uint32_t g_ps_upsample_0x1A0CD2AE_hash = 0x1A0CD2AE;
-constexpr GUID g_ps_upsample_0x1A0CD2AE_guid = { 0xaaf2a4bb, 0x496b, 0x47be, { 0xbf, 0xf6, 0xae, 0x48, 0xb3, 0x3f, 0x6f, 0x50 } };
-
-constexpr uint32_t g_cs_downsample_depth_0x27BD5265_hash = 0x27BD5265;
-constexpr GUID g_cs_downsample_depth_0x27BD5265_guid = { 0xd2d58efa, 0x76e4, 0x45a6, { 0xae, 0x81, 0x46, 0x83, 0xd0, 0x11, 0x86, 0x28 } };
-
-constexpr uint32_t g_cs_taa_0x06BBC941_hash = 0x06BBC941;
-constexpr GUID g_cs_taa_0x06BBC941_guid = { 0x16cb60d, 0x938, 0x4e9d, { 0xa7, 0x7f, 0xea, 0x40, 0x56, 0x19, 0x9, 0xd6 } };
+constexpr Shader_hash g_ps_ssao_0x94445D2D = { 0x94445D2D, { 0x37961341, 0x530f, 0x405b, { 0xa7, 0x38, 0xdf, 0xc2, 0x5c, 0xaa, 0x32, 0xdc }}};
+constexpr Shader_hash g_ps_tonemap_0xA6F33860 = { 0xA6F33860, { 0xdd2785dc, 0x1465, 0x418a, { 0xa9, 0xaf, 0xe2, 0x4f, 0x1e, 0xd0, 0x4c, 0x29 }}};
+constexpr Shader_hash g_ps_tonemap_0x11E16EF3 = { 0x11E16EF3, { 0xd0922fff, 0x1053, 0x46f8, { 0xa0, 0x91, 0x11, 0xd9, 0xa3, 0x4a, 0xdd, 0x89 }}};
+constexpr Shader_hash g_ps_vignette_0xFD4216EA = { 0xFD4216EA, { 0x96c298b8, 0xd56a, 0x4e67, { 0x90, 0x12, 0x8, 0x8a, 0xeb, 0x99, 0xb1, 0xf }}};
+constexpr Shader_hash g_ps_upsample_0x1A0CD2AE = { 0x1A0CD2AE, { 0xaaf2a4bb, 0x496b, 0x47be, { 0xbf, 0xf6, 0xae, 0x48, 0xb3, 0x3f, 0x6f, 0x50 }}};
+constexpr Shader_hash g_cs_downsample_depth_0x27BD5265 = { 0x27BD5265, { 0xd2d58efa, 0x76e4, 0x45a6, { 0xae, 0x81, 0x46, 0x83, 0xd0, 0x11, 0x86, 0x28 }}};
+constexpr Shader_hash g_cs_taa_0x06BBC941 = { 0x06BBC941, { 0x16cb60d, 0x938, 0x4e9d, { 0xa7, 0x7f, 0xea, 0x40, 0x56, 0x19, 0x9, 0xd6 }}};
 
 // If motion blur is enabled in the game's settings.
-constexpr uint32_t g_ps_motion_blur_and_lens_distortion_mvs_0xC97890C8_hash = 0xC97890C8;
-constexpr GUID g_ps_motion_blur_and_lens_distortion_mvs_0xC97890C8_guid = { 0x51783160, 0x2604, 0x4d2e, { 0x91, 0xf2, 0x68, 0x35, 0x58, 0x7a, 0xf6, 0xb1 } };
+constexpr Shader_hash g_ps_motion_blur_and_lens_distortion_mvs_0xC97890C8 = { 0xC97890C8, { 0x51783160, 0x2604, 0x4d2e, { 0x91, 0xf2, 0x68, 0x35, 0x58, 0x7a, 0xf6, 0xb1 }}};
 
 // If motion blur is disabled in the game's settings.
-constexpr uint32_t g_ps_motion_blur_and_lens_distortion_mvs_0xE908E905_hash = 0xE908E905;
-constexpr GUID g_ps_motion_blur_and_lens_distortion_mvs_0xE908E905_guid = { 0x337d2791, 0xda14, 0x48f1, { 0x85, 0x2d, 0x5b, 0xcc, 0x3, 0x7e, 0xfa, 0x60 } };
+constexpr Shader_hash g_ps_motion_blur_and_lens_distortion_mvs_0xE908E905 = { 0xE908E905, { 0x337d2791, 0xda14, 0x48f1, { 0x85, 0x2d, 0x5b, 0xcc, 0x3, 0x7e, 0xfa, 0x60 }}};
 
-constexpr uint32_t g_ps_denoise_0x4CD2BE39_hash = 0x4CD2BE39;
-constexpr GUID g_ps_denoise_0x4CD2BE39_guid = { 0x1cbed7cf, 0xf, 0x4e33, { 0xaf, 0x2c, 0x6a, 0x45, 0x88, 0x7d, 0xd9, 0xd8 } };
-
-constexpr uint32_t g_ps_downsample_0x42873B15_hash = 0x42873B15;
-constexpr GUID g_ps_downsample_0x42873B15_guid = { 0xa40a0d2e, 0x6ab1, 0x4ff1, { 0x9e, 0x51, 0x6f, 0xbd, 0xf5, 0xaa, 0x6f, 0x5a } };
+constexpr Shader_hash g_ps_denoise_0x4CD2BE39 = { 0x4CD2BE39, { 0x1cbed7cf, 0xf, 0x4e33, { 0xaf, 0x2c, 0x6a, 0x45, 0x88, 0x7d, 0xd9, 0xd8 }}};
+constexpr Shader_hash g_ps_downsample_0x42873B15 = { 0x42873B15, { 0xa40a0d2e, 0x6ab1, 0x4ff1, { 0x9e, 0x51, 0x6f, 0xbd, 0xf5, 0xaa, 0x6f, 0x5a }}};
 
 //
 
-static CB_data g_cb_data;
+static Graphical_upgrade_cb g_graphical_upgrade_cb;
 static PerViewCB g_per_view_cb;
 static int g_swapchain_width;
 static int g_swapchain_height;
+static bool g_force_vsync_off = true;
 static bool g_disable_lens_dirt = true;
 static float g_vignette_strenght = 1.0f;
-static bool g_force_vsync_off = true;
 static float g_bloom_intensity = 1.0f;
 static bool g_disable_lens_distortion;
 static float g_amd_ffx_cas_sharpness = 0.4f;
@@ -116,16 +92,7 @@ static DLSS_PRESET g_dlss_preset = DLSS_PRESET_F;
 static TRC g_trc = TRC_SRGB;
 static float g_gamma = 2.2f;
 
-// COM resources.
-static std::unordered_map<uint32_t, Com_ptr<ID3D11RenderTargetView>> g_rtv;
-static std::unordered_map<uint32_t, Com_ptr<ID3D11UnorderedAccessView>> g_uav;
-static std::unordered_map<uint32_t, Com_ptr<ID3D11ShaderResourceView>> g_srv;
-static std::unordered_map<uint32_t, Com_ptr<ID3D11VertexShader>> g_vs;
-static std::unordered_map<uint32_t, Com_ptr<ID3D11PixelShader>> g_ps;
-static std::unordered_map<uint32_t, Com_ptr<ID3D11ComputeShader>> g_cs;
-static std::unordered_map<uint32_t, Com_ptr<ID3D11SamplerState>> g_smp;
-static std::unordered_map<uint32_t, Com_ptr<ID3D11Resource>> g_resource;
-static std::unordered_map<uint32_t, Com_ptr<ID3D11Buffer>> g_cb;
+// Device resources.
 static std::array<ID3D11UnorderedAccessView*, XE_GTAO_DEPTH_MIP_LEVELS> g_uav_xe_gtao_prefilter_depths16x16;
 
 // This gets called on both D3D11DeviceContext::FinishCommandList and D3D11DeviceContext::ExecuteCommandList as:
@@ -158,21 +125,21 @@ static void on_execute_secondary_command_list(reshade::api::command_list* cmd_li
 		//
 
 		// Create CS.
-		[[unlikely]] if (!g_cs[hash_name("pre_dlss")]) {
-			create_compute_shader(device.get(), g_cs[hash_name("pre_dlss")].put(), L"PreDLSS_cs.hlsl");
+		[[unlikely]] if (!g_cs["pre_dlss"_h]) {
+			create_compute_shader(device.get(), g_cs["pre_dlss"_h].put(), L"PreDLSS_cs.hlsl");
 		}
 
 		// Create UAV.
-		[[unlikely]] if (!g_uav[hash_name("scene")]) {
-			ensure(device->CreateUnorderedAccessView(g_resource[hash_name("scene")].get(), nullptr, g_uav[hash_name("scene")].put()), >= 0);
+		[[unlikely]] if (!g_uav["scene"_h]) {
+			ensure(device->CreateUnorderedAccessView(g_resource["scene"_h].get(), nullptr, g_uav["scene"_h].put()), >= 0);
 		}
 
 		// Bindings.
-		ctx->CSSetUnorderedAccessViews(0, 1, &g_uav[hash_name("scene")], nullptr);
-		ctx->CSSetShader(g_cs[hash_name("pre_dlss")].get(), nullptr, 0);
-		ctx->CSSetConstantBuffers(1, 1, &g_cb[hash_name("taa_b1")]);
-		ctx->CSSetConstantBuffers(2, 1, &g_cb[hash_name("taa_b2")]);
-		ctx->CSSetShaderResources(0, 1, &g_srv[hash_name("ro_postfx_luminance_buffautoexposure")]);
+		ctx->CSSetUnorderedAccessViews(0, 1, &g_uav["scene"_h], nullptr);
+		ctx->CSSetShader(g_cs["pre_dlss"_h].get(), nullptr, 0);
+		ctx->CSSetConstantBuffers(1, 1, &g_cb["taa_b1"_h]);
+		ctx->CSSetConstantBuffers(2, 1, &g_cb["taa_b2"_h]);
+		ctx->CSSetShaderResources(0, 1, &g_srv["ro_postfx_luminance_buffautoexposure"_h]);
 
 		ctx->Dispatch((g_swapchain_width + 8 - 1) / 8, (g_swapchain_height + 8 - 1) / 8, 1);
 
@@ -189,28 +156,28 @@ static void on_execute_secondary_command_list(reshade::api::command_list* cmd_li
 		// 
 
 		// These need to be valid.
-		assert(g_resource[hash_name("scene")]);
-		assert(g_resource[hash_name("depth")]);
-		assert(g_resource[hash_name("mvs")]);
-		assert(g_resource[hash_name("taa")]);
+		assert(g_resource["scene"_h]);
+		assert(g_resource["depth"_h]);
+		assert(g_resource["mvs"_h]);
+		assert(g_resource["taa"_h]);
 
 		NVSDK_NGX_D3D11_DLSS_Eval_Params eval_params = {};
-		eval_params.Feature.pInColor = g_resource[hash_name("scene")].get();
-		eval_params.Feature.pInOutput = g_resource[hash_name("taa")].get();
-		eval_params.pInDepth = g_resource[hash_name("depth")].get();
-		eval_params.pInMotionVectors = g_resource[hash_name("mvs")].get();
+		eval_params.Feature.pInColor = g_resource["scene"_h].get();
+		eval_params.Feature.pInOutput = g_resource["taa"_h].get();
+		eval_params.pInDepth = g_resource["depth"_h].get();
+		eval_params.pInMotionVectors = g_resource["mvs"_h].get();
 
 		// MVs are in UV space so we need to scale them to screen space for DLSS.
 		// Also for DLSS we need to flip the sign for both x and y.
-		eval_params.InMVScaleX = -(float)g_swapchain_width;
-		eval_params.InMVScaleY = -(float)g_swapchain_height;
+		eval_params.InMVScaleX = -g_swapchain_width;
+		eval_params.InMVScaleY = -g_swapchain_height;
 
 		eval_params.InRenderSubrectDimensions.Width = g_swapchain_width;
 		eval_params.InRenderSubrectDimensions.Height = g_swapchain_height;
 
 		// Jitters are in UV offsets so we need to scale them to pixel offsets for DLSS.
-		eval_params.InJitterOffsetX = g_per_view_cb.cb_projectionmatrix._m[2][0] * (float)g_swapchain_width * -0.5;
-		eval_params.InJitterOffsetY = g_per_view_cb.cb_projectionmatrix._m[2][1] * (float)g_swapchain_height * 0.5;
+		eval_params.InJitterOffsetX = g_per_view_cb.cb_projectionmatrix._m20 * (float)g_swapchain_width * -0.5f;
+		eval_params.InJitterOffsetY = g_per_view_cb.cb_projectionmatrix._m21 * (float)g_swapchain_height * 0.5f;
 
 		DLSS::instance().draw(ctx.get(), eval_params);
 
@@ -220,21 +187,21 @@ static void on_execute_secondary_command_list(reshade::api::command_list* cmd_li
 		//
 
 		// Create CS.
-		[[unlikely]] if (!g_cs[hash_name("post_dlss")]) {
-			create_compute_shader(device.get(), g_cs[hash_name("post_dlss")].put(), L"PostDLSS_cs.hlsl");
+		[[unlikely]] if (!g_cs["post_dlss"_h]) {
+			create_compute_shader(device.get(), g_cs["post_dlss"_h].put(), L"PostDLSS_cs.hlsl");
 		}
 
 		// Create UAV.
-		[[unlikely]] if (!g_uav[hash_name("taa")]) {
-			ensure(device->CreateUnorderedAccessView(g_resource[hash_name("taa")].get(), nullptr, g_uav[hash_name("taa")].put()), >= 0);
+		[[unlikely]] if (!g_uav["taa"_h]) {
+			ensure(device->CreateUnorderedAccessView(g_resource["taa"_h].get(), nullptr, g_uav["taa"_h].put()), >= 0);
 		}
 
 		// Bindings.
-		ctx->CSSetUnorderedAccessViews(0, 1, &g_uav[hash_name("taa")], nullptr);
-		ctx->CSSetShader(g_cs[hash_name("post_dlss")].get(), nullptr, 0);
-		ctx->CSSetConstantBuffers(1, 1, &g_cb[hash_name("taa_b1")]);
-		ctx->CSSetConstantBuffers(2, 1, &g_cb[hash_name("taa_b2")]);
-		ctx->CSSetShaderResources(0, 1, &g_srv[hash_name("ro_postfx_luminance_buffautoexposure")]);
+		ctx->CSSetUnorderedAccessViews(0, 1, &g_uav["taa"_h], nullptr);
+		ctx->CSSetShader(g_cs["post_dlss"_h].get(), nullptr, 0);
+		ctx->CSSetConstantBuffers(1, 1, &g_cb["taa_b1"_h]);
+		ctx->CSSetConstantBuffers(2, 1, &g_cb["taa_b2"_h]);
+		ctx->CSSetShaderResources(0, 1, &g_srv["ro_postfx_luminance_buffautoexposure"_h]);
 
 		ctx->Dispatch((g_swapchain_width + 8 - 1) / 8, (g_swapchain_height + 8 - 1) / 8, 1);
 
@@ -242,7 +209,7 @@ static void on_execute_secondary_command_list(reshade::api::command_list* cmd_li
 		// This doesn't seem to be necessary, but the game has random issues.
 		ctx->CSSetUnorderedAccessViews(0, 1, &uav_null, nullptr);
 		ctx->CSSetShaderResources(0, 1, &srv_null);
-		
+
 		//
 	}
 }
@@ -262,8 +229,8 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 
 	uint32_t hash;
 	UINT size = sizeof(hash);
-	auto hr = ps->GetPrivateData(g_ps_ssao_0x94445D2D_guid, &size, &hash);
-	if (SUCCEEDED(hr) && hash == g_ps_ssao_0x94445D2D_hash) {
+	auto hr = ps->GetPrivateData(g_ps_ssao_0x94445D2D.guid, &size, &hash);
+	if (SUCCEEDED(hr) && hash == g_ps_ssao_0x94445D2D.hash) {
 		Com_ptr<ID3D11Device> device;
 		ctx->GetDevice(device.put());
 
@@ -280,7 +247,7 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		//
 
 		// Create CS.
-		[[unlikely]] if (!g_cs[hash_name("xe_gtao_prefilter_depths16x16")]) {
+		[[unlikely]] if (!g_cs["xe_gtao_prefilter_depths16x16"_h]) {
 			const std::string viewport_pixel_size_str = std::format("float2({},{})", 1.0f / (float)g_swapchain_width, 1.0f / (float)g_swapchain_height);
 			const std::string effect_radius_str = std::to_string(g_xe_gtao_radius);
 			const D3D_SHADER_MACRO defines[] = {
@@ -288,12 +255,12 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 				{ "EFFECT_RADIUS", effect_radius_str.c_str() },
 				{ nullptr, nullptr }
 			};
-			create_compute_shader(device.get(), g_cs[hash_name("xe_gtao_prefilter_depths16x16")].put(), L"XeGTAO.hlsl", "prefilter_depths16x16_cs", defines);
+			create_compute_shader(device.get(), g_cs["xe_gtao_prefilter_depths16x16"_h].put(), L"XeGTAO.hlsl", "prefilter_depths16x16_cs", defines);
 		}
 
 		// Create sampler.
-		[[unlikely]] if (!g_smp[hash_name("point_clamp")]) {
-			create_sampler_point_clamp(device.get(), g_smp[hash_name("point_clamp")].put());
+		[[unlikely]] if (!g_smp["point_clamp"_h]) {
+			create_sampler_point_clamp(device.get(), g_smp["point_clamp"_h].put());
 		}
 
 		// Create prefilter depths views.
@@ -318,14 +285,14 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 			   ensure(device->CreateUnorderedAccessView(tex.get(), &uav_desc, &g_uav_xe_gtao_prefilter_depths16x16[i]), >= 0);
 			}
 
-			ensure(device->CreateShaderResourceView(tex.get(), nullptr, g_srv[hash_name("xe_gtao_prefilter_depths16x16")].put()), >= 0);
+			ensure(device->CreateShaderResourceView(tex.get(), nullptr, g_srv["xe_gtao_prefilter_depths16x16"_h].put()), >= 0);
 		}
 
 		// Bindings.
 		ctx->CSSetUnorderedAccessViews(0, g_uav_xe_gtao_prefilter_depths16x16.size(), g_uav_xe_gtao_prefilter_depths16x16.data(), nullptr);
-		ctx->CSSetShader(g_cs[hash_name("xe_gtao_prefilter_depths16x16")].get(), nullptr, 0);
+		ctx->CSSetShader(g_cs["xe_gtao_prefilter_depths16x16"_h].get(), nullptr, 0);
 		ctx->CSSetConstantBuffers(1, 1, &cb_original);
-		ctx->CSSetSamplers(0, 1, &g_smp[hash_name("point_clamp")]);
+		ctx->CSSetSamplers(0, 1, &g_smp["point_clamp"_h]);
 		ctx->CSSetShaderResources(0, 1, &srv_depth);
 
 		ctx->Dispatch((g_swapchain_width + 16 - 1) / 16, (g_swapchain_height + 16 - 1) / 16, 1);
@@ -343,12 +310,12 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		//
 
 		// Create VS.
-		[[unlikely]] if (!g_vs[hash_name("fullscreen_triangle")]) {
-			create_vertex_shader(device.get(), g_vs[hash_name("fullscreen_triangle")].put(), L"FullscreenTriangle_vs.hlsl");
+		[[unlikely]] if (!g_vs["fullscreen_triangle"_h]) {
+			create_vertex_shader(device.get(), g_vs["fullscreen_triangle"_h].put(), L"FullscreenTriangle_vs.hlsl");
 		}
 
 		// Create PS.
-		[[unlikely]] if (!g_ps[hash_name("xe_gtao_main_pass")]) {
+		[[unlikely]] if (!g_ps["xe_gtao_main_pass"_h]) {
 			const std::string viewport_pixel_size_str = std::format("float2({},{})", 1.0f / (float)g_swapchain_width, 1.0f / (float)g_swapchain_height);
 			const std::string xe_gtao_quality_val = std::to_string(g_xe_gtao_quality);
 			const std::string effect_radius_str = std::to_string(g_xe_gtao_radius);
@@ -358,14 +325,14 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 				{ "EFFECT_RADIUS", effect_radius_str.c_str() },
 				{ nullptr, nullptr }
 			};
-			create_pixel_shader(device.get(), g_ps[hash_name("xe_gtao_main_pass")].put(), L"XeGTAO.hlsl", "main_pass_ps", defines);
+			create_pixel_shader(device.get(), g_ps["xe_gtao_main_pass"_h].put(), L"XeGTAO.hlsl", "main_pass_ps", defines);
 		}
 
 		// Bindings.
-		ctx->VSSetShader(g_vs[hash_name("fullscreen_triangle")].get(), nullptr, 0);
-		ctx->PSSetShader(g_ps[hash_name("xe_gtao_main_pass")].get(), nullptr, 0);
-		ctx->PSSetSamplers(0, 1, &g_smp[hash_name("point_clamp")]);
-		ctx->PSSetShaderResources(0, 1, &g_srv[hash_name("xe_gtao_prefilter_depths16x16")]);
+		ctx->VSSetShader(g_vs["fullscreen_triangle"_h].get(), nullptr, 0);
+		ctx->PSSetShader(g_ps["xe_gtao_main_pass"_h].get(), nullptr, 0);
+		ctx->PSSetSamplers(0, 1, &g_smp["point_clamp"_h]);
+		ctx->PSSetShaderResources(0, 1, &g_srv["xe_gtao_prefilter_depths16x16"_h]);
 
 		ctx->Draw(3, 0);
 
@@ -374,7 +341,7 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		ctx->OMGetRenderTargets(1, rtv.put(), nullptr);
 		Com_ptr<ID3D11Resource> resource;
 		rtv->GetResource(resource.put());
-		ensure(device->CreateShaderResourceView(resource.get(), nullptr, g_srv[hash_name("ao")].put()), >= 0);
+		ensure(device->CreateShaderResourceView(resource.get(), nullptr, g_srv["ao"_h].put()), >= 0);
 		#endif
 
 		//
@@ -386,26 +353,26 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 	}
 
 	size = sizeof(hash);
-	hr = ps->GetPrivateData(g_ps_denoise_0x4CD2BE39_guid, &size, &hash);
-	if (SUCCEEDED(hr) && hash == g_ps_denoise_0x4CD2BE39_hash) {
+	hr = ps->GetPrivateData(g_ps_denoise_0x4CD2BE39.guid, &size, &hash);
+	if (SUCCEEDED(hr) && hash == g_ps_denoise_0x4CD2BE39.hash) {
 		// Create PS.
-		[[unlikely]] if (!g_ps[hash_name("denoise_0x4CD2BE39")]) {
+		[[unlikely]] if (!g_ps["denoise_0x4CD2BE39"_h]) {
 			Com_ptr<ID3D11Device> device;
 			ctx->GetDevice(device.put());
-			create_pixel_shader(device.get(), g_ps[hash_name("denoise_0x4CD2BE39")].put(), L"Denoise_0x4CD2BE39_ps.hlsl");
+			create_pixel_shader(device.get(), g_ps["denoise_0x4CD2BE39"_h].put(), L"Denoise_0x4CD2BE39_ps.hlsl");
 		}
 
 		// Bindings.
-		ctx->PSSetShader(g_ps[hash_name("denoise_0x4CD2BE39")].get(), nullptr, 0);
+		ctx->PSSetShader(g_ps["denoise_0x4CD2BE39"_h].get(), nullptr, 0);
 		
 		return false;
 	}
 
 	size = sizeof(hash);
-	hr = ps->GetPrivateData(g_ps_motion_blur_and_lens_distortion_mvs_0xC97890C8_guid, &size, &hash);
-	if (SUCCEEDED(hr) && hash == g_ps_motion_blur_and_lens_distortion_mvs_0xC97890C8_hash) {
+	hr = ps->GetPrivateData(g_ps_motion_blur_and_lens_distortion_mvs_0xC97890C8.guid, &size, &hash);
+	if (SUCCEEDED(hr) && hash == g_ps_motion_blur_and_lens_distortion_mvs_0xC97890C8.hash) {
 		// Create PS.
-		[[unlikely]] if (!g_ps[hash_name("motion_blur_and_lens_distortion_mvs_0xC97890C8")]) {
+		[[unlikely]] if (!g_ps["motion_blur_and_lens_distortion_mvs_0xC97890C8"_h]) {
 			Com_ptr<ID3D11Device> device;
 			ctx->GetDevice(device.put());
 			const std::string disable_lens_distortion_str = std::to_string((int)g_disable_lens_distortion);
@@ -413,20 +380,20 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 				{ "DISABLE_LENS_DISTORTION", disable_lens_distortion_str.c_str() },
 				{ nullptr, nullptr }
 			};
-			create_pixel_shader(device.get(), g_ps[hash_name("motion_blur_and_lens_distortion_mvs_0xC97890C8")].put(), L"MotionBlurAndLensDistortionMVs_0xC97890C8_ps.hlsl", "main", defines);
+			create_pixel_shader(device.get(), g_ps["motion_blur_and_lens_distortion_mvs_0xC97890C8"_h].put(), L"MotionBlurAndLensDistortionMVs_0xC97890C8_ps.hlsl", "main", defines);
 		}
 
 		// Bindings.
-		ctx->PSSetShader(g_ps[hash_name("motion_blur_and_lens_distortion_mvs_0xC97890C8")].get(), nullptr, 0);
+		ctx->PSSetShader(g_ps["motion_blur_and_lens_distortion_mvs_0xC97890C8"_h].get(), nullptr, 0);
 		
 		return false;
 	}
 
 	size = sizeof(hash);
-	hr = ps->GetPrivateData(g_ps_motion_blur_and_lens_distortion_mvs_0xE908E905_guid, &size, &hash);
-	if (SUCCEEDED(hr) && hash == g_ps_motion_blur_and_lens_distortion_mvs_0xE908E905_hash) {
+	hr = ps->GetPrivateData(g_ps_motion_blur_and_lens_distortion_mvs_0xE908E905.guid, &size, &hash);
+	if (SUCCEEDED(hr) && hash == g_ps_motion_blur_and_lens_distortion_mvs_0xE908E905.hash) {
 		// Create PS.
-		[[unlikely]] if (!g_ps[hash_name("motion_blur_and_lens_distortion_mvs_0xE908E905")]) {
+		[[unlikely]] if (!g_ps["motion_blur_and_lens_distortion_mvs_0xE908E905"_h]) {
 			Com_ptr<ID3D11Device> device;
 			ctx->GetDevice(device.put());
 			const std::string disable_lens_distortion_str = std::to_string((int)g_disable_lens_distortion);
@@ -434,36 +401,36 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 				{ "DISABLE_LENS_DISTORTION", disable_lens_distortion_str.c_str() },
 				{ nullptr, nullptr }
 			};
-			create_pixel_shader(device.get(), g_ps[hash_name("motion_blur_and_lens_distortion_mvs_0xE908E905")].put(), L"MotionBlurAndLensDistortionMVs_0xE908E905_ps.hlsl", "main", defines);
+			create_pixel_shader(device.get(), g_ps["motion_blur_and_lens_distortion_mvs_0xE908E905"_h].put(), L"MotionBlurAndLensDistortionMVs_0xE908E905_ps.hlsl", "main", defines);
 		}
 
 		// Bindings.
-		ctx->PSSetShader(g_ps[hash_name("motion_blur_and_lens_distortion_mvs_0xE908E905")].get(), nullptr, 0);
+		ctx->PSSetShader(g_ps["motion_blur_and_lens_distortion_mvs_0xE908E905"_h].get(), nullptr, 0);
 		
 		return false;
 	}
 
 	size = sizeof(hash);
-	hr = ps->GetPrivateData(g_ps_downsample_0x42873B15_guid, &size, &hash);
-	if (SUCCEEDED(hr) && hash == g_ps_downsample_0x42873B15_hash) {
+	hr = ps->GetPrivateData(g_ps_downsample_0x42873B15.guid, &size, &hash);
+	if (SUCCEEDED(hr) && hash == g_ps_downsample_0x42873B15.hash) {
 		// Create PS.
-		[[unlikely]] if (!g_ps[hash_name("downsample_0x42873B15")]) {
+		[[unlikely]] if (!g_ps["downsample_0x42873B15"_h]) {
 			Com_ptr<ID3D11Device> device;
 			ctx->GetDevice(device.put());
-			create_pixel_shader(device.get(), g_ps[hash_name("downsample_0x42873B15")].put(), L"Downsample_0x42873B15_ps.hlsl");
+			create_pixel_shader(device.get(), g_ps["downsample_0x42873B15"_h].put(), L"Downsample_0x42873B15_ps.hlsl");
 		}
 
 		// Bindings.
-		ctx->PSSetShader(g_ps[hash_name("downsample_0x42873B15")].get(), nullptr, 0);
+		ctx->PSSetShader(g_ps["downsample_0x42873B15"_h].get(), nullptr, 0);
 
 		return false;
 	}
 
 	size = sizeof(hash);
-	hr = ps->GetPrivateData(g_ps_tonemap_0xA6F33860_guid, &size, &hash);
-	if (SUCCEEDED(hr) && hash == g_ps_tonemap_0xA6F33860_hash) {
+	hr = ps->GetPrivateData(g_ps_tonemap_0xA6F33860.guid, &size, &hash);
+	if (SUCCEEDED(hr) && hash == g_ps_tonemap_0xA6F33860.hash) {
 		// Create PS.
-		[[unlikely]] if (!g_ps[hash_name("tonemap_0xA6F33860")]) {
+		[[unlikely]] if (!g_ps["tonemap_0xA6F33860"_h]) {
 			Com_ptr<ID3D11Device> device;
 			ctx->GetDevice(device.put());
 			const std::string bloom_intensity_str = std::to_string(g_bloom_intensity);
@@ -473,20 +440,20 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 				{ "DISABLE_LENS_DIRT", disable_lens_dirt_str.c_str() },
 				{ nullptr, nullptr }
 			};
-			create_pixel_shader(device.get(), g_ps[hash_name("tonemap_0xA6F33860")].put(), L"Tonemap_0xA6F33860_ps.hlsl", "main", defines);
+			create_pixel_shader(device.get(), g_ps["tonemap_0xA6F33860"_h].put(), L"Tonemap_0xA6F33860_ps.hlsl", "main", defines);
 		}
 
 		// Bindings.
-		ctx->PSSetShader(g_ps[hash_name("tonemap_0xA6F33860")].get(), nullptr, 0);
+		ctx->PSSetShader(g_ps["tonemap_0xA6F33860"_h].get(), nullptr, 0);
 
 		return false;
 	}
 
 	size = sizeof(hash);
-	hr = ps->GetPrivateData(g_ps_tonemap_0x11E16EF3_guid, &size, &hash);
-	if (SUCCEEDED(hr) && hash == g_ps_tonemap_0x11E16EF3_hash) {
+	hr = ps->GetPrivateData(g_ps_tonemap_0x11E16EF3.guid, &size, &hash);
+	if (SUCCEEDED(hr) && hash == g_ps_tonemap_0x11E16EF3.hash) {
 		// Create PS.
-		[[unlikely]] if (!g_ps[hash_name("tonemap_0x11E16EF3")]) {
+		[[unlikely]] if (!g_ps["tonemap_0x11E16EF3"_h]) {
 			Com_ptr<ID3D11Device> device;
 			ctx->GetDevice(device.put());
 			const std::string bloom_intensity_str = std::to_string(g_bloom_intensity);
@@ -496,20 +463,20 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 				{ "DISABLE_LENS_DIRT", disable_lens_dirt_str.c_str() },
 				{ nullptr, nullptr }
 			};
-			create_pixel_shader(device.get(), g_ps[hash_name("tonemap_0x11E16EF3")].put(), L"Tonemap_0x11E16EF3_ps.hlsl", "main", defines);
+			create_pixel_shader(device.get(), g_ps["tonemap_0x11E16EF3"_h].put(), L"Tonemap_0x11E16EF3_ps.hlsl", "main", defines);
 		}
 
 		// Bindings.
-		ctx->PSSetShader(g_ps[hash_name("tonemap_0x11E16EF3")].get(), nullptr, 0);
+		ctx->PSSetShader(g_ps["tonemap_0x11E16EF3"_h].get(), nullptr, 0);
 
 		return false;
 	}
 
 	size = sizeof(hash);
-	hr = ps->GetPrivateData(g_ps_vignette_0xFD4216EA_guid, &size, &hash);
-	if (SUCCEEDED(hr) && hash == g_ps_vignette_0xFD4216EA_hash) {
+	hr = ps->GetPrivateData(g_ps_vignette_0xFD4216EA.guid, &size, &hash);
+	if (SUCCEEDED(hr) && hash == g_ps_vignette_0xFD4216EA.hash) {
 		// Create PS.
-		[[unlikely]] if (!g_ps[hash_name("vignette")]) {
+		[[unlikely]] if (!g_ps["vignette"_h]) {
 			Com_ptr<ID3D11Device> device;
 			ctx->GetDevice(device.put());
 			const std::string vignette_strenght_str = std::to_string(g_vignette_strenght);
@@ -517,22 +484,22 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 				{ "VIGNETTE_STRENGHT", vignette_strenght_str.c_str() },
 				{ nullptr, nullptr }
 			};
-			create_pixel_shader(device.get(), g_ps[hash_name("vignette")].put(), L"Vignette_0xFD4216EA_ps.hlsl", "main", defines);
+			create_pixel_shader(device.get(), g_ps["vignette"_h].put(), L"Vignette_0xFD4216EA_ps.hlsl", "main", defines);
 		}
 
 		// Bindings.
-		ctx->PSSetShader(g_ps[hash_name("vignette")].get(), nullptr, 0);
+		ctx->PSSetShader(g_ps["vignette"_h].get(), nullptr, 0);
 
 		return false;
 	}
 
 	size = sizeof(hash);
-	hr = ps->GetPrivateData(g_ps_upsample_0x1A0CD2AE_guid, &size, &hash);
-	if (SUCCEEDED(hr) && hash == g_ps_upsample_0x1A0CD2AE_hash) {
+	hr = ps->GetPrivateData(g_ps_upsample_0x1A0CD2AE.guid, &size, &hash);
+	if (SUCCEEDED(hr) && hash == g_ps_upsample_0x1A0CD2AE.hash) {
 
 		#if DEV && SHOW_AO
-		if (g_srv[hash_name("ao")]) {
-			ctx->PSSetShaderResources(0, 1, &g_srv[hash_name("ao")]);
+		if (g_srv["ao"_h]) {
+			ctx->PSSetShaderResources(0, 1, &g_srv["ao"_h]);
 		}
 		#endif
 		
@@ -547,22 +514,22 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		//
 
 		// Create VS.
-		[[unlikely]] if (!g_vs[hash_name("fullscreen_triangle")]) {
-			create_vertex_shader(device.get(), g_vs[hash_name("fullscreen_triangle")].put(), L"FullscreenTriangle_vs.hlsl");
+		[[unlikely]] if (!g_vs["fullscreen_triangle"_h]) {
+			create_vertex_shader(device.get(), g_vs["fullscreen_triangle"_h].put(), L"FullscreenTriangle_vs.hlsl");
 		}
 
 		// Create PS.
-		[[unlikely]] if (!g_ps[hash_name("amd_ffx_cas")]) {
+		[[unlikely]] if (!g_ps["amd_ffx_cas"_h]) {
 			const std::string amd_ffx_cas_sharpness_str = std::to_string(g_amd_ffx_cas_sharpness);
 			const D3D10_SHADER_MACRO defines[] = {
 				{ "SHARPNESS", amd_ffx_cas_sharpness_str.c_str() },
 				{ nullptr, nullptr }
 			};
-			create_pixel_shader(device.get(), g_ps[hash_name("amd_ffx_cas")].put(), L"AMD_FFX_CAS_ps.hlsl", "main", defines);
+			create_pixel_shader(device.get(), g_ps["amd_ffx_cas"_h].put(), L"AMD_FFX_CAS_ps.hlsl", "main", defines);
 		}
 
 		// Create RT and views.
-		[[unlikely]] if (!g_rtv[hash_name("amd_ffx_cas")]) {
+		[[unlikely]] if (!g_rtv["amd_ffx_cas"_h]) {
 			// SRV0 should be the scene.
 			Com_ptr<ID3D11ShaderResourceView> srv;
 			ctx->PSGetShaderResources(0, 1, srv.put());
@@ -577,14 +544,14 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 
 			tex_desc.Format = DXGI_FORMAT_R16G16B16A16_UNORM;
 			ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
-			ensure(device->CreateRenderTargetView(tex.get(), nullptr, g_rtv[hash_name("amd_ffx_cas")].put()), >= 0);
-			ensure(device->CreateShaderResourceView(tex.get(), nullptr, g_srv[hash_name("amd_ffx_cas")].put()), >= 0);
+			ensure(device->CreateRenderTargetView(tex.get(), nullptr, g_rtv["amd_ffx_cas"_h].put()), >= 0);
+			ensure(device->CreateShaderResourceView(tex.get(), nullptr, g_srv["amd_ffx_cas"_h].put()), >= 0);
 		}
 
 		// Bindings.
-		ctx->OMSetRenderTargets(1, &g_rtv[hash_name("amd_ffx_cas")], nullptr);
-		ctx->VSSetShader(g_vs[hash_name("fullscreen_triangle")].get(), nullptr, 0);
-		ctx->PSSetShader(g_ps[hash_name("amd_ffx_cas")].get(), nullptr, 0);
+		ctx->OMSetRenderTargets(1, &g_rtv["amd_ffx_cas"_h], nullptr);
+		ctx->VSSetShader(g_vs["fullscreen_triangle"_h].get(), nullptr, 0);
+		ctx->PSSetShader(g_ps["amd_ffx_cas"_h].get(), nullptr, 0);
 
 		ctx->Draw(3, 0);
 
@@ -593,12 +560,12 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		// AMD FFX LFGA pass
 		//
 
-		[[unlikely]] if (!g_cb[hash_name("cb")]) {
-			create_constant_buffer(device.get(), sizeof(g_cb_data), g_cb[hash_name("cb")].put());
+		[[unlikely]] if (!g_cb["cb"_h]) {
+			create_constant_buffer(device.get(), sizeof(g_graphical_upgrade_cb), g_cb["cb"_h].put());
 		}
 
 		// Create PS.
-		[[unlikely]] if (!g_ps[hash_name("amd_ffx_lfga")]) {
+		[[unlikely]] if (!g_ps["amd_ffx_lfga"_h]) {
 			const std::string amd_ffx_lfga_amount_str = std::to_string(g_amd_ffx_lfga_amount);
 			const std::string srgb_str = g_trc == TRC_SRGB ? "SRGB" : "";
 			const std::string gamma_str = std::to_string(g_gamma);
@@ -608,11 +575,11 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 				{ "GAMMA", gamma_str.c_str() },
 				{ nullptr, nullptr }
 			};
-			create_pixel_shader(device.get(), g_ps[hash_name("amd_ffx_lfga")].put(), L"AMD_FFX_LFGA_ps.hlsl", "main", defines);
+			create_pixel_shader(device.get(), g_ps["amd_ffx_lfga"_h].put(), L"AMD_FFX_LFGA_ps.hlsl", "main", defines);
 		}
 
 		// Create blue noise texture.
-		[[unlikely]] if (!g_srv[hash_name("blue_noise_tex")]) {
+		[[unlikely]] if (!g_srv["blue_noise_tex"_h]) {
 			D3D11_TEXTURE2D_DESC tex_desc = {};
 			tex_desc.Width = BLUE_NOISE_TEX_WIDTH;
 			tex_desc.Height = BLUE_NOISE_TEX_HEIGHT;
@@ -629,7 +596,7 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 			}
 			Com_ptr<ID3D11Texture2D> tex;
 			ensure(device->CreateTexture2D(&tex_desc, subresource_data.data(), tex.put()), >= 0);
-			ensure(device->CreateShaderResourceView(tex.get(), nullptr, g_srv[hash_name("blue_noise_tex")].put()), >= 0);
+			ensure(device->CreateShaderResourceView(tex.get(), nullptr, g_srv["blue_noise_tex"_h].put()), >= 0);
 		}
 
 		// Update the constant buffer.
@@ -638,19 +605,19 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		static auto last_update = std::chrono::high_resolution_clock::now();
 		const auto now = std::chrono::high_resolution_clock::now();
 		if (now - last_update >= interval) {
-			g_cb_data.tex_noise_index += 1.0f;
-			if (g_cb_data.tex_noise_index >= (float)BLUE_NOISE_TEX_ARRAY_SIZE) {
-				g_cb_data.tex_noise_index = 0.0f;
+			g_graphical_upgrade_cb.tex_noise_index += 1;
+			if (g_graphical_upgrade_cb.tex_noise_index >= BLUE_NOISE_TEX_ARRAY_SIZE) {
+				g_graphical_upgrade_cb.tex_noise_index = 0;
 			}
-			update_constant_buffer(ctx, g_cb[hash_name("cb")].get(), &g_cb_data, sizeof(g_cb_data));
+			update_constant_buffer(ctx, g_cb["cb"_h].get(), &g_graphical_upgrade_cb, sizeof(g_graphical_upgrade_cb));
 			last_update += interval;
 		}
 
 		// Bindings.
 		ctx->OMSetRenderTargets(1, &rtv_original, nullptr);
-		ctx->PSSetShader(g_ps[hash_name("amd_ffx_lfga")].get(), nullptr, 0);
-		ctx->PSSetConstantBuffers(13, 1, &g_cb[hash_name("cb")]);
-		const std::array ps_srvs_amd_ffx_lfga = { g_srv[hash_name("amd_ffx_cas")].get(), g_srv[hash_name("blue_noise_tex")].get() };
+		ctx->PSSetShader(g_ps["amd_ffx_lfga"_h].get(), nullptr, 0);
+		ctx->PSSetConstantBuffers(GRAPHICAL_UPGRADE_CB_SLOT, 1, &g_cb["cb"_h]);
+		const std::array ps_srvs_amd_ffx_lfga = { g_srv["amd_ffx_cas"_h].get(), g_srv["blue_noise_tex"_h].get() };
 		ctx->PSSetShaderResources(0, ps_srvs_amd_ffx_lfga.size(), ps_srvs_amd_ffx_lfga.data());
 
 		ctx->Draw(3, 0);
@@ -675,51 +642,54 @@ static bool on_dispatch(reshade::api::command_list* cmd_list, uint32_t group_cou
 
 	uint32_t hash;
 	UINT size = sizeof(hash);
-	auto hr = cs->GetPrivateData(g_cs_downsample_depth_0x27BD5265_guid, &size, &hash);
-	if (SUCCEEDED(hr) && hash == g_cs_downsample_depth_0x27BD5265_hash) {
+	auto hr = cs->GetPrivateData(g_cs_downsample_depth_0x27BD5265.guid, &size, &hash);
+	if (SUCCEEDED(hr) && hash == g_cs_downsample_depth_0x27BD5265.hash) {
 		Com_ptr<ID3D11ShaderResourceView> srv_depth;
 		ctx->CSGetShaderResources(0, 1, srv_depth.put());
-		srv_depth->GetResource(g_resource[hash_name("depth")].put());
+		srv_depth->GetResource(g_resource["depth"_h].put());
 		return false;
 	}
 
 	size = sizeof(hash);
-	hr = cs->GetPrivateData(g_cs_taa_0x06BBC941_guid, &size, &hash);
-	if (SUCCEEDED(hr) && hash == g_cs_taa_0x06BBC941_hash) {
+	hr = cs->GetPrivateData(g_cs_taa_0x06BBC941.guid, &size, &hash);
+	if (SUCCEEDED(hr) && hash == g_cs_taa_0x06BBC941.hash) {
 		if (g_enable_dlss) {
+			
+			// We expect deferred context here.
 			assert(ctx->GetType() == D3D11_DEVICE_CONTEXT_DEFERRED);
+
 			g_taa_tag = (uintptr_t)ctx;
 
-			ctx->CSGetConstantBuffers(1, 1, g_cb[hash_name("taa_b1")].put());
-			ctx->CSGetConstantBuffers(2, 1, g_cb[hash_name("taa_b2")].put());
+			ctx->CSGetConstantBuffers(1, 1, g_cb["taa_b1"_h].put());
+			ctx->CSGetConstantBuffers(2, 1, g_cb["taa_b2"_h].put());
 
 			// SRV1 should be motion vectors.
 			// SRV2 should be the scene.
 			// SRV3 should be the buffer ro_postfx_luminance_buffautoexposure.
 			std::array<ID3D11ShaderResourceView*, 3> srvs = {};
 			ctx->CSGetShaderResources(1, srvs.size(), srvs.data());
-			srvs[0]->GetResource(g_resource[hash_name("mvs")].put());
-			srvs[1]->GetResource(g_resource[hash_name("scene")].put());
-			g_srv[hash_name("ro_postfx_luminance_buffautoexposure")] = srvs[2];
+			srvs[0]->GetResource(g_resource["mvs"_h].put());
+			srvs[1]->GetResource(g_resource["scene"_h].put());
+			g_srv["ro_postfx_luminance_buffautoexposure"_h] = srvs[2];
 
 			// UAV1 should be the TAA out.
 			Com_ptr<ID3D11UnorderedAccessView> uav;
 			ctx->CSGetUnorderedAccessViews(1, 1, uav.put());
-			uav->GetResource(g_resource[hash_name("taa")].put());
+			uav->GetResource(g_resource["taa"_h].put());
 
 			release_com_array(srvs);
 			return true;
 		}
 
 		// Create CS.
-		[[unlikely]] if (!g_cs[hash_name("TAA_0x06BBC941")]) {
+		[[unlikely]] if (!g_cs["TAA_0x06BBC941"_h]) {
 			Com_ptr<ID3D11Device> device;
 			ctx->GetDevice(device.put());
-			create_compute_shader(device.get(), g_cs[hash_name("TAA_0x06BBC941")].put(), L"TAA_0x06BBC941_cs.hlsl");
+			create_compute_shader(device.get(), g_cs["TAA_0x06BBC941"_h].put(), L"TAA_0x06BBC941_cs.hlsl");
 		}
 
 		// Bindings.
-		ctx->CSSetShader(g_cs[hash_name("TAA_0x06BBC941")].get(), nullptr, 0);
+		ctx->CSSetShader(g_cs["TAA_0x06BBC941"_h].get(), nullptr, 0);
 
 		return false;
 	}
@@ -734,45 +704,45 @@ static void on_init_pipeline(reshade::api::device* device, reshade::api::pipelin
 			auto desc = (reshade::api::shader_desc*)subobjects[i].data;
 			const auto hash = compute_crc32((const uint8_t*)desc->code, desc->code_size);
 			switch (hash) {
-				case g_ps_ssao_0x94445D2D_hash:
-					ensure(((ID3D11PixelShader*)pipeline.handle)->SetPrivateData(g_ps_ssao_0x94445D2D_guid, sizeof(g_ps_ssao_0x94445D2D_hash), &g_ps_ssao_0x94445D2D_hash), >= 0);
-					break;
-				case g_ps_tonemap_0xA6F33860_hash:
-					ensure(((ID3D11PixelShader*)pipeline.handle)->SetPrivateData(g_ps_tonemap_0xA6F33860_guid, sizeof(g_ps_tonemap_0xA6F33860_hash), &g_ps_tonemap_0xA6F33860_hash), >= 0);
-					break;
-				case g_ps_tonemap_0x11E16EF3_hash:
-					ensure(((ID3D11PixelShader*)pipeline.handle)->SetPrivateData(g_ps_tonemap_0x11E16EF3_guid, sizeof(g_ps_tonemap_0x11E16EF3_hash), &g_ps_tonemap_0x11E16EF3_hash), >= 0);
-					break;
-				case g_ps_vignette_0xFD4216EA_hash:
-					ensure(((ID3D11PixelShader*)pipeline.handle)->SetPrivateData(g_ps_vignette_0xFD4216EA_guid, sizeof(g_ps_vignette_0xFD4216EA_hash), &g_ps_vignette_0xFD4216EA_hash), >= 0);
-					break;
-				case g_ps_upsample_0x1A0CD2AE_hash:
-					ensure(((ID3D11PixelShader*)pipeline.handle)->SetPrivateData(g_ps_upsample_0x1A0CD2AE_guid, sizeof(g_ps_upsample_0x1A0CD2AE_hash), &g_ps_upsample_0x1A0CD2AE_hash), >= 0);
-					break;
-				case g_ps_motion_blur_and_lens_distortion_mvs_0xC97890C8_hash:
-					ensure(((ID3D11PixelShader*)pipeline.handle)->SetPrivateData(g_ps_motion_blur_and_lens_distortion_mvs_0xC97890C8_guid, sizeof(g_ps_motion_blur_and_lens_distortion_mvs_0xC97890C8_hash), &g_ps_motion_blur_and_lens_distortion_mvs_0xC97890C8_hash), >= 0);
-					break;
-				case g_ps_motion_blur_and_lens_distortion_mvs_0xE908E905_hash:
-					ensure(((ID3D11PixelShader*)pipeline.handle)->SetPrivateData(g_ps_motion_blur_and_lens_distortion_mvs_0xE908E905_guid, sizeof(g_ps_motion_blur_and_lens_distortion_mvs_0xE908E905_hash), &g_ps_motion_blur_and_lens_distortion_mvs_0xE908E905_hash), >= 0);
-					break;
-				case g_ps_denoise_0x4CD2BE39_hash:
-					ensure(((ID3D11PixelShader*)pipeline.handle)->SetPrivateData(g_ps_denoise_0x4CD2BE39_guid, sizeof(g_ps_denoise_0x4CD2BE39_hash), &g_ps_denoise_0x4CD2BE39_hash), >= 0);
-					break;
-				case g_ps_downsample_0x42873B15_hash:
-					ensure(((ID3D11PixelShader*)pipeline.handle)->SetPrivateData(g_ps_downsample_0x42873B15_guid, sizeof(g_ps_downsample_0x42873B15_hash), &g_ps_downsample_0x42873B15_hash), >= 0);
-					break;
+				case g_ps_ssao_0x94445D2D.hash:
+					ensure(((ID3D11PixelShader*)pipeline.handle)->SetPrivateData(g_ps_ssao_0x94445D2D.guid, sizeof(g_ps_ssao_0x94445D2D.hash), &g_ps_ssao_0x94445D2D.hash), >= 0);
+					return;
+				case g_ps_tonemap_0xA6F33860.hash:
+					ensure(((ID3D11PixelShader*)pipeline.handle)->SetPrivateData(g_ps_tonemap_0xA6F33860.guid, sizeof(g_ps_tonemap_0xA6F33860.hash), &g_ps_tonemap_0xA6F33860.hash), >= 0);
+					return;
+				case g_ps_tonemap_0x11E16EF3.hash:
+					ensure(((ID3D11PixelShader*)pipeline.handle)->SetPrivateData(g_ps_tonemap_0x11E16EF3.guid, sizeof(g_ps_tonemap_0x11E16EF3.hash), &g_ps_tonemap_0x11E16EF3.hash), >= 0);
+					return;
+				case g_ps_vignette_0xFD4216EA.hash:
+					ensure(((ID3D11PixelShader*)pipeline.handle)->SetPrivateData(g_ps_vignette_0xFD4216EA.guid, sizeof(g_ps_vignette_0xFD4216EA.hash), &g_ps_vignette_0xFD4216EA.hash), >= 0);
+					return;
+				case g_ps_upsample_0x1A0CD2AE.hash:
+					ensure(((ID3D11PixelShader*)pipeline.handle)->SetPrivateData(g_ps_upsample_0x1A0CD2AE.guid, sizeof(g_ps_upsample_0x1A0CD2AE.hash), &g_ps_upsample_0x1A0CD2AE.hash), >= 0);
+					return;
+				case g_ps_motion_blur_and_lens_distortion_mvs_0xC97890C8.hash:
+					ensure(((ID3D11PixelShader*)pipeline.handle)->SetPrivateData(g_ps_motion_blur_and_lens_distortion_mvs_0xC97890C8.guid, sizeof(g_ps_motion_blur_and_lens_distortion_mvs_0xC97890C8.hash), &g_ps_motion_blur_and_lens_distortion_mvs_0xC97890C8.hash), >= 0);
+					return;
+				case g_ps_motion_blur_and_lens_distortion_mvs_0xE908E905.hash:
+					ensure(((ID3D11PixelShader*)pipeline.handle)->SetPrivateData(g_ps_motion_blur_and_lens_distortion_mvs_0xE908E905.guid, sizeof(g_ps_motion_blur_and_lens_distortion_mvs_0xE908E905.hash), &g_ps_motion_blur_and_lens_distortion_mvs_0xE908E905.hash), >= 0);
+					return;
+				case g_ps_denoise_0x4CD2BE39.hash:
+					ensure(((ID3D11PixelShader*)pipeline.handle)->SetPrivateData(g_ps_denoise_0x4CD2BE39.guid, sizeof(g_ps_denoise_0x4CD2BE39.hash), &g_ps_denoise_0x4CD2BE39.hash), >= 0);
+					return;
+				case g_ps_downsample_0x42873B15.hash:
+					ensure(((ID3D11PixelShader*)pipeline.handle)->SetPrivateData(g_ps_downsample_0x42873B15.guid, sizeof(g_ps_downsample_0x42873B15.hash), &g_ps_downsample_0x42873B15.hash), >= 0);
+					return;
 			}
 		}
-		else if (subobjects[i].type == reshade::api::pipeline_subobject_type::compute_shader) {
+		if (subobjects[i].type == reshade::api::pipeline_subobject_type::compute_shader) {
 			auto desc = (reshade::api::shader_desc*)subobjects[i].data;
 			const auto hash = compute_crc32((const uint8_t*)desc->code, desc->code_size);
 			switch (hash) {
-				case g_cs_downsample_depth_0x27BD5265_hash:
-					ensure(((ID3D11ComputeShader*)pipeline.handle)->SetPrivateData(g_cs_downsample_depth_0x27BD5265_guid, sizeof(g_cs_downsample_depth_0x27BD5265_hash), &g_cs_downsample_depth_0x27BD5265_hash), >= 0);
-					break;
-				case g_cs_taa_0x06BBC941_hash:
-					ensure(((ID3D11ComputeShader*)pipeline.handle)->SetPrivateData(g_cs_taa_0x06BBC941_guid, sizeof(g_cs_taa_0x06BBC941_hash), &g_cs_taa_0x06BBC941_hash), >= 0);
-					break;
+				case g_cs_downsample_depth_0x27BD5265.hash:
+					ensure(((ID3D11ComputeShader*)pipeline.handle)->SetPrivateData(g_cs_downsample_depth_0x27BD5265.guid, sizeof(g_cs_downsample_depth_0x27BD5265.hash), &g_cs_downsample_depth_0x27BD5265.hash), >= 0);
+					return;
+				case g_cs_taa_0x06BBC941.hash:
+					ensure(((ID3D11ComputeShader*)pipeline.handle)->SetPrivateData(g_cs_taa_0x06BBC941.guid, sizeof(g_cs_taa_0x06BBC941.hash), &g_cs_taa_0x06BBC941.hash), >= 0);
+					return;
 			}
 		}
 	}
@@ -829,6 +799,10 @@ static bool on_create_resource_view(reshade::api::device* device, reshade::api::
 			desc.format = reshade::api::format::r16g16b16a16_unorm;
 			return true;
 		}
+		if (resource_desc.texture.format == reshade::api::format::r32g32_float) {
+			desc.format = reshade::api::format::r32g32_float;
+			return true;
+		}
 	}
 
 	return false;
@@ -845,6 +819,10 @@ static bool on_create_resource(reshade::api::device* device, reshade::api::resou
 		}
 		if (desc.texture.format == reshade::api::format::r8g8b8a8_unorm_srgb) {
 			desc.texture.format = reshade::api::format::r16g16b16a16_unorm;
+			return true;
+		}
+		if (desc.texture.format == reshade::api::format::r16g16_float) {
+			desc.texture.format = reshade::api::format::r32g32_float;
 			return true;
 		}
 		return false;
@@ -885,10 +863,15 @@ static bool on_create_resource(reshade::api::device* device, reshade::api::resou
 
 static bool on_create_sampler(reshade::api::device* device, reshade::api::sampler_desc& desc)
 {
-	// Game usese 1, 4 and 16.
-	// Force 16 on all samplers.
-	desc.max_anisotropy = 16.0f;
-
+	if (desc.filter == reshade::api::filter_mode::anisotropic) {
+		
+		// Game usese 4 and 16.
+		desc.max_anisotropy = 16.0f;
+		
+		// As recommended for DLAA.
+		desc.mip_lod_bias += -1.0f;
+	}
+	
 	return true;
 }
 
@@ -908,13 +891,13 @@ static bool on_create_swapchain(reshade::api::device_api api, reshade::api::swap
 	#endif
 
 	desc.back_buffer.texture.format = reshade::api::format::r10g10b10a2_unorm;
-	desc.back_buffer_count = desc.back_buffer_count < 2 ? 2 : desc.back_buffer_count;
+	desc.back_buffer_count = std::max(2u, desc.back_buffer_count);
 	desc.present_mode = DXGI_SWAP_EFFECT_FLIP_DISCARD;
 	desc.fullscreen_state = false;
-	desc.fullscreen_refresh_rate = 0.0f;
 
 	if (g_force_vsync_off) {
 		desc.present_flags |= DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
+		desc.fullscreen_refresh_rate = 0.0f;
 		desc.sync_interval = 0;
 	}
 
@@ -940,9 +923,9 @@ static void on_init_swapchain(reshade::api::swapchain* swapchain, bool resize)
 	}
 
 	// Reset resolution dependent resources.
-	g_cs[hash_name("xe_gtao_prefilter_depths16x16")].reset();
+	g_cs["xe_gtao_prefilter_depths16x16"_h].reset();
 	release_com_array(g_uav_xe_gtao_prefilter_depths16x16);
-	g_ps[hash_name("xe_gtao_main_pass")].reset();
+	g_ps["xe_gtao_main_pass"_h].reset();
 }
 
 static void on_init_device(reshade::api::device* device)
@@ -965,15 +948,9 @@ static void on_destroy_device(reshade::api::device *device)
 	if (g_enable_dlss) {
 		DLSS::instance().shutdown();
 	}
-	g_rtv.clear();
-	g_srv.clear();
-	g_vs.clear();
-	g_ps.clear();
-	g_cs.clear();
-	g_smp.clear();
-	g_resource.clear();
-	g_cb.clear();
 	release_com_array(g_uav_xe_gtao_prefilter_depths16x16);
+	clear_device_resources();
+
 }
 
 static void read_config()
@@ -1021,15 +998,15 @@ static void read_config()
 
 static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 {
-	auto device = (ID3D11Device*)runtime->get_device()->get_native();
-	Com_ptr<ID3D11DeviceContext> ctx;
-	device->GetImmediateContext(ctx.put());
-	
 	#if DEV
 	if (ImGui::Button("Dev button")) {
 	}
-	ImGui::Spacing();
+	ImGui::NewLine();
 	#endif
+
+	auto device = (ID3D11Device*)runtime->get_device()->get_native();
+	Com_ptr<ID3D11DeviceContext> ctx;
+	device->GetImmediateContext(ctx.put());
 
 	if (ImGui::Checkbox("Enable DLSS (DLAA)", &g_enable_dlss)) {
 		if (g_enable_dlss) {
@@ -1052,64 +1029,64 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 
 	if (ImGui::Checkbox("Disable lens distortion", &g_disable_lens_distortion)) {
 		reshade::set_config_value(nullptr, "Dishonored2GraphicalUpgrade", "DisableLensDistortion", g_disable_lens_distortion);
-		g_ps[hash_name("motion_blur_and_lens_distortion_mvs_0xC97890C8")].reset();
-		g_ps[hash_name("motion_blur_and_lens_distortion_mvs_0xE908E905")].reset();
+		g_ps["motion_blur_and_lens_distortion_mvs_0xC97890C8"_h].reset();
+		g_ps["motion_blur_and_lens_distortion_mvs_0xE908E905"_h].reset();
 	}
 	ImGui::Spacing();
 
 	if (ImGui::Checkbox("Disable lens dirt", &g_disable_lens_dirt)) {
 		reshade::set_config_value(nullptr, "Dishonored2GraphicalUpgrade", "DisableLensDirt", g_disable_lens_dirt);
-		g_ps[hash_name("tonemap_0xA6F33860")].reset();
-		g_ps[hash_name("tonemap_0x11E16EF3")].reset();
+		g_ps["tonemap_0xA6F33860"_h].reset();
+		g_ps["tonemap_0x11E16EF3"_h].reset();
 	}
 	ImGui::Spacing();
 
 	if (ImGui::SliderFloat("XeGTAO radius", &g_xe_gtao_radius, 0.01f, 1.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp)) {
 		reshade::set_config_value(nullptr, "Dishonored2GraphicalUpgrade", "XeGTAORadius", g_xe_gtao_radius);
-		g_cs[hash_name("xe_gtao_prefilter_depths16x16")].reset();
-		g_ps[hash_name("xe_gtao_main_pass")].reset();
+		g_cs["xe_gtao_prefilter_depths16x16"_h].reset();
+		g_ps["xe_gtao_main_pass"_h].reset();
 	}
 	static constexpr std::array xe_gtao_quality_items = { "Low", "Medium", "High", "Very High", "Ultra" };
 	if (ImGui::Combo("XeGTAO quality", &g_xe_gtao_quality, xe_gtao_quality_items.data(), xe_gtao_quality_items.size())) {
 		reshade::set_config_value(nullptr, "Dishonored2GraphicalUpgrade", "XeGTAOQuality", g_xe_gtao_quality);
-		g_ps[hash_name("xe_gtao_main_pass")].reset();
+		g_ps["xe_gtao_main_pass"_h].reset();
 	}
 	ImGui::Spacing();
 
 	if (ImGui::SliderFloat("Bloom intensity", &g_bloom_intensity, 0.0f, 2.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp)) {
 		reshade::set_config_value(nullptr, "Dishonored2GraphicalUpgrade", "BloomIntensity", g_bloom_intensity);
-		g_ps[hash_name("tonemap_0xA6F33860")].reset();
-		g_ps[hash_name("tonemap_0x11E16EF3")].reset();
+		g_ps["tonemap_0xA6F33860"_h].reset();
+		g_ps["tonemap_0x11E16EF3"_h].reset();
 	}
 	ImGui::Spacing();
 
 	if (ImGui::SliderFloat("Vignette strenght", &g_vignette_strenght, 0.0f, 1.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp)) {
 		reshade::set_config_value(nullptr, "Dishonored2GraphicalUpgrade", "VignetteStrenght", g_vignette_strenght);
-		g_ps[hash_name("vignette")].reset();
+		g_ps["vignette"_h].reset();
 	}
 	ImGui::Spacing();
 
 	if (ImGui::SliderFloat("Sharpness", &g_amd_ffx_cas_sharpness, 0.0f, 1.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp)) {
 		reshade::set_config_value(nullptr, "Dishonored2GraphicalUpgrade", "Sharpness", g_amd_ffx_cas_sharpness);
-		g_ps[hash_name("amd_ffx_cas")].reset();
+		g_ps["amd_ffx_cas"_h].reset();
 	}
 	ImGui::Spacing();
 
 	if (ImGui::SliderFloat("Grain amount", &g_amd_ffx_lfga_amount, 0.0f, 1.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp)) {
 		reshade::set_config_value(nullptr, "Dishonored2GraphicalUpgrade", "GrainAmount", g_amd_ffx_lfga_amount);
-		g_ps[hash_name("amd_ffx_lfga")].reset();
+		g_ps["amd_ffx_lfga"_h].reset();
 	}
 	ImGui::Spacing();
 
 	static constexpr std::array trc_items = { "sRGB", "Gamma" };
 	if (ImGui::Combo("TRC", &g_trc, trc_items.data(), trc_items.size())) {
 		reshade::set_config_value(nullptr, "Dishonored2GraphicalUpgrade", "TRC", g_trc);
-		g_ps[hash_name("amd_ffx_lfga")].reset();
+		g_ps["amd_ffx_lfga"_h].reset();
 	}
 	ImGui::BeginDisabled(g_trc == TRC_SRGB);
 	if (ImGui::SliderFloat("Gamma", &g_gamma, 1.0f, 3.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp)) {
 		reshade::set_config_value(nullptr, "Dishonored2GraphicalUpgrade", "Gamma", g_gamma);
-		g_ps[hash_name("amd_ffx_lfga")].reset();
+		g_ps["amd_ffx_lfga"_h].reset();
 	}
 	ImGui::EndDisabled();
 	ImGui::Spacing();
@@ -1123,7 +1100,7 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 }
 
 extern "C" __declspec(dllexport) const char* NAME = "Dishonored2GraphicalUpgrade";
-extern "C" __declspec(dllexport) const char* DESCRIPTION = "Dishonored2GraphicalUpgrade v1.13.1";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "Dishonored2GraphicalUpgrade v2.0.0";
 extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/Dishonored2GraphicalUpgrade";
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)
@@ -1136,7 +1113,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)
 
 			//MessageBoxW(0, L"Debug", L"Attach debugger.", MB_OK);
 
-			g_graphical_upgrade_path = get_graphical_upgrade_path();
+			init_graphical_upgrade_path();
 			read_config();
 			reshade::register_event<reshade::addon_event::execute_secondary_command_list>(on_execute_secondary_command_list);
 			reshade::register_event<reshade::addon_event::draw>(on_draw);
@@ -1152,7 +1129,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)
 			reshade::register_event<reshade::addon_event::init_swapchain>(on_init_swapchain);
 			reshade::register_event<reshade::addon_event::init_device>(on_init_device);
 			reshade::register_event<reshade::addon_event::destroy_device>(on_destroy_device);
-			reshade::register_overlay(nullptr, draw_settings_overlay);
+			reshade::register_overlay(nullptr, draw_settings_overlay);;
 			break;
 		case DLL_PROCESS_DETACH:
 			reshade::unregister_addon(hModule);

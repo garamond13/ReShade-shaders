@@ -1,7 +1,6 @@
 #pragma once
 
-#include "Common.h"
-#include "Helpers.h"
+#include "Include/GraphicalUpgrade.h"
 #include "DLSS/include/nvsdk_ngx_helpers.h"
 
 // We only support/provide DLAA.
