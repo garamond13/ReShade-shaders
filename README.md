@@ -74,6 +74,9 @@ Graphical upgrade for Disco Elysium. See Addons/DiscoElysiumGraphicalUpgrade for
 **Dishonored2GraphicalUpgrade**  
 Graphical upgrade for Dishonored 2. See Addons/Dishonored2GraphicalUpgrade for details.
 
+**DishonoredDOTOGraphicalUpgrade**  
+Graphical upgrade for Dishonored: Death of the Outsider. See Addons/DishonoredDOTOGraphicalUpgrade for details.
+
 **FarCry2GraphicalUpgrade**  
 Graphical upgrade for Far Cry 2. See Addons/FarCry2GraphicalUpgrade for details.
 
