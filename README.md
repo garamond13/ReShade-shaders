@@ -95,5 +95,8 @@ Graphical upgrade for Hollow Knight. See Addons/HollowKnightGraphicalUpgrade for
 **INSIDEGraphicalUpgrade**  
 Graphical upgrade for INSIDE. See Addons/INSIDEGraphicalUpgrade for details.
 
+**MortalKombat11GraphicalUpgrade**  
+Graphical upgrade for Mortal Kombat 11. See Addons/MortalKombat11GraphicalUpgrade for details.
+
 **SlayTheSpireGraphicalUpgrade**  
 Graphical upgrade for Slay the Spire. See Addons/SlayTheSpireGraphicalUpgrade for details.
