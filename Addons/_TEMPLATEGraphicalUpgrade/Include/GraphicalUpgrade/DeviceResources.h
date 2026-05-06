@@ -12,6 +12,7 @@ inline std::unordered_map<uint32_t, Com_ptr<ID3D11DepthStencilView>> g_dsv;
 inline std::unordered_map<uint32_t, Com_ptr<ID3D11VertexShader>> g_vs;
 inline std::unordered_map<uint32_t, Com_ptr<ID3D11PixelShader>> g_ps;
 inline std::unordered_map<uint32_t, Com_ptr<ID3D11ComputeShader>> g_cs;
+inline std::unordered_map<uint32_t, Com_ptr<ID3D11Texture2D>> g_tex2d;
 inline std::unordered_map<uint32_t, Com_ptr<ID3D11Resource>> g_resource;
 inline std::unordered_map<uint32_t, Com_ptr<ID3D11Buffer>> g_cb;
 inline std::unordered_map<uint32_t, Com_ptr<ID3D11SamplerState>> g_smp;

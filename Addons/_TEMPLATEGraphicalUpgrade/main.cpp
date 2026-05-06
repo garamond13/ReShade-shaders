@@ -140,7 +140,7 @@ static void on_init_pipeline(reshade::api::device* device, reshade::api::pipelin
 			const auto hash = compute_crc32((const uint8_t*)desc->code, desc->code_size);
 			switch (hash) {
 				case g_xx_template_0x14345D29.hash:
-					ensure(((ID3D11PixelShader*)pipeline.handle)->SetPrivateData(g_xx_template_0x14345D29.guid, sizeof(g_xx_template_0x14345D29.hash), &g_xx_template_0x14345D29.hash), >= 0);
+					ensure(((ID3D11ComputeShader*)pipeline.handle)->SetPrivateData(g_xx_template_0x14345D29.guid, sizeof(g_xx_template_0x14345D29.hash), &g_xx_template_0x14345D29.hash), >= 0);
 					return;
 			}
 		}
@@ -182,13 +182,16 @@ static bool on_create_resource(reshade::api::device* device, reshade::api::resou
 
 static bool on_create_sampler(reshade::api::device* device, reshade::api::sampler_desc& desc)
 {
-	#if DEV
-	log_debug("MaxAnistropy: {}", desc.max_anisotropy);
-	#endif
+	if (desc.filter == reshade::api::filter_mode::anisotropic) {
+		#if DEV
+		log_debug("MaxAnistropy: {}", desc.max_anisotropy);
+		#endif
+		
+		//desc.max_anisotropy = 16.0f;
+		//return true;
+	}
 
-	//desc.max_anisotropy = 16.0f;
-	
-	return false; // true;
+	return false;
 }
 
 // Prevent entering fullscreen mode.
@@ -233,18 +236,20 @@ static void on_init_swapchain(reshade::api::swapchain* swapchain, bool resize)
 
 static void on_init_device(reshade::api::device* device)
 {
-	// Set maximum frame latency to 1, the game is not setting this already to 1.
+	#if 1
+	return;
+	#endif
+
+	if (device->get_api() != reshade::api::device_api::d3d11) {
+		return;
+	}
+
+	// Set maximum frame latency to 1.
+	// This may be to early to set it, the game may overwrite this.
 	auto native_device = (ID3D11Device*)device->get_native();
 	Com_ptr<IDXGIDevice1> device1;
 	auto hr = native_device->QueryInterface(device1.put());
 	if (SUCCEEDED(hr)) {
-
-		#if DEV
-		UINT max_latency;
-		ensure(device1->GetMaximumFrameLatency(&max_latency), >= 0);
-		log_debug("MaximumFrameLatency: {}", max_latency);
-		#endif
-
 		ensure(device1->SetMaximumFrameLatency(1), >= 0);
 	}
 }
@@ -279,6 +284,17 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 {
 	#if DEV
 	if (ImGui::Button("Dev button")) {
+	}
+	ImGui::Spacing();
+
+	// The game may set this a bit later.
+	if (ImGui::Button("Check MaximumFrameLatency")) {
+		auto device = (ID3D11Device*)runtime->get_device()->get_native();
+		Com_ptr<IDXGIDevice1> device1;
+		ensure(device->QueryInterface(device1.put()), >= 0);
+		UINT max_latency;
+		ensure(device1->GetMaximumFrameLatency(&max_latency), >= 0);
+		log_debug("MaximumFrameLatency: {}", max_latency);
 	}
 	ImGui::NewLine();
 	#endif

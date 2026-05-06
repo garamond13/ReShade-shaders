@@ -31,121 +31,121 @@ struct Vec4
 template<typename T>
 struct Mat1x1
 {
-	T _m00;
+	T m00;
 };
 
 template<typename T>
 struct Mat1x2
 {
-	T _m00, _m01;
+	T m00, m01;
 };
 
 template<typename T>
 struct Mat1x3
 {
-	T _m00, _m01, _m02;
+	T m00, m01, m02;
 };
 
 template<typename T>
 struct Mat1x4
 {
-	T _m00, _m01, _m02, _m03;
+	T m00, m01, m02, m03;
 };
 
 template<typename T>
 struct Mat2x1
 {
-	T _m00;
-	T _m10;
+	T m00;
+	T m10;
 };
 
 template<typename T>
 struct Mat2x2
 {
-	T _m00, _m01;
-	T _m10, _m11;
+	T m00, m01;
+	T m10, m11;
 };
 
 template<typename T>
 struct Mat2x3
 {
-	T _m00, _m01, _m02;
-	T _m10, _m11, _m12;
+	T m00, m01, m02;
+	T m10, m11, m12;
 };
 
 template<typename T>
 struct Mat2x4
 {
-	T _m00, _m01, _m02, _m03;
-	T _m10, _m11, _m12, _m13;
+	T m00, m01, m02, m03;
+	T m10, m11, m12, m13;
 };
 
 template<typename T>
 struct Mat3x1
 {
-	T _m00;
-	T _m10;
-	T _m20;
+	T m00;
+	T m10;
+	T m20;
 };
 
 template<typename T>
 struct Mat3x2
 {
-	T _m00, _m01;
-	T _m10, _m11;
-	T _m20, _m21;
+	T m00, m01;
+	T m10, m11;
+	T m20, m21;
 };
 
 template<typename T>
 struct Mat3x3
 {
-	T _m00, _m01, _m02;
-	T _m10, _m11, _m12;
-	T _m20, _m21, _m22;
+	T m00, m01, m02;
+	T m10, m11, m12;
+	T m20, m21, m22;
 };
 
 template<typename T>
 struct Mat3x4
 {
-	T _m00, _m01, _m02, _m03;
-	T _m10, _m11, _m12, _m13;
-	T _m20, _m21, _m22, _m23;
+	T m00, m01, m02, m03;
+	T m10, m11, m12, m13;
+	T m20, m21, m22, m23;
 };
 
 template<typename T>
 struct Mat4x1
 {
-	T _m00;
-	T _m10;
-	T _m20;
-	T _m30;
+	T m00;
+	T m10;
+	T m20;
+	T m30;
 };
 
 template<typename T>
 struct Mat4x2
 {
-	T _m00, _m01;
-	T _m10, _m11;
-	T _m20, _m21;
-	T _m30, _m31;
+	T m00, m01;
+	T m10, m11;
+	T m20, m21;
+	T m30, m31;
 };
 
 template<typename T>
 struct Mat4x3
 {
-	T _m00, _m01, _m02;
-	T _m10, _m11, _m12;
-	T _m20, _m21, _m22;
-	T _m30, _m31, _m32;
+	T m00, m01, m02;
+	T m10, m11, m12;
+	T m20, m21, m22;
+	T m30, m31, m32;
 };
 
 template<typename T>
 struct Mat4x4
 {
-	T _m00, _m01, _m02, _m03;
-	T _m10, _m11, _m12, _m13;
-	T _m20, _m21, _m22, _m23;
-	T _m30, _m31, _m32, _m33;
+	T m00, m01, m02, m03;
+	T m10, m11, m12, m13;
+	T m20, m21, m22, m23;
+	T m30, m31, m32, m33;
 };
 
 // float
