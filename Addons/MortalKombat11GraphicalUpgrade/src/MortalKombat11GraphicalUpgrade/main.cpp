@@ -80,6 +80,8 @@ static int g_swapchain_width;
 static int g_swapchain_height;
 static bool g_force_vsync_off = true;
 static bool g_force_borderless = true;
+static bool g_hdr_fix;
+static IDXGISwapChain* g_swapchain;
 
 // DLSS.
 static bool g_enable_dlss;
@@ -285,12 +287,13 @@ static bool on_create_resource(reshade::api::device* device, reshade::api::resou
 	}
 
 	// Filter RTs and UAVs.
+	// Upgrading r10g10b10a2_unorm breaks HDR.
 	if ((desc.usage & reshade::api::resource_usage::render_target) != 0 || (desc.usage & reshade::api::resource_usage::unordered_access) != 0) {
 		if (desc.texture.format == reshade::api::format::r11g11b10_float) {
 			desc.texture.format = reshade::api::format::r16g16b16a16_float;
 			return true;
 		}
-		if (desc.texture.format == reshade::api::format::r8g8b8a8_unorm || desc.texture.format == reshade::api::format::r8g8b8a8_unorm_srgb || desc.texture.format == reshade::api::format::r10g10b10a2_unorm) {
+		if (desc.texture.format == reshade::api::format::r8g8b8a8_unorm || desc.texture.format == reshade::api::format::r8g8b8a8_unorm_srgb) {
 			desc.texture.format = reshade::api::format::r16g16b16a16_unorm;
 			return true;
 		}
@@ -353,22 +356,35 @@ static bool on_create_swapchain(reshade::api::device_api api, reshade::api::swap
 
 static void on_init_swapchain(reshade::api::swapchain* swapchain, bool resize)
 {
-	auto native_swapchain = (IDXGISwapChain*)swapchain->get_native();
+	g_swapchain = (IDXGISwapChain*)swapchain->get_native();
 	DXGI_SWAP_CHAIN_DESC desc;
-	native_swapchain->GetDesc(&desc);
+	g_swapchain->GetDesc(&desc);
 
 	// Save swapchain size.
 	g_swapchain_width = desc.BufferDesc.Width;
 	g_swapchain_height = desc.BufferDesc.Height;
 
+	if (g_hdr_fix) {
+		Com_ptr<IDXGISwapChain3> swapchain3;
+		ensure(g_swapchain->QueryInterface(swapchain3.put()), >= 0);
+		swapchain3->SetColorSpace1(DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020);
+	}
+
 	if (g_enable_dlss) {
 		Com_ptr<ID3D11Device> device;
-		ensure(native_swapchain->GetDevice(IID_PPV_ARGS(device.put())), >= 0);
+		ensure(g_swapchain->GetDevice(IID_PPV_ARGS(device.put())), >= 0);
 		Com_ptr<ID3D11DeviceContext> ctx;
 		device->GetImmediateContext(ctx.put());
 		DLSS::instance().init(device.get());
 		DLSS::instance().create_feature(ctx.get(), g_swapchain_width, g_swapchain_height, g_dlss_preset);
 		g_dlss_device = (uintptr_t)device.get();
+	}
+}
+
+static void on_init_effect_runtime(reshade::api::effect_runtime* runtime)
+{
+	if (g_hdr_fix) {
+		runtime->set_color_space(reshade::api::color_space::hdr10_st2084);
 	}
 }
 
@@ -410,6 +426,9 @@ static void read_config()
 	}
 	if (!reshade::get_config_value(nullptr, "MortalKombat11GraphicalUpgrade", "ForceBorderless", g_force_borderless)) {
 		reshade::set_config_value(nullptr, "MortalKombat11GraphicalUpgrade", "ForceBorderless", g_force_borderless);
+	}
+	if (!reshade::get_config_value(nullptr, "MortalKombat11GraphicalUpgrade", "HDRFix", g_hdr_fix)) {
+		reshade::set_config_value(nullptr, "MortalKombat11GraphicalUpgrade", "HDRFix", g_hdr_fix);
 	}
 }
 
@@ -463,7 +482,7 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 		ImGui::SetItemTooltip("Requires restart.");
 	}
 	ImGui::Spacing();
-
+	
 	if (ImGui::Checkbox("Force borderless", &g_force_borderless)) {
 		reshade::set_config_value(nullptr, "MortalKombat11GraphicalUpgrade", "ForceBorderless", g_force_borderless);
 	}
@@ -471,10 +490,25 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 		ImGui::SetItemTooltip("Requires restart.");
 	}
 	ImGui::Spacing();
+
+	if (ImGui::Checkbox("HDR fix", &g_hdr_fix)) {
+		Com_ptr<IDXGISwapChain3> swapchain3;
+		ensure(g_swapchain->QueryInterface(swapchain3.put()), >= 0);
+		if (g_hdr_fix) {
+			swapchain3->SetColorSpace1(DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020);
+			runtime->set_color_space(reshade::api::color_space::hdr10_st2084);
+		}
+		else {
+			swapchain3->SetColorSpace1(DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709);
+			runtime->set_color_space(reshade::api::color_space::srgb);
+		}
+		reshade::set_config_value(nullptr, "MortalKombat11GraphicalUpgrade", "HDRFix", g_hdr_fix);
+	}
+	ImGui::Spacing();
 }
 
 extern "C" __declspec(dllexport) const char* NAME = "MortalKombat11GraphicalUpgrade";
-extern "C" __declspec(dllexport) const char* DESCRIPTION = "MortalKombat11GraphicalUpgrade v1.0.0";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "MortalKombat11GraphicalUpgrade v1.1.0";
 extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/MortalKombat11GraphicalUpgrade";
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)
@@ -497,6 +531,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)
 			reshade::register_event<reshade::addon_event::set_fullscreen_state>(on_set_fullscreen_state);
 			reshade::register_event<reshade::addon_event::create_swapchain>(on_create_swapchain);
 			reshade::register_event<reshade::addon_event::init_swapchain>(on_init_swapchain);
+			reshade::register_event<reshade::addon_event::init_effect_runtime>(on_init_effect_runtime);
 			reshade::register_event<reshade::addon_event::init_device>(on_init_device);
 			reshade::register_event<reshade::addon_event::destroy_device>(on_destroy_device);
 			reshade::register_overlay(nullptr, draw_settings_overlay);
