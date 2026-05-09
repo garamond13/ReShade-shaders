@@ -288,12 +288,13 @@ static bool on_create_resource(reshade::api::device* device, reshade::api::resou
 
 	// Filter RTs and UAVs.
 	// Upgrading r10g10b10a2_unorm breaks HDR.
+	// Upgrading r8g8b8a8_unorm is creasing the game on save customized character.
 	if ((desc.usage & reshade::api::resource_usage::render_target) != 0 || (desc.usage & reshade::api::resource_usage::unordered_access) != 0) {
 		if (desc.texture.format == reshade::api::format::r11g11b10_float) {
 			desc.texture.format = reshade::api::format::r16g16b16a16_float;
 			return true;
 		}
-		if (desc.texture.format == reshade::api::format::r8g8b8a8_unorm || desc.texture.format == reshade::api::format::r8g8b8a8_unorm_srgb) {
+		if (desc.texture.format == reshade::api::format::r8g8b8a8_unorm_srgb) {
 			desc.texture.format = reshade::api::format::r16g16b16a16_unorm;
 			return true;
 		}
@@ -508,7 +509,7 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 }
 
 extern "C" __declspec(dllexport) const char* NAME = "MortalKombat11GraphicalUpgrade";
-extern "C" __declspec(dllexport) const char* DESCRIPTION = "MortalKombat11GraphicalUpgrade v1.1.0";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "MortalKombat11GraphicalUpgrade v1.1.1";
 extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/MortalKombat11GraphicalUpgrade";
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)
