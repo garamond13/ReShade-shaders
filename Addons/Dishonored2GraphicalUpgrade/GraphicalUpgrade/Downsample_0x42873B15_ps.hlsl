@@ -56,7 +56,6 @@ SamplerState smp_linearclamp_s : register(s0);
 Texture2D<float4> ro_viewcolormap : register(t0);
 StructuredBuffer<postfx_luminance_autoexposure_t> ro_postfx_luminance_buffautoexposure : register(t1);
 
-
 // 3Dmigoto declarations
 #define cmp -
 

@@ -5,33 +5,62 @@
 #include "Ensure.h"
 #include "Helpers.h"
 
-inline std::unordered_map<uint32_t, Com_ptr<ID3D11RenderTargetView>> g_rtv;
-inline std::unordered_map<uint32_t, Com_ptr<ID3D11UnorderedAccessView>> g_uav;
-inline std::unordered_map<uint32_t, Com_ptr<ID3D11ShaderResourceView>> g_srv;
-inline std::unordered_map<uint32_t, Com_ptr<ID3D11DepthStencilView>> g_dsv;
-inline std::unordered_map<uint32_t, Com_ptr<ID3D11VertexShader>> g_vs;
-inline std::unordered_map<uint32_t, Com_ptr<ID3D11PixelShader>> g_ps;
-inline std::unordered_map<uint32_t, Com_ptr<ID3D11ComputeShader>> g_cs;
-inline std::unordered_map<uint32_t, Com_ptr<ID3D11Resource>> g_resource;
-inline std::unordered_map<uint32_t, Com_ptr<ID3D11Buffer>> g_cb;
-inline std::unordered_map<uint32_t, Com_ptr<ID3D11SamplerState>> g_smp;
-inline std::unordered_map<uint32_t, Com_ptr<ID3D11DepthStencilState>> g_ds;
-inline std::unordered_map<uint32_t, Com_ptr<ID3D11BlendState>> g_blend;
-
-inline void clear_device_resources()
+struct Managed_resources
 {
-	g_rtv.clear();
-	g_uav.clear();
-	g_srv.clear();
-	g_dsv.clear();
-	g_vs.clear();
-	g_ps.clear();
-	g_cs.clear();
-	g_resource.clear();
-	g_cb.clear();
-	g_smp.clear();
-	g_ds.clear();
-	g_blend.clear();
+	std::unordered_map<uint32_t, Com_ptr<ID3D11ShaderResourceView>> shader_resource_views;
+	std::unordered_map<uint32_t, Com_ptr<ID3D11RenderTargetView>> render_target_views;
+	std::unordered_map<uint32_t, Com_ptr<ID3D11UnorderedAccessView>> unordered_access_views;
+	std::unordered_map<uint32_t, Com_ptr<ID3D11DepthStencilView>> depth_stencil_views;
+	std::unordered_map<uint32_t, Com_ptr<ID3D11Resource>> resources;
+	std::unordered_map<uint32_t, Com_ptr<ID3D11Buffer>> buffers;
+	std::unordered_map<uint32_t, Com_ptr<ID3D11Texture1D>> textures_1d;
+	std::unordered_map<uint32_t, Com_ptr<ID3D11Texture2D>> textures_2d;
+	std::unordered_map<uint32_t, Com_ptr<ID3D11Texture3D>> textures_3d;
+	std::unordered_map<uint32_t, Com_ptr<ID3D11InputLayout>> input_layouts;
+	std::unordered_map<uint32_t, Com_ptr<ID3D11RasterizerState>> rasterizers;
+	std::unordered_map<uint32_t, Com_ptr<ID3D11SamplerState>> samplers;
+	std::unordered_map<uint32_t, Com_ptr<ID3D11BlendState>> blends;
+	std::unordered_map<uint32_t, Com_ptr<ID3D11DepthStencilState>> depth_stencils;
+	std::unordered_map<uint32_t, Com_ptr<ID3D11VertexShader>> vertex_shaders;
+	std::unordered_map<uint32_t, Com_ptr<ID3D11ComputeShader>> compute_shaders;
+	std::unordered_map<uint32_t, Com_ptr<ID3D11PixelShader>> pixel_shaders;
+	std::unordered_map<uint32_t, Com_ptr<ID3D11DomainShader>> domain_shaders;
+	std::unordered_map<uint32_t, Com_ptr<ID3D11GeometryShader>> geometry_shaders;
+	std::unordered_map<uint32_t, Com_ptr<ID3D11HullShader>> hull_shaders;
+
+	void clear()
+	{
+		shader_resource_views.clear();
+		render_target_views.clear();
+		unordered_access_views.clear();
+		depth_stencil_views.clear();
+		resources.clear();
+		buffers.clear();
+		textures_1d.clear();
+		textures_2d.clear();
+		textures_3d.clear();
+		input_layouts.clear();
+		rasterizers.clear();
+		samplers.clear();
+		blends.clear();
+		depth_stencils.clear();
+		vertex_shaders.clear();
+		compute_shaders.clear();
+		pixel_shaders.clear();
+		domain_shaders.clear();
+		geometry_shaders.clear();
+		hull_shaders.clear();
+	}
+};
+
+inline void reset_com_array(auto& array)
+{
+	for (auto*& ptr : array) {
+		if (ptr) {
+			ptr->Release();
+			ptr = nullptr;
+		}
+	}
 }
 
 inline void release_com_array(auto& array)
@@ -39,7 +68,6 @@ inline void release_com_array(auto& array)
 	for (auto*& ptr : array) {
 		if (ptr) {
 			ptr->Release();
-			ptr = nullptr;
 		}
 	}
 }

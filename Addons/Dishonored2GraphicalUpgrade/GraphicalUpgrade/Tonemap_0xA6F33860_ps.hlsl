@@ -1,5 +1,4 @@
-#include "Sample.hlsli"
-#include "Color.hlsli"
+#include "Include/Common.hlsli"
 
 struct postfx_luminance_autoexposure_t
 {
@@ -88,7 +87,6 @@ StructuredBuffer<postfx_luminance_autoexposure_t> ro_postfx_luminance_buffautoex
 
 // 3Dmigoto declarations
 #define cmp -
-
 
 void main(
   float4 v0 : INTERP0,

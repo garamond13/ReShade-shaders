@@ -15,7 +15,6 @@ Texture2D<float4> ro_ssao_aodepthbuffer : register(t0);
 // 3Dmigoto declarations
 #define cmp -
 
-
 void main(
   float4 v0 : INTERP0,
   float4 v1 : INTERP1,

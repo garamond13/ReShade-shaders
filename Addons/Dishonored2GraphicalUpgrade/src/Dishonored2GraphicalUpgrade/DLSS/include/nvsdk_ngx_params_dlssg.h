@@ -115,6 +115,8 @@ typedef struct NVSDK_NGX_DLSSG_Opt_Eval_Params
     NVSDK_NGX_Dimensions hudLessSubrectSize = { 0, 0 };
     NVSDK_NGX_Coordinates uiSubrectBase = { 0, 0 };
     NVSDK_NGX_Dimensions uiSubrectSize = { 0, 0 };
+    NVSDK_NGX_Coordinates uiAlphaSubrectBase = { 0, 0 };
+    NVSDK_NGX_Dimensions uiAlphaSubrectSize = { 0, 0 };
 
     NVSDK_NGX_Coordinates bidirectionalDistFieldSubrectBase = { 0, 0 };
     NVSDK_NGX_Dimensions bidirectionalDistFieldSubrectSize = { 0, 0 };
@@ -126,6 +128,11 @@ typedef struct NVSDK_NGX_DLSSG_Opt_Eval_Params
 
     NVSDK_NGX_Coordinates backbufferSubrectBase = { 0, 0 };
     NVSDK_NGX_Dimensions  backbufferSubrectSize = { 0, 0 };
+
+    NVSDK_NGX_Coordinates outputInterpSubrectBase = { 0, 0 };
+    NVSDK_NGX_Dimensions  outputInterpSubrectSize = { 0, 0 };
+    NVSDK_NGX_Coordinates outputRealSubrectBase = { 0, 0 };
+    NVSDK_NGX_Dimensions  outputRealSubrectSize = { 0, 0 };
 } NVSDK_NGX_DLSSG_Opt_Eval_Params;
 
 #endif // NVSDK_NGX_PARAMS_DLSSG_H

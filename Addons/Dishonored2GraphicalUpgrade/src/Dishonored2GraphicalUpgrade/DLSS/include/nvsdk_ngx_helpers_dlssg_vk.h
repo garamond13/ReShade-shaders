@@ -35,7 +35,7 @@ typedef struct NVSDK_NGX_VK_DLSSG_Eval_Params
     NVSDK_NGX_Resource_VK* pMVecs;
     NVSDK_NGX_Resource_VK* pHudless;                        // Optional
     NVSDK_NGX_Resource_VK* pUI;                             // Optional
-    NVSDK_NGX_Resource_VK* pNoPostProcessingColor;          // Optional
+    NVSDK_NGX_Resource_VK* pUIAlpha;                        // Optional
     NVSDK_NGX_Resource_VK* pBidirectionalDistortionField;   // Optional
     NVSDK_NGX_Resource_VK* pOutputInterpFrame;
     NVSDK_NGX_Resource_VK* pOutputRealFrame;                // Optional. In some cases, the feature may modify this frame (e.g. debugging)
@@ -71,10 +71,10 @@ static inline NVSDK_NGX_Result NGX_VK_EVALUATE_DLSSG(
     NVSDK_NGX_Parameter_SetVoidPointer(pInParams, NVSDK_NGX_DLSSG_Parameter_Depth, pInDlssgEvalParams->pDepth);
     NVSDK_NGX_Parameter_SetVoidPointer(pInParams, NVSDK_NGX_DLSSG_Parameter_HUDLess, pInDlssgEvalParams->pHudless);
     NVSDK_NGX_Parameter_SetVoidPointer(pInParams, NVSDK_NGX_DLSSG_Parameter_UI, pInDlssgEvalParams->pUI);
-    NVSDK_NGX_Parameter_SetVoidPointer(pInParams, NVSDK_NGX_DLSSG_Parameter_NoPostProcessingColor, pInDlssgEvalParams->pNoPostProcessingColor);
+    NVSDK_NGX_Parameter_SetVoidPointer(pInParams, NVSDK_NGX_DLSSG_Parameter_UIAlpha, pInDlssgEvalParams->pUIAlpha);
     NVSDK_NGX_Parameter_SetVoidPointer(pInParams, NVSDK_NGX_DLSSG_Parameter_BidirectionalDistortionField, pInDlssgEvalParams->pBidirectionalDistortionField);
-    NVSDK_NGX_Parameter_SetVoidPointer(pInParams, NVSDK_NGX_Parameter_OutputInterpolated, pInDlssgEvalParams->pOutputInterpFrame);
-    NVSDK_NGX_Parameter_SetVoidPointer(pInParams, NVSDK_NGX_Parameter_OutputReal, pInDlssgEvalParams->pOutputRealFrame);
+    NVSDK_NGX_Parameter_SetVoidPointer(pInParams, NVSDK_NGX_DLSSG_Parameter_OutputInterpolated, pInDlssgEvalParams->pOutputInterpFrame);
+    NVSDK_NGX_Parameter_SetVoidPointer(pInParams, NVSDK_NGX_DLSSG_Parameter_OutputReal, pInDlssgEvalParams->pOutputRealFrame);
     NVSDK_NGX_Parameter_SetVoidPointer(pInParams, NVSDK_NGX_DLSSG_Parameter_OutputDisableInterpolation, pInDlssgEvalParams->pOutputDisableInterpolation);
 
     if (pInDlssgOptEvalParams)
@@ -156,6 +156,11 @@ static inline NVSDK_NGX_Result NGX_VK_EVALUATE_DLSSG(
         NVSDK_NGX_Parameter_SetUI(pInParams, NVSDK_NGX_DLSSG_Parameter_UISubrectWidth, pInDlssgOptEvalParams->uiSubrectSize.Width);
         NVSDK_NGX_Parameter_SetUI(pInParams, NVSDK_NGX_DLSSG_Parameter_UISubrectHeight, pInDlssgOptEvalParams->uiSubrectSize.Height);
 
+        NVSDK_NGX_Parameter_SetUI(pInParams, NVSDK_NGX_DLSSG_Parameter_UIAlphaSubrectBaseX, pInDlssgOptEvalParams->uiAlphaSubrectBase.X);
+        NVSDK_NGX_Parameter_SetUI(pInParams, NVSDK_NGX_DLSSG_Parameter_UIAlphaSubrectBaseY, pInDlssgOptEvalParams->uiAlphaSubrectBase.Y);
+        NVSDK_NGX_Parameter_SetUI(pInParams, NVSDK_NGX_DLSSG_Parameter_UIAlphaSubrectWidth, pInDlssgOptEvalParams->uiAlphaSubrectSize.Width);
+        NVSDK_NGX_Parameter_SetUI(pInParams, NVSDK_NGX_DLSSG_Parameter_UIAlphaSubrectHeight, pInDlssgOptEvalParams->uiAlphaSubrectSize.Height);
+
         NVSDK_NGX_Parameter_SetUI(pInParams, NVSDK_NGX_DLSSG_Parameter_BidirectionalDistortionFieldSubrectBaseX, pInDlssgOptEvalParams->bidirectionalDistFieldSubrectBase.X);
         NVSDK_NGX_Parameter_SetUI(pInParams, NVSDK_NGX_DLSSG_Parameter_BidirectionalDistortionFieldSubrectBaseY, pInDlssgOptEvalParams->bidirectionalDistFieldSubrectBase.Y);
         NVSDK_NGX_Parameter_SetUI(pInParams, NVSDK_NGX_DLSSG_Parameter_BidirectionalDistortionFieldSubrectWidth, pInDlssgOptEvalParams->bidirectionalDistFieldSubrectSize.Width);
@@ -167,10 +172,20 @@ static inline NVSDK_NGX_Result NGX_VK_EVALUATE_DLSSG(
 
         NVSDK_NGX_Parameter_SetF(pInParams, NVSDK_NGX_DLSSG_Parameter_MinRelativeLinearDepthObjectSeparation, pInDlssgOptEvalParams->minRelativeLinearDepthObjectSeparation);
 
-        NVSDK_NGX_Parameter_SetUI(pInParams, NVSDK_NGX_DLSSG_Parameter_BackbufferSubrectBaseX,  pInDlssgOptEvalParams->backbufferSubrectBase.X);
-        NVSDK_NGX_Parameter_SetUI(pInParams, NVSDK_NGX_DLSSG_Parameter_BackbufferSubrectBaseY,  pInDlssgOptEvalParams->backbufferSubrectBase.Y);
-        NVSDK_NGX_Parameter_SetUI(pInParams, NVSDK_NGX_DLSSG_Parameter_BackbufferSubrectWidth,  pInDlssgOptEvalParams->backbufferSubrectSize.Width);
-        NVSDK_NGX_Parameter_SetUI(pInParams, NVSDK_NGX_DLSSG_Parameter_BackbufferSubrectHeight, pInDlssgOptEvalParams->backbufferSubrectSize.Height);
+        NVSDK_NGX_Parameter_SetUI(pInParams, NVSDK_NGX_DLSSG_Parameter_InputBackbufferSubrectBaseX,  pInDlssgOptEvalParams->backbufferSubrectBase.X);
+        NVSDK_NGX_Parameter_SetUI(pInParams, NVSDK_NGX_DLSSG_Parameter_InputBackbufferSubrectBaseY,  pInDlssgOptEvalParams->backbufferSubrectBase.Y);
+        NVSDK_NGX_Parameter_SetUI(pInParams, NVSDK_NGX_DLSSG_Parameter_InputBackbufferSubrectWidth,  pInDlssgOptEvalParams->backbufferSubrectSize.Width);
+        NVSDK_NGX_Parameter_SetUI(pInParams, NVSDK_NGX_DLSSG_Parameter_InputBackbufferSubrectHeight, pInDlssgOptEvalParams->backbufferSubrectSize.Height);
+
+        NVSDK_NGX_Parameter_SetUI(pInParams, NVSDK_NGX_DLSSG_Parameter_OutputInterpolatedSubrectBaseX, pInDlssgOptEvalParams->outputInterpSubrectBase.X);
+        NVSDK_NGX_Parameter_SetUI(pInParams, NVSDK_NGX_DLSSG_Parameter_OutputInterpolatedSubrectBaseY, pInDlssgOptEvalParams->outputInterpSubrectBase.Y);
+        NVSDK_NGX_Parameter_SetUI(pInParams, NVSDK_NGX_DLSSG_Parameter_OutputInterpolatedSubrectWidth, pInDlssgOptEvalParams->outputInterpSubrectSize.Width);
+        NVSDK_NGX_Parameter_SetUI(pInParams, NVSDK_NGX_DLSSG_Parameter_OutputInterpolatedSubrectHeight, pInDlssgOptEvalParams->outputInterpSubrectSize.Height);
+
+        NVSDK_NGX_Parameter_SetUI(pInParams, NVSDK_NGX_DLSSG_Parameter_OutputRealSubrectBaseX, pInDlssgOptEvalParams->outputRealSubrectBase.X);
+        NVSDK_NGX_Parameter_SetUI(pInParams, NVSDK_NGX_DLSSG_Parameter_OutputRealSubrectBaseY, pInDlssgOptEvalParams->outputRealSubrectBase.Y);
+        NVSDK_NGX_Parameter_SetUI(pInParams, NVSDK_NGX_DLSSG_Parameter_OutputRealSubrectWidth, pInDlssgOptEvalParams->outputRealSubrectSize.Width);
+        NVSDK_NGX_Parameter_SetUI(pInParams, NVSDK_NGX_DLSSG_Parameter_OutputRealSubrectHeight, pInDlssgOptEvalParams->outputRealSubrectSize.Height);
     }
 
     // C version or cpp?

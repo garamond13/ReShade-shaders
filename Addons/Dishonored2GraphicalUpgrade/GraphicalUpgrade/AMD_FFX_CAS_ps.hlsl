@@ -5,6 +5,8 @@
 //
 // Source: https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK/blob/54fbaafdc34716811751bea5032700e78f5a0f33/sdk/include/FidelityFX/gpu/cas/ffx_cas.h
 
+#include "Include/Common.hlsli"
+
 // Should be in linear color space.
 Texture2D tex : register(t0);
 
@@ -14,11 +16,6 @@ Texture2D tex : register(t0);
 
 #define min3(x,y,z) min(x, min(y, z))
 #define max3(x,y,z) max(x, max(y, z))
-
-float get_luma(float3 color)
-{
-	return dot(color, float3(0.2126, 0.7152, 0.0722));
-}
 
 float4 main(float4 pos : SV_Position) : SV_Target
 {
@@ -35,7 +32,7 @@ float4 main(float4 pos : SV_Position) : SV_Target
 	float3 sampleG = tex.Load(int3(pos.xy, 0), int2(-1, 1)).rgb; 
 	float3 sampleH = tex.Load(int3(pos.xy, 0), int2(0, 1)).rgb;
 	float3 sampleI = tex.Load(int3(pos.xy, 0), int2(1, 1)).rgb;
-	
+
 	// Get lumas for samples.
 	float lumaA = get_luma(sampleA);
 	float lumaB = get_luma(sampleB);

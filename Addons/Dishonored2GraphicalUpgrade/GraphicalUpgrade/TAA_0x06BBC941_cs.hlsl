@@ -1,3 +1,5 @@
+#include "Include/Common.hlsli"
+
 struct postfx_luminance_autoexposure_t
 {
 	float EngineLuminanceFactor;   // Offset:    0
@@ -108,11 +110,6 @@ float3 post_tonemap(float3 color, const float exposure, const float factor)
 }
 
 //
-
-float get_luma(float3 color)
-{
-	return dot(color, float3(0.2126, 0.7152, 0.0722));
-}
 
 float3 tonemap(float3 color)
 {
@@ -251,7 +248,7 @@ void main(uint3 dtid : SV_DispatchThreadID)
 	m2 /= 9.0;
 	const float3 sigma = sqrt(max(0.0, m2 - m1 * m1));
 	const float velocity = length(longest_mv * VIEWPORT_SIZE);
-	const float gamma = lerp(1.5, 0.75, saturate(velocity / 20.0));
+	const float gamma = lerp(1.5, 0.75, saturate(velocity / 10.0));
 	const float3 minc = m1 - gamma * sigma;
 	const float3 maxc = m1 + gamma * sigma;
 
@@ -264,12 +261,10 @@ void main(uint3 dtid : SV_DispatchThreadID)
 	history = rgb_to_ycocg(history);
 
 	// Clip history.
-	history = clamp(history, minn, maxn);
 	history = clip_to_aabb(history, minc, maxc);
 
 	// Calculate the alpha (final blend).
-	float alpha = lerp(MIN_ALPHA, 0.2, saturate(velocity / 30.0));
-	alpha = max(alpha, saturate(0.01 * history.x * rcp(abs(color.x - history.x))));
+	float alpha = lerp(MIN_ALPHA, 0.2, saturate(velocity / 15.0));
 
 	// The final color.
 	color.xyz = lerp(history, color.xyz, alpha);

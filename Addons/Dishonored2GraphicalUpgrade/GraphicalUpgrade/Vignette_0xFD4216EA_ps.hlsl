@@ -23,7 +23,6 @@ Texture2D<float4> ro_fx_opacity : register(t0);
 // 3Dmigoto declarations
 #define cmp -
 
-
 void main(
   float4 v0 : INTERP0,
   out float4 o0 : SV_TARGET0)

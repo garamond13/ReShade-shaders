@@ -74,7 +74,7 @@ typedef enum NVSDK_NGX_DLSS_Hint_Render_Preset
                                                                 // NVSDK_NGX_DLSS_Hint_Render_Preset_B removed, use preset J or K
                                                                 // NVSDK_NGX_DLSS_Hint_Render_Preset_C removed, use preset J or K
                                                                 // NVSDK_NGX_DLSS_Hint_Render_Preset_D removed, use preset J or K
-                                                                // NVSDK_NGX_DLSS_Hint_Render_Preset_E removed, use preset J or K
+    NVSDK_NGX_DLSS_Hint_Render_Preset_E = 5,                    // Deprecated
     NVSDK_NGX_DLSS_Hint_Render_Preset_F = 6,                    // Deprecated
     NVSDK_NGX_DLSS_Hint_Render_Preset_G = 7,                    // Do not use, reverts to default behavior
     NVSDK_NGX_DLSS_Hint_Render_Preset_H_Reserved = 8,           // Do not use, reverts to default behavior
@@ -213,6 +213,8 @@ typedef enum NVSDK_NGX_Feature
     NVSDK_NGX_Feature_Reserved15            = 15,
 
     NVSDK_NGX_Feature_Reserved16            = 16,
+
+    NVSDK_NGX_Feature_Reserved17            = 17,
 
     // New features go here
     NVSDK_NGX_Feature_Count,
