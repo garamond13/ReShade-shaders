@@ -98,6 +98,9 @@ Graphical upgrade for INSIDE. See Addons/INSIDEGraphicalUpgrade for details.
 **MiddleEarthShadowOfWarGraphicalUpgrade**  
 Graphical upgrade for Middle-earth: Shadow of War. See Addons/MiddleEarthShadowOfWarGraphicalUpgrade for details.
 
+**MonsterHunterWorldGraphicalUpgrade**  
+Graphical upgrade for Monster Hunter: World. See Addons/MonsterHunterWorldGraphicalUpgrade for details.
+
 **MortalKombat11GraphicalUpgrade**  
 Graphical upgrade for Mortal Kombat 11. See Addons/MortalKombat11GraphicalUpgrade for details.
 
