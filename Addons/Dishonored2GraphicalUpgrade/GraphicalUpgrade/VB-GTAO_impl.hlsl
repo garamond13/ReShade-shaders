@@ -55,7 +55,7 @@ cbuffer PerViewCB : register(b1)
 #endif
 
 #ifndef RADIUS
-#define RADIUS 1.1
+#define RADIUS 0.6
 #endif
 
 #ifndef THICKNESS
@@ -67,7 +67,7 @@ cbuffer PerViewCB : register(b1)
 #endif
 
 #ifndef FINAL_VALUE_POWER
-#define FINAL_VALUE_POWER 4.5
+#define FINAL_VALUE_POWER 4.0
 #endif
 
 #ifndef DEPTH_MIP_SAMPLING_OFFSET
