@@ -1,0 +1,28 @@
+#ifndef __GRAPHICAL_UPGRADE_CB_HLSL_H__
+#define __GRAPHICAL_UPGRADE_CB_HLSL_H__
+
+#ifndef GRAPHICAL_UPGRADE_CB_SLOT
+#define GRAPHICAL_UPGRADE_CB_SLOT 13
+#endif
+
+#ifdef __cplusplus
+#include "GraphicalUpgrade/HLSLTypes.h"
+#define GRAPHICAL_UPGRADE_CB_BEGIN struct alignas(16) Graphical_upgrade_cb_data {
+#define GRAPHICAL_UPGRADE_CB_END };
+#define row_major
+#define column_major
+#else // HLSL
+#define GRAPHICAL_UPGRADE_CB_HLSL_SLOT(x,y) x##y
+#define GRAPHICAL_UPGRADE_CB_BEGIN cbuffer Graphical_upgrade_cb : register(GRAPHICAL_UPGRADE_CB_HLSL_SLOT(b,GRAPHICAL_UPGRADE_CB_SLOT)) {
+#define GRAPHICAL_UPGRADE_CB_END }
+#endif
+
+GRAPHICAL_UPGRADE_CB_BEGIN
+float2 src_size;
+float2 inv_src_size;
+float2 axis;
+float sigma;
+float padding;
+GRAPHICAL_UPGRADE_CB_END
+
+#endif // __GRAPHICAL_UPGRADE_CB_HLSL_H__
