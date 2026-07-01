@@ -19,10 +19,9 @@ SamplerState PointSampler : register(s0);
 #define SMAATexture2DMS2(tex) Texture2DMS<float4, 2> tex
 #define SMAALoad(tex, pos, sample) tex.Load(pos, sample)
 #define SMAAGather(tex, coord) tex.Gather(LinearSampler, coord, 0)
-#include "SMAA.hlsli"
+#include "Include/SMAA.hlsli"
 
-#include "FullscreenTriangle.hlsli"
-#include "Color.hlsli"
+#include "Include/Common.hlsli"
 
 Texture2D tex0 : register(t0);
 Texture2D tex1 : register(t1);

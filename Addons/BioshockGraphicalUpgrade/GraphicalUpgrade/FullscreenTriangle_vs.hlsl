@@ -1,4 +1,4 @@
-#include "FullscreenTriangle.hlsli"
+#include "Include/Common.hlsli"
 
 void main(uint id : SV_VertexID, out float4 position : SV_Position, out float2 texcoord : TEXCOORD)
 {

@@ -1,4 +1,4 @@
-#include "Color.hlsli"
+#include "Include/Common.hlsli"
 
 cbuffer _Globals : register(b0)
 {

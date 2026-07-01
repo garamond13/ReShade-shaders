@@ -1,3 +1,6 @@
+#include "Include/Common.hlsli"
+#include "Include/GraphicalUpgradeCB.hlsli.h"
+
 cbuffer _Globals : register(b12)
 {
 	float4 fogColor : packoffset(c0);
@@ -24,26 +27,12 @@ cbuffer _Globals : register(b12)
 	float4 ColorFill : packoffset(c39);
 }
 
-cbuffer graphical_upgrade : register(b13)
-{
-	float2 src_size;
-	float2 inv_src_size;
-	float2 axis;
-	float sigma;
-	float tex_noise_index;
-}
-
 SamplerState smp : register(s1); // Should be linear clamp.
 Texture2D tex : register(t0);
 
 #define BLOOM_THRESHOLD PWLThreshold
 #define BLOOM_SOFT_KNEE (BLOOM_THRESHOLD / 1.0)
 #define BLOOM_TINT float3(1.0, 1.2, 1.0)
-
-float get_luma(float3 color)
-{
-	return dot(color, float3(0.2126, 0.7152, 0.0722));
-}
 
 float3 quadratic_threshold(float3 color)
 {
