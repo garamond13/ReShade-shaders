@@ -106,3 +106,6 @@ Graphical upgrade for Mortal Kombat 11. See Addons/MortalKombat11GraphicalUpgrad
 
 **SlayTheSpireGraphicalUpgrade**  
 Graphical upgrade for Slay the Spire. See Addons/SlayTheSpireGraphicalUpgrade for details.
+
+**TheEvilWithin2GraphicalUpgrade**  
+Graphical upgrade for The Evil Within 2. See Addons/TheEvilWithin2GraphicalUpgrade for details.
