@@ -280,7 +280,7 @@ static void on_init_swapchain(reshade::api::swapchain* swapchain, bool resize)
 	native_swapchain->GetDesc(&desc);
 
 	// Save device.
-	ensure(native_swapchain->GetDevice(IID_PPV_ARGS(&g_device)), >= 0);
+	g_device = (ID3D11Device*)swapchain->get_device()->get_native();
 
 	// Save swapchain size.
 	g_swapchain_width = desc.BufferDesc.Width;
@@ -297,10 +297,10 @@ static void on_init_device(reshade::api::device* device)
 	// Set maximum frame latency to 1.
 	// This may be to early to set it, the game may overwrite this.
 	auto native_device = (ID3D11Device*)device->get_native();
-	Com_ptr<IDXGIDevice1> device1;
-	auto hr = native_device->QueryInterface(device1.put());
+	Com_ptr<IDXGIDevice1> dxgi_device;
+	auto hr = native_device->QueryInterface(dxgi_device.put());
 	if (SUCCEEDED(hr)) {
-		ensure(device1->SetMaximumFrameLatency(1), >= 0);
+		ensure(dxgi_device->SetMaximumFrameLatency(1), >= 0);
 	}
 }
 
