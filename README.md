@@ -104,6 +104,9 @@ Graphical upgrade for Monster Hunter: World. See Addons/MonsterHunterWorldGraphi
 **MortalKombat11GraphicalUpgrade**  
 Graphical upgrade for Mortal Kombat 11. See Addons/MortalKombat11GraphicalUpgrade for details.
 
+**PreyGraphicalUpgrade**  
+Graphical upgrade for Prey (2017). See Addons/PreyGraphicalUpgrade for details.
+
 **SlayTheSpireGraphicalUpgrade**  
 Graphical upgrade for Slay the Spire. See Addons/SlayTheSpireGraphicalUpgrade for details.
 

@@ -1,14 +1,14 @@
 # Dishonored2GraphicalUpgrade
 
 - Modern borderless window (flip mod, tearing).
-- Replaced ambient occlusion (SSAO) with XeGTAO.
+- Replaced ambient occlusion (SSAO) with Visibility Bitmask - GTAO.
 - Replaced TAA.
 - Optionally replace TAA with DLSS (DLAA).
 - Improved bloom.
 - Adjustable bloom intensity.
 - Adjustable vigenette strenghth.
 - Sharpening filter (Modified AMD FFX CAS).
-- Temporal blue noise film grain (AMD FFX LFGA).
+- Temporal film grain (AMD FFX LFGA).
 - Adjustable Tone Response Curve (TRC) (sRGB, gamma).
 - Optionally disable lens distortion.
 - Optionally disable lens dirt.
@@ -18,7 +18,7 @@
 
 ## Usage
 
-- Install ReShade 6.7.1 or newer with full add-on support.
+- Install ReShade 6.7.3 or newer with full add-on support.
 - Copy **Dishonored2GraphicalUpgrade.addon64**, **nvngx_dlss.dll** and **GraphicalUpgrade** folder into the game folder where **Dishonored2.exe** is (ReShade should be installed in the same folder).
 
 ## Notes
