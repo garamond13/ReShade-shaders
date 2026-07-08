@@ -18,6 +18,7 @@
 ## Notes
 
  - "OPTIONS->VIDEO->ADVANCED SETTINGS->Adaptive Resolution" should be set to "OFF".
+ - For DLSS, in "Configuration file(s) location/game.cfg" (see https://www.pcgamingwiki.com/wiki/Prey_(2017) ) `r_AntialiasingTAAPattern = 6` should be added. Make the game.cfg file read-only cause the game may overwrite it and revert the change.
 
 ## Compilation
 
