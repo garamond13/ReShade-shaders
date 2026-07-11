@@ -17,6 +17,9 @@ uniform float sharpness <
 sampler2D smpColor
 {
 	Texture = ReShade::BackBufferTex;
+	MagFilter = POINT;
+	MinFilter = POINT;
+	MipFilter = POINT;
 
 	#if BUFFER_COLOR_BIT_DEPTH == 8
 	SRGBTexture = true;
@@ -50,28 +53,51 @@ float get_luma(float3 color)
 }
 
 // With defined FFX_CAS_BETTER_DIAGONALS and FFX_CAS_USE_PRECISE_MATH.
-float3 casFilterNoScaling(float4 pos : SV_Position) : SV_Target
+float4 casFilterNoScaling(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 {
 	// Load a collection of samples in a 3x3 neighorhood, where e is the current pixel.
 	// a b c
 	// d e f
 	// g h i
-	float3 sampleA = linearize(tex2Dfetch(smpColor, int2(pos.xy) + int2(-1, -1), 0).rgb);
-	float3 sampleB = linearize(tex2Dfetch(smpColor, int2(pos.xy) + int2(0, -1), 0).rgb);
-	float3 sampleC = linearize(tex2Dfetch(smpColor, int2(pos.xy) + int2(1, -1), 0).rgb);
-	float3 sampleD = linearize(tex2Dfetch(smpColor, int2(pos.xy) + int2(-1, 0), 0).rgb);
-	float3 sampleE = linearize(tex2Dfetch(smpColor, int2(pos.xy), 0).rgb);
-	float3 sampleF = linearize(tex2Dfetch(smpColor, int2(pos.xy) + int2(1, 0), 0).rgb);
-	float3 sampleG = linearize(tex2Dfetch(smpColor, int2(pos.xy) + int2(-1, 1), 0).rgb); 
-	float3 sampleH = linearize(tex2Dfetch(smpColor, int2(pos.xy) + int2(0, 1), 0).rgb);
-	float3 sampleI = linearize(tex2Dfetch(smpColor, int2(pos.xy) + int2(1, 1), 0).rgb);
+	#if BUFFER_COLOR_BIT_DEPTH == 8
+	float3 sampleA = tex2Dlod(smpColor, float4(texcoord, 0.0, 0.0), int2(-1, -1)).rgb;
+	float3 sampleB = tex2Dlod(smpColor, float4(texcoord, 0.0, 0.0), int2(0, -1)).rgb;
+	float3 sampleC = tex2Dlod(smpColor, float4(texcoord, 0.0, 0.0), int2(1, -1)).rgb;
+	float3 sampleD = tex2Dlod(smpColor, float4(texcoord, 0.0, 0.0), int2(-1, 0)).rgb;
+	float4 sampleE = tex2Dlod(smpColor, float4(texcoord, 0.0, 0.0));
+	float3 sampleF = tex2Dlod(smpColor, float4(texcoord, 0.0, 0.0), int2(1, 0)).rgb;
+	float3 sampleG = tex2Dlod(smpColor, float4(texcoord, 0.0, 0.0), int2(-1, 1)).rgb;
+	float3 sampleH = tex2Dlod(smpColor, float4(texcoord, 0.0, 0.0), int2(0, 1)).rgb;
+	float3 sampleI = tex2Dlod(smpColor, float4(texcoord, 0.0, 0.0), int2(1, 1)).rgb;
+	#else
+	float3 sampleA = tex2Dfetch(smpColor, int2(pos.xy) + int2(-1, -1), 0).rgb;
+	float3 sampleB = tex2Dfetch(smpColor, int2(pos.xy) + int2(0, -1), 0).rgb;
+	float3 sampleC = tex2Dfetch(smpColor, int2(pos.xy) + int2(1, -1), 0).rgb;
+	float3 sampleD = tex2Dfetch(smpColor, int2(pos.xy) + int2(-1, 0), 0).rgb;
+	float4 sampleE = tex2Dfetch(smpColor, int2(pos.xy), 0);
+	float3 sampleF = tex2Dfetch(smpColor, int2(pos.xy) + int2(1, 0), 0).rgb;
+	float3 sampleG = tex2Dfetch(smpColor, int2(pos.xy) + int2(-1, 1), 0).rgb;
+	float3 sampleH = tex2Dfetch(smpColor, int2(pos.xy) + int2(0, 1), 0).rgb;
+	float3 sampleI = tex2Dfetch(smpColor, int2(pos.xy) + int2(1, 1), 0).rgb;
+	#endif
+
+	// Linearize.
+	sampleA = linearize(sampleA);
+	sampleB = linearize(sampleB);
+	sampleC = linearize(sampleC);
+	sampleD = linearize(sampleD);
+	sampleE.rgb = linearize(sampleE.rgb);
+	sampleF = linearize(sampleF);
+	sampleG = linearize(sampleG);
+	sampleH = linearize(sampleH);
+	sampleI = linearize(sampleI);
 
 	// Get lumas for samples.
 	float lumaA = get_luma(sampleA);
 	float lumaB = get_luma(sampleB);
 	float lumaC = get_luma(sampleC);
 	float lumaD = get_luma(sampleD);
-	float lumaE = get_luma(sampleE);
+	float lumaE = get_luma(sampleE.rgb);
 	float lumaF = get_luma(sampleF);
 	float lumaG = get_luma(sampleG);
 	float lumaH = get_luma(sampleH);
@@ -91,7 +117,7 @@ float3 casFilterNoScaling(float4 pos : SV_Position) : SV_Target
 
 	// Smooth minimum distance to signal limit divided by smooth max.
 	float amplifyLuma = saturate(min(minimumLuma, 2.0 - maximumLuma) * rcp(maximumLuma));
-	
+
 	// Shaping amount of sharpening.
 	amplifyLuma = sqrt(amplifyLuma);
 
@@ -105,7 +131,7 @@ float3 casFilterNoScaling(float4 pos : SV_Position) : SV_Target
 	// Filter using green coef only, depending on dead code removal to strip out the extra overhead.
 	float reciprocalWeight = rcp(1.0 + 4.0 * weight);
 
-	return delinearize(saturate((sampleB * weight + sampleD * weight + sampleF * weight + sampleH * weight + sampleE) * reciprocalWeight));
+	return float4(delinearize(saturate((sampleB * weight + sampleD * weight + sampleF * weight + sampleH * weight + sampleE.rgb) * reciprocalWeight)), sampleE.a);
 }
 
 technique CAS < ui_label = "Modified AMD FFX CAS"; >

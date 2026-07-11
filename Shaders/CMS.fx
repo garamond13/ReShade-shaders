@@ -27,6 +27,14 @@
 #define TEX_FORMAT RGBA8
 #endif
 
+sampler2D smpColor
+{
+	Texture = ReShade::BackBufferTex;
+	MagFilter = POINT;
+	MinFilter = POINT;
+	MipFilter = POINT;
+};
+
 texture3D LUTTex < source = TEX_SOURCE; >
 {
 	Width = LUT_SIZE;
@@ -40,29 +48,29 @@ sampler3D smpLUT
 	Texture = LUTTex;
 };
 
-float3 sample_trilinear(float4 pos : SV_Position, float2 texcoord : TEXCOORD0) : SV_Target
+float4 sample_trilinear(float4 pos : SV_Position, float2 texcoord : TEXCOORD0) : SV_Target
 {
-	float3 color = tex2Dfetch(ReShade::BackBuffer, int2(pos.xy), 0).rgb;
+	float4 color = tex2Dfetch(smpColor, int2(pos.xy), 0);
 	const float scale = float(LUT_SIZE - 1) / float(LUT_SIZE);
 	const float offset = 1.0 / float(LUT_SIZE * 2);
-	color = tex3D(smpLUT, saturate(color) * scale + offset).rgb;
+	color.rgb = tex3D(smpLUT, saturate(color.rgb) * scale + offset).rgb;
 
 	#if DITHERING
-	color = color + TriDither(color, texcoord, BUFFER_COLOR_BIT_DEPTH);
+	color.rgb = color.rgb + TriDither(color.rgb, texcoord, BUFFER_COLOR_BIT_DEPTH);
 	#endif
 
 	return color;
 }
 
-float3 sample_tetrahedral(float4 pos : SV_Position, float2 texcoord : TEXCOORD0) : SV_Target
+float4 sample_tetrahedral(float4 pos : SV_Position, float2 texcoord : TEXCOORD0) : SV_Target
 {
-	float3 color = tex2Dfetch(ReShade::BackBuffer, int2(pos.xy), 0).rgb;
-	const float3 coord = saturate(color) * float(LUT_SIZE - 1);
-	
+	float4 color = tex2Dfetch(smpColor, int2(pos.xy), 0);
+	color.rgb = saturate(color.rgb) * float(LUT_SIZE - 1);
+
 	// See https://doi.org/10.2312/egp.20211031
 	//
-	
-	const float3 r = frac(coord);
+
+	const float3 r = frac(color.rgb);
 	bool cond;
 	float3 s = 0.0;
 	int3 vert2 = 0;
@@ -80,7 +88,7 @@ float3 sample_tetrahedral(float4 pos : SV_Position, float2 texcoord : TEXCOORD0)
 	s = cond ? r.x ## y ## z : s; \
 	vert2.x = cond ? 1 : vert2.x; \
 	vert3.z = cond ? 0 : vert3.z;
-	
+
 	order(x, y, z)
 	order(x, z, y)
 	order(z, x, y)
@@ -89,18 +97,18 @@ float3 sample_tetrahedral(float4 pos : SV_Position, float2 texcoord : TEXCOORD0)
 	order(y, x, z)
 
 	const float4 bary = float4(1.0 - s.x, s.z, s.x - s.y, s.y - s.z);
-	
+
 	//
-	
-	const int3 base = floor(coord);
+
+	const int3 base = floor(color.rgb);
 	const float3 v0 = tex3Dfetch(smpLUT, base, 0).rgb * bary.x;
 	const float3 v1 = tex3Dfetch(smpLUT, base + 1, 0).rgb * bary.y;
 	const float3 v2 = tex3Dfetch(smpLUT, base + vert2, 0).rgb * bary.z;
 	const float3 v3 = tex3Dfetch(smpLUT, base + vert3, 0).rgb * bary.w;
-	color = v0 + v1 + v2 + v3;
-	
+	color.rgb = v0 + v1 + v2 + v3;
+
 	#if DITHERING
-	color = color + TriDither(color, texcoord, BUFFER_COLOR_BIT_DEPTH);
+	color.rgb = color.rgb + TriDither(color.rgb, texcoord, BUFFER_COLOR_BIT_DEPTH);
 	#endif
 
 	return color;

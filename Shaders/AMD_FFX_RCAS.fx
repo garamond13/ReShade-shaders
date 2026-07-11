@@ -15,6 +15,9 @@ uniform float sharpness <
 sampler2D smpColor
 {
 	Texture = ReShade::BackBufferTex;
+	MagFilter = POINT;
+	MinFilter = POINT;
+	MipFilter = POINT;
 
 	#if BUFFER_COLOR_BIT_DEPTH == 8
 	SRGBTexture = true;
@@ -55,17 +58,31 @@ float ApproximateReciprocalMedium(float value)
 	return b * (-b * value + 2.0);
 }
 
-float3 FsrRcas(float4 pos : SV_Position) : SV_Target
+float4 FsrRcas(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 {
 	// Algorithm uses minimal 3x3 pixel neighborhood.
 	//    b
 	//  d e f
 	//    h
-	float3 b = linearize(tex2Dfetch(smpColor, int2(pos.xy) + int2(0, -1), 0).rgb);
-	float3 d = linearize(tex2Dfetch(smpColor, int2(pos.xy) + int2(-1, 0), 0).rgb);
-	float3 e = linearize(tex2Dfetch(smpColor, int2(pos.xy)).rgb);
-	float3 f = linearize(tex2Dfetch(smpColor, int2(pos.xy) + int2(1, 0), 0).rgb);
-	float3 h = linearize(tex2Dfetch(smpColor, int2(pos.xy) + int2(0, 1), 0).rgb);
+	#if BUFFER_COLOR_BIT_DEPTH == 8
+	float3 b = tex2Dlod(smpColor, float4(texcoord, 0.0, 0.0), int2(0, -1)).rgb;
+	float3 d = tex2Dlod(smpColor, float4(texcoord, 0.0, 0.0), int2(-1, 0)).rgb;
+	float4 e = tex2Dlod(smpColor, float4(texcoord, 0.0, 0.0));
+	float3 f = tex2Dlod(smpColor, float4(texcoord, 0.0, 0.0), int2(1, 0)).rgb;
+	float3 h = tex2Dlod(smpColor, float4(texcoord, 0.0, 0.0), int2(0, 1)).rgb;
+	#else
+	float3 b = tex2Dfetch(smpColor, int2(pos.xy) + int2(0, -1), 0).rgb;
+	float3 d = tex2Dfetch(smpColor, int2(pos.xy) + int2(-1, 0), 0).rgb;
+	float4 e = tex2Dfetch(smpColor, int2(pos.xy), 0);
+	float3 f = tex2Dfetch(smpColor, int2(pos.xy) + int2(1, 0), 0).rgb;
+	float3 h = tex2Dfetch(smpColor, int2(pos.xy) + int2(0, 1), 0).rgb;
+	#endif
+
+	b = linearize(b);
+	d = linearize(d);
+	e.rgb = linearize(e.rgb);
+	f = linearize(f);
+	h = linearize(h);
 
 	// Luma times 2.
 	float bL = b.b * 0.5 + (b.r * 0.5 + b.g);
@@ -82,7 +99,7 @@ float3 FsrRcas(float4 pos : SV_Position) : SV_Target
 	// Min and max of ring.
 	float3 mn4 = min(min3(b, d, f), h);
 	float3 mx4 = max(max3(b, d, f), h);
-	
+
 	// Immediate constants for peak range.
 	float2 peakC = float2(1.0, -1.0 * 4.0);
 
@@ -99,7 +116,7 @@ float3 FsrRcas(float4 pos : SV_Position) : SV_Target
 
 	// Resolve, which needs the medium precision rcp approximation to avoid visible tonality changes.
 	float rcpL = ApproximateReciprocalMedium(4.0 * lobe + 1.0);
-	return delinearize((lobe * b + lobe * d + lobe * h + lobe * f + e) * rcpL);
+	return float4(delinearize((lobe * b + lobe * d + lobe * h + lobe * f + e.rgb) * rcpL), e.a);
 }
 
 technique RCAS < ui_label = "AMD FidelityFX Robust Contrast Adaptive Sharpening"; >

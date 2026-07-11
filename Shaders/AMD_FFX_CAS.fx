@@ -13,6 +13,9 @@ uniform float sharpness <
 sampler2D smpColor
 {
 	Texture = ReShade::BackBufferTex;
+	MagFilter = POINT;
+	MinFilter = POINT;
+	MipFilter = POINT;
 
 	#if BUFFER_COLOR_BIT_DEPTH == 8
 	SRGBTexture = true;
@@ -41,38 +44,61 @@ float3 _delinearize(float3 rgb)
 #endif
 
 // With defined FFX_CAS_BETTER_DIAGONALS and FFX_CAS_USE_PRECISE_MATH.
-float3 casFilterNoScaling(float4 pos : SV_Position) : SV_Target
+float4 casFilterNoScaling(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 {
 	// Load a collection of samples in a 3x3 neighorhood, where e is the current pixel.
 	// a b c
 	// d e f
 	// g h i
-	float3 sampleA = linearize(tex2Dfetch(smpColor, int2(pos.xy) + int2(-1, -1), 0).rgb);
-	float3 sampleB = linearize(tex2Dfetch(smpColor, int2(pos.xy) + int2(0, -1), 0).rgb);
-	float3 sampleC = linearize(tex2Dfetch(smpColor, int2(pos.xy) + int2(1, -1), 0).rgb);
-	float3 sampleD = linearize(tex2Dfetch(smpColor, int2(pos.xy) + int2(-1, 0), 0).rgb);
-	float3 sampleE = linearize(tex2Dfetch(smpColor, int2(pos.xy), 0).rgb);
-	float3 sampleF = linearize(tex2Dfetch(smpColor, int2(pos.xy) + int2(1, 0), 0).rgb);
-	float3 sampleG = linearize(tex2Dfetch(smpColor, int2(pos.xy) + int2(-1, 1), 0).rgb); 
-	float3 sampleH = linearize(tex2Dfetch(smpColor, int2(pos.xy) + int2(0, 1), 0).rgb);
-	float3 sampleI = linearize(tex2Dfetch(smpColor, int2(pos.xy) + int2(1, 1), 0).rgb);
+	#if BUFFER_COLOR_BIT_DEPTH == 8
+	float3 sampleA = tex2Dlod(smpColor, float4(texcoord, 0.0, 0.0), int2(-1, -1)).rgb;
+	float3 sampleB = tex2Dlod(smpColor, float4(texcoord, 0.0, 0.0), int2(0, -1)).rgb;
+	float3 sampleC = tex2Dlod(smpColor, float4(texcoord, 0.0, 0.0), int2(1, -1)).rgb;
+	float3 sampleD = tex2Dlod(smpColor, float4(texcoord, 0.0, 0.0), int2(-1, 0)).rgb;
+	float4 sampleE = tex2Dlod(smpColor, float4(texcoord, 0.0, 0.0));
+	float3 sampleF = tex2Dlod(smpColor, float4(texcoord, 0.0, 0.0), int2(1, 0)).rgb;
+	float3 sampleG = tex2Dlod(smpColor, float4(texcoord, 0.0, 0.0), int2(-1, 1)).rgb;
+	float3 sampleH = tex2Dlod(smpColor, float4(texcoord, 0.0, 0.0), int2(0, 1)).rgb;
+	float3 sampleI = tex2Dlod(smpColor, float4(texcoord, 0.0, 0.0), int2(1, 1)).rgb;
+	#else
+	float3 sampleA = tex2Dfetch(smpColor, int2(pos.xy) + int2(-1, -1), 0).rgb;
+	float3 sampleB = tex2Dfetch(smpColor, int2(pos.xy) + int2(0, -1), 0).rgb;
+	float3 sampleC = tex2Dfetch(smpColor, int2(pos.xy) + int2(1, -1), 0).rgb;
+	float3 sampleD = tex2Dfetch(smpColor, int2(pos.xy) + int2(-1, 0), 0).rgb;
+	float4 sampleE = tex2Dfetch(smpColor, int2(pos.xy), 0);
+	float3 sampleF = tex2Dfetch(smpColor, int2(pos.xy) + int2(1, 0), 0).rgb;
+	float3 sampleG = tex2Dfetch(smpColor, int2(pos.xy) + int2(-1, 1), 0).rgb;
+	float3 sampleH = tex2Dfetch(smpColor, int2(pos.xy) + int2(0, 1), 0).rgb;
+	float3 sampleI = tex2Dfetch(smpColor, int2(pos.xy) + int2(1, 1), 0).rgb;
+	#endif
+
+	// Linearize.
+	sampleA = linearize(sampleA);
+	sampleB = linearize(sampleB);
+	sampleC = linearize(sampleC);
+	sampleD = linearize(sampleD);
+	sampleE.rgb = linearize(sampleE.rgb);
+	sampleF = linearize(sampleF);
+	sampleG = linearize(sampleG);
+	sampleH = linearize(sampleH);
+	sampleI = linearize(sampleI);
 
 	// Soft min and max.
 	//  a b c             b
 	//  d e f * 0.5  +  d e f * 0.5
 	//  g h i             h
 	// These are 2.0x bigger (factored out the extra multiply).
-	float3 minimumRGB = min3(min3(sampleD, sampleE, sampleF), sampleB, sampleH);
+	float3 minimumRGB = min3(min3(sampleD, sampleE.rgb, sampleF), sampleB, sampleH);
 	float3 minimumRGB2 = min3(min3(minimumRGB, sampleA, sampleC), sampleG, sampleI);
 	minimumRGB += minimumRGB2;
-	float3 maximumRGB = max3(max3(sampleD, sampleE, sampleF), sampleB, sampleH);
+	float3 maximumRGB = max3(max3(sampleD, sampleE.rgb, sampleF), sampleB, sampleH);
 	float3 maximumRGB2 = max3(max3(maximumRGB, sampleA, sampleC), sampleG, sampleI);
 	maximumRGB += maximumRGB2;
 
 	// Smooth minimum distance to signal limit divided by smooth max.
 	float3 reciprocalMaximumRGB = rcp(maximumRGB);
-	float3 amplifyRGB = saturate(min(minimumRGB, 2.0 - maximumRGB) * reciprocalMaximumRGB);	
-	
+	float3 amplifyRGB = saturate(min(minimumRGB, 2.0 - maximumRGB) * reciprocalMaximumRGB);
+
 	// Shaping amount of sharpening.
 	amplifyRGB = sqrt(amplifyRGB);
 
@@ -86,7 +112,7 @@ float3 casFilterNoScaling(float4 pos : SV_Position) : SV_Target
 	// Filter using green coef only, depending on dead code removal to strip out the extra overhead.
 	float reciprocalWeight = rcp(1.0 + 4.0 * weight.g);
 
-	return delinearize(saturate((sampleB * weight.g + sampleD * weight.g + sampleF * weight.g + sampleH * weight.g + sampleE) * reciprocalWeight));
+	return float4(delinearize(saturate((sampleB * weight.g + sampleD * weight.g + sampleF * weight.g + sampleH * weight.g + sampleE.rgb) * reciprocalWeight)), sampleE.a);
 }
 
 technique CAS < ui_label = "AMD FidelityFX Contrast Adaptive Sharpening"; >
