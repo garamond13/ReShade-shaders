@@ -27,6 +27,9 @@ Note: To generate required 3D LUT for your game and display use provided CMSLUTG
 Draw an image overlay. Most usefull for crosshairs.  
 Note: Required overlay.png texture should be of the same size as a game resolution (back buffer size). The texture background should be transparent.
 
+**Gamma**  
+Apply gamma Tone Response Curve (TRC). Assumes sRGB (TRC) input.
+
 **XeGTAO**  
 Ground truth-based ambient occlusion (GTAO).  
 Not compatible with DirectX 9, you can use DXVK as a workaround.  

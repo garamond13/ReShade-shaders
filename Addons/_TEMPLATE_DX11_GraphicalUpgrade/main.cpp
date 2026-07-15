@@ -25,10 +25,6 @@ void* g_mapped_cb_data;
 static bool g_force_vsync_off = true;
 static bool g_force_modern_windowed = true;
 
-// Tone responce curve.
-static TRC g_trc = TRC_SRGB;
-static float g_gamma = 2.2f;
-
 // FPS limiter.
 //
 
@@ -315,12 +311,6 @@ static void on_destroy_device(reshade::api::device* device)
 
 static void read_config()
 {
-	if (!reshade::get_config_value(nullptr, NAME, "TRC", g_trc)) {
-		reshade::set_config_value(nullptr, NAME, "TRC", g_trc);
-	}
-	if (!reshade::get_config_value(nullptr, NAME, "Gamma", g_gamma)) {
-		reshade::set_config_value(nullptr, NAME, "Gamma", g_gamma);
-	}
 	if (!reshade::get_config_value(nullptr, NAME, "ForceModernWindowed", g_force_modern_windowed)) {
 		reshade::set_config_value(nullptr, NAME, "ForceModernWindowed", g_force_modern_windowed);
 	}
@@ -356,17 +346,6 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 	}
 	ImGui::NewLine();
 	#endif
-
-	static constexpr std::array trc_items = { "sRGB", "Gamma" };
-	if (ImGui::Combo("TRC", &g_trc, trc_items.data(), trc_items.size())) {
-		reshade::set_config_value(nullptr, NAME, "TRC", g_trc);
-	}
-	ImGui::BeginDisabled(g_trc == TRC_SRGB);
-	if (ImGui::SliderFloat("Gamma", &g_gamma, 1.0f, 3.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp)) {
-		reshade::set_config_value(nullptr, NAME, "Gamma", g_gamma);
-	}
-	ImGui::EndDisabled();
-	ImGui::Spacing();
 
 	if (ImGui::Checkbox("Force modern windowed", &g_force_modern_windowed)) {
 		reshade::set_config_value(nullptr, NAME, "ForceModernWindowed", g_force_modern_windowed);

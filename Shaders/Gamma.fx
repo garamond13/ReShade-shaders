@@ -13,7 +13,7 @@ sampler2D smpColor
 	MagFilter = POINT;
 	MinFilter = POINT;
 	MipFilter = POINT;
-	
+
 	#if BUFFER_COLOR_BIT_DEPTH == 8
 	SRGBTexture = true;
 	#endif
@@ -39,7 +39,7 @@ float4 apply_gamma(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Ta
 	#endif
 
 	color.rgb = linearize(color.rgb);
-	color.rgb = pow(color.rgb, 1.0 / GAMMA_VALUE);
+	color.rgb = pow(max(0.0, color.rgb), 1.0 / GAMMA_VALUE);
 	return color;
 }
 

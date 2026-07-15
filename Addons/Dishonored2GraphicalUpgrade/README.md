@@ -9,7 +9,6 @@
 - Adjustable vigenette strenghth.
 - Sharpening filter (Modified AMD FFX CAS).
 - Temporal film grain (AMD FFX LFGA).
-- Adjustable Tone Response Curve (TRC) (sRGB, gamma).
 - Optionally disable lens distortion.
 - Optionally disable lens dirt.
 - Upgraded render targets.

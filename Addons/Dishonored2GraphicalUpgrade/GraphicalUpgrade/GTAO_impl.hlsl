@@ -50,8 +50,8 @@ cbuffer PerViewCB : register(b1)
 //
 
 // 0 - Low, 1 - Medium, 2 - High, 3 - Very High, 4 - Ultra
-#ifndef VB_GTAO_QUALITY
-#define VB_GTAO_QUALITY 2
+#ifndef GTAO_QUALITY
+#define GTAO_QUALITY 2
 #endif
 
 #ifndef RADIUS
@@ -81,28 +81,28 @@ cbuffer PerViewCB : register(b1)
 //
 
 // If TAA is used.
-#if VB_GTAO_QUALITY == 0 // Low
+#if GTAO_QUALITY == 0 // Low
 	#define SLICE_COUNT 2.0
-#elif VB_GTAO_QUALITY == 1 // Medium
+#elif GTAO_QUALITY == 1 // Medium
 	#define SLICE_COUNT 4.0
-#elif VB_GTAO_QUALITY == 2 // High
+#elif GTAO_QUALITY == 2 // High
 	#define SLICE_COUNT 6.0
-#elif VB_GTAO_QUALITY == 3 // Very High
+#elif GTAO_QUALITY == 3 // Very High
 	#define SLICE_COUNT 7.0
-#elif VB_GTAO_QUALITY == 4 // Ultra
+#elif GTAO_QUALITY == 4 // Ultra
 	#define SLICE_COUNT 9.0
 #endif
 
 // If TAA is not used.
-//#if VB_GTAO_QUALITY == 0 // Low
+//#if GTAO_QUALITY == 0 // Low
 //	#define SLICE_COUNT 4.0
-//#elif VB_GTAO_QUALITY == 1 // Medium
+//#elif GTAO_QUALITY == 1 // Medium
 //	#define SLICE_COUNT 7.0
-//#elif VB_GTAO_QUALITY == 2 // High
+//#elif GTAO_QUALITY == 2 // High
 //	#define SLICE_COUNT 10.0
-//#elif VB_GTAO_QUALITY == 3 // Very High
+//#elif GTAO_QUALITY == 3 // Very High
 //	#define SLICE_COUNT 13.0
-//#elif VB_GTAO_QUALITY == 4 // Ultra
+//#elif GTAO_QUALITY == 4 // Ultra
 //	#define SLICE_COUNT 16.0
 //#endif
 

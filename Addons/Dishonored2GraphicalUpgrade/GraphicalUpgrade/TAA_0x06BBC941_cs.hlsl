@@ -1,3 +1,5 @@
+// Without depth this is impossible to balance between ghosting, flickering (still scene) and instability in motion.
+
 #include "Include/Common.hlsli"
 
 struct postfx_luminance_autoexposure_t
@@ -86,9 +88,18 @@ RWTexture2D<float4> rw_taaresult : register(u1);
 
 //
 
-#ifndef MIN_ALPHA
-#define MIN_ALPHA 0.04
+// User configurable
+//
+
+#ifndef MIN_GAMMA
+#define MIN_GAMMA 1.0
 #endif
+
+#ifndef MAX_GAMMA
+#define MAX_GAMMA 3.0
+#endif
+
+//
 
 // Replicate what the game's native TAA is doing
 // pre and post tonemap.
@@ -137,7 +148,7 @@ float3 ycocg_to_rgb(float3 color)
 	return float3(r, g, b);
 }
 
-float3 sample_catmull_rom_aprox(Texture2D tex, SamplerState smp, float2 uv)
+float4 sample_catmull_rom_aprox(Texture2D tex, SamplerState smp, float2 uv)
 {
 	const float2 f = frac(uv * VIEWPORT_SIZE - 0.5);
 	const float2 tc = uv - f * INV_VIEWPORT_SIZE;
@@ -163,11 +174,11 @@ float3 sample_catmull_rom_aprox(Texture2D tex, SamplerState smp, float2 uv)
 	const float w3w12 = w3.x * w12.y;
 	const float w12w3 = w12.x * w3.y;
 
-	float3 c = tex.SampleLevel(smp, float2(tc12.x, tc0.y), 0.0).xyz * w12w0;
-	c += tex.SampleLevel(smp, float2(tc0.x, tc12.y), 0.0).xyz * w0w12;
-	c += tex.SampleLevel(smp, tc12, 0.0).xyz * w12w12;
-	c += tex.SampleLevel(smp, float2(tc3.x, tc12.y), 0.0).xyz * w3w12;
-	c += tex.SampleLevel(smp, float2(tc12.x, tc3.y), 0.0).xyz * w12w3;
+	float4 c = tex.SampleLevel(smp, float2(tc12.x, tc0.y), 0.0) * w12w0;
+	c += tex.SampleLevel(smp, float2(tc0.x, tc12.y), 0.0) * w0w12;
+	c += tex.SampleLevel(smp, tc12, 0.0) * w12w12;
+	c += tex.SampleLevel(smp, float2(tc3.x, tc12.y), 0.0) * w3w12;
+	c += tex.SampleLevel(smp, float2(tc12.x, tc3.y), 0.0) * w12w3;
 
 	// Normalize.
 	c *= rcp(w12w0 + w0w12 + w12w12 + w3w12 + w12w3);
@@ -178,9 +189,9 @@ float3 sample_catmull_rom_aprox(Texture2D tex, SamplerState smp, float2 uv)
 float3 clip_to_aabb(float3 color, float3 minc, float3 maxc)
 {
 	const float3 center = (minc + maxc) * 0.5;
-	const float3 extent = (maxc - minc) * 0.5 + 1e-3;
+	const float3 extent = (maxc - minc) * 0.5;
 	const float3 offset = color - center;
-	const float3 units = abs(offset * rcp(extent));
+	const float3 units = abs(offset * rcp(max(1e-6, extent)));
 	const float max_unit = max(max(units.x, units.y), max(units.z, 1.0));
 	return center + offset * rcp(max_unit);
 }
@@ -189,7 +200,8 @@ float3 clip_to_aabb(float3 color, float3 minc, float3 maxc)
 void main(uint3 dtid : SV_DispatchThreadID)
 {
 	// Neighborhood offsets.
-	const int2 offsets[8] = {
+	const int nsamples = 9;
+	const int2 offsets[nsamples - 1] = {
 		int2(-1, -1),
 		int2(0, -1),
 		int2(1, -1),
@@ -208,70 +220,87 @@ void main(uint3 dtid : SV_DispatchThreadID)
 	r0w = r0z * r0w; // Exposure?
 	const float r1w = cb_view_white_level * r0z; // Compression factor?
 
-	float4 color = ro_viewcolormap.Load(int3(dtid.xy, 0)).xyzw;
-	color.xyz = pre_tonemap(color.xyz, r0w, r1w);
-	color.xyz = tonemap(color.xyz);
-	color.xyz = rgb_to_ycocg(color.xyz);
-
-	// Find the longest motion vector and
-	// calculate variance box in 3x3 neighborhood.
-	//
-
-	// The longest motion vector.
+	// Find the longest motion vector.
 	float2 longest_mv = ro_motionvectors.Load(int3(dtid.xy, 0)).xy;
 
-	// Variance box.
-	float3 m1 = color.xyz;
-	float3 m2 = color.xyz * color.xyz;
-	float3 minn = color.xyz;
-	float3 maxn = color.xyz;
-
 	[unroll]
-	for (int i = 0; i < 8; ++i) {
-		// The longest motion vector.
+	for (int i = 0; i < nsamples - 1; ++i) {
 		const float2 mv = ro_motionvectors.Load(int3(dtid.xy + offsets[i], 0)).xy;
 		longest_mv = dot(mv, mv) > dot(longest_mv, longest_mv) ? mv : longest_mv;
-
-		// Variance box.
-		float3 c = ro_viewcolormap.Load(int3(dtid.xy + offsets[i], 0)).xyz;
-		c = pre_tonemap(c, r0w, r1w);
-		c = tonemap(c);
-		c = rgb_to_ycocg(c);		
-		m1 += c;
-		m2 += c * c;
-		minn = min(minn, c);
-		maxn = max(maxn, c);
 	}
 
-	// Variance box.
-	m1 /= 9.0;
-	m2 /= 9.0;
-	const float3 sigma = sqrt(max(0.0, m2 - m1 * m1));
 	const float velocity = length(longest_mv * VIEWPORT_SIZE);
-	const float gamma = lerp(1.5, 0.75, saturate(velocity / 10.0));
+	const float2 prev_uv = uv - longest_mv;
+
+	// Sample history.
+	float4 history = sample_catmull_rom_aprox(ro_taahistory_read, smp_linearclamp_s, prev_uv);
+	history.xyz = tonemap(history.xyz);
+	history.xyz = rgb_to_ycocg(history.xyz);
+
+	// Calculate variance box in 3x3 neighborhood.
+	//
+
+	float3 color = ro_viewcolormap.Load(int3(dtid.xy, 0)).xyz;
+	color = pre_tonemap(color, r0w, r1w);
+	color = tonemap(color);
+	color = rgb_to_ycocg(color);
+	float3 m1 = color;
+	float3 m2 = color * color;
+
+	[unroll]
+	for (int i = 0; i < nsamples - 1; ++i) {
+		color = ro_viewcolormap.Load(int3(dtid.xy + offsets[i], 0)).xyz;
+		color = pre_tonemap(color, r0w, r1w);
+		color = tonemap(color);
+		color = rgb_to_ycocg(color);
+		m1 += color;
+		m2 += color * color;
+	}
+
+	m1 /= float(nsamples);
+	m2 /= float(nsamples);
+	const float3 sigma = sqrt(max(0.0, m2 - m1 * m1));
+	float gamma = lerp(MAX_GAMMA, MIN_GAMMA, saturate(velocity / 3.0));
+
+	[flatten]
+	if (history.w < gamma) {
+		gamma = lerp(history.w, gamma, 1.0 / 8.0);
+	}
+
 	const float3 minc = m1 - gamma * sigma;
 	const float3 maxc = m1 + gamma * sigma;
 
 	//
 
-	// Sample history.
-	const float2 prev_uv = uv - longest_mv;
-	float3 history = sample_catmull_rom_aprox(ro_taahistory_read, smp_linearclamp_s, prev_uv);
-	history = tonemap(history);
-	history = rgb_to_ycocg(history);
+	// Calculate the alpha (the final blend).
+	//
 
-	// Clip history.
-	history = clip_to_aabb(history, minc, maxc);
+	float alpha = 0.1;
 
-	// Calculate the alpha (final blend).
-	float alpha = lerp(MIN_ALPHA, 0.2, saturate(velocity / 15.0));
+	// Antiflicker.
+	const float dist_to_clamp = min(abs(minc.x - history.x), abs(maxc.x - history.x));
+	alpha = clamp((alpha * dist_to_clamp) * rcp(dist_to_clamp + maxc.x - minc.x), 0.0, 1.0);
 
-	// The final color.
-	color.xyz = lerp(history, color.xyz, alpha);
+	//
 
-	color.xyz = ycocg_to_rgb(color.xyz);
-	color.xyz = inv_tonemap(color.xyz);
-	rw_taahistory_write[dtid.xy] = float4(color.xyz, 1.0);
-	color.xyz = post_tonemap(color.xyz, r0w, r1w);
-	rw_taaresult[dtid.xy] = color;
+	history.xyz = clip_to_aabb(history.xyz, minc, maxc);
+
+	// The final color (in YCoCg).
+	color = lerp(history.xyz, color, alpha);
+
+	// Outputs.
+	color = ycocg_to_rgb(color);
+	color = inv_tonemap(color);
+	rw_taahistory_write[dtid.xy] = float4(color, gamma);
+	color = post_tonemap(color, r0w, r1w);
+	rw_taaresult[dtid.xy] = float4(color, 1.0);
+
+	// DEBUG, output velocity.
+	//rw_taaresult[dtid.xy] = float4(velocity.xxx, 1.0);
+
+	// DEBUG, output alpha.
+	//rw_taaresult[dtid.xy] = float4(alpha.xxx, 1.0);
+
+	// DEBUG, output gamma.
+	//rw_taaresult[dtid.xy] = float4(gamma.xxx / MAX_GAMMA, 1.0);
 }

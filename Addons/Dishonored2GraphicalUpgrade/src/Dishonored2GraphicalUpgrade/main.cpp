@@ -6,7 +6,7 @@
 #include "DLSS/DLSS.h"
 
 extern "C" __declspec(dllexport) const char* NAME = "Dishonored2GraphicalUpgrade";
-extern "C" __declspec(dllexport) const char* DESCRIPTION = "v4.1.0";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "v5.0.0";
 extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/Dishonored2GraphicalUpgrade";
 
 struct alignas(16) PerViewCB
@@ -99,16 +99,12 @@ static bool g_dlss_status;
 static float g_jitter_x;
 static float g_jitter_y;
 
-// VB-GTAO
-constexpr size_t VB_GTAO_DEPTH_MIP_LEVELS = 5;
-static int g_vb_gtao_quality = 2; // 0 - Low, 1 - Medium, 2 - High, 3 - Very High, 4 - Ultra
-
-// Tone responce curve.
-static TRC g_trc = TRC_SRGB;
-static float g_gamma = 2.2f;
+// GTAO
+constexpr size_t GTAO_DEPTH_MIP_LEVELS = 5;
+static int g_gtao_quality = 2; // 0 - Low, 1 - Medium, 2 - High, 3 - Very High, 4 - Ultra
 
 // Device resources.
-static std::array<ID3D11UnorderedAccessView*, VB_GTAO_DEPTH_MIP_LEVELS> g_uav_vb_gtao_prefilter_depths16x16;
+static std::array<ID3D11UnorderedAccessView*, GTAO_DEPTH_MIP_LEVELS> g_uav_gtao_prefilter_depths16x16;
 
 // This gets called on both D3D11DeviceContext::FinishCommandList and D3D11DeviceContext::ExecuteCommandList as:
 // on_FinishCommandList(ID3D11CommandList*, (D3D11DeviceContext*)this) and on_ExecuteCommandList((D3D11DeviceContext*)this, ID3D11CommandList*).
@@ -239,17 +235,17 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		Com_ptr<ID3D11SamplerState> smp_original;
 		ctx->PSGetSamplers(0, 1, smp_original.put());
 
-		// VB-GTAOPrefilterDepths16x16 pass
+		// GTAOPrefilterDepths16x16 pass
 		//
 
 		// Create CS.
-		[[unlikely]] if (!g_managed_resources.compute_shaders["vb_gtao_prefilter_depths16x16"_h]) {
+		[[unlikely]] if (!g_managed_resources.compute_shaders["gtao_prefilter_depths16x16"_h]) {
 			const std::string viewport_pixel_size_str = std::format("float2({},{})", 1.0f / (float)g_swapchain_width, 1.0f / (float)g_swapchain_height);
 			const D3D_SHADER_MACRO defines[] = {
 				{ "VIEWPORT_PIXEL_SIZE", viewport_pixel_size_str.c_str() },
 				{ nullptr, nullptr }
 			};
-			create_compute_shader(g_device, g_managed_resources.compute_shaders["vb_gtao_prefilter_depths16x16"_h].put(), L"VB-GTAO_impl.hlsl", "prefilter_depths16x16_cs", defines);
+			create_compute_shader(g_device, g_managed_resources.compute_shaders["gtao_prefilter_depths16x16"_h].put(), L"GTAO_impl.hlsl", "prefilter_depths16x16_cs", defines);
 		}
 
 		// Create sampler.
@@ -258,11 +254,11 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		}
 
 		// Create prefilter depths views.
-		[[unlikely]] if (!g_uav_vb_gtao_prefilter_depths16x16[0]) {
+		[[unlikely]] if (!g_uav_gtao_prefilter_depths16x16[0]) {
 			D3D11_TEXTURE2D_DESC tex_desc = {};
 			tex_desc.Width = g_swapchain_width;
 			tex_desc.Height = g_swapchain_height;
-			tex_desc.MipLevels = VB_GTAO_DEPTH_MIP_LEVELS;
+			tex_desc.MipLevels = GTAO_DEPTH_MIP_LEVELS;
 			tex_desc.ArraySize = 1;
 			tex_desc.Format = DXGI_FORMAT_R32_FLOAT;
 			tex_desc.SampleDesc.Count = 1;
@@ -274,17 +270,17 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 			D3D11_UNORDERED_ACCESS_VIEW_DESC uav_desc = {};
 			uav_desc.Format = tex_desc.Format;
 			uav_desc.ViewDimension = D3D11_UAV_DIMENSION_TEXTURE2D;
-			for (int i = 0; i < g_uav_vb_gtao_prefilter_depths16x16.size(); ++i) {
+			for (int i = 0; i < g_uav_gtao_prefilter_depths16x16.size(); ++i) {
 			   uav_desc.Texture2D.MipSlice = i;
-			   ensure(g_device->CreateUnorderedAccessView(tex.get(), &uav_desc, &g_uav_vb_gtao_prefilter_depths16x16[i]), >= 0);
+			   ensure(g_device->CreateUnorderedAccessView(tex.get(), &uav_desc, &g_uav_gtao_prefilter_depths16x16[i]), >= 0);
 			}
 
-			ensure(g_device->CreateShaderResourceView(tex.get(), nullptr, g_managed_resources.shader_resource_views["vb_gtao_prefilter_depths16x16"_h].put()), >= 0);
+			ensure(g_device->CreateShaderResourceView(tex.get(), nullptr, g_managed_resources.shader_resource_views["gtao_prefilter_depths16x16"_h].put()), >= 0);
 		}
 
 		// Bindings.
-		ctx->CSSetUnorderedAccessViews(0, g_uav_vb_gtao_prefilter_depths16x16.size(), g_uav_vb_gtao_prefilter_depths16x16.data(), nullptr);
-		ctx->CSSetShader(g_managed_resources.compute_shaders["vb_gtao_prefilter_depths16x16"_h].get(), nullptr, 0);
+		ctx->CSSetUnorderedAccessViews(0, g_uav_gtao_prefilter_depths16x16.size(), g_uav_gtao_prefilter_depths16x16.data(), nullptr);
+		ctx->CSSetShader(g_managed_resources.compute_shaders["gtao_prefilter_depths16x16"_h].get(), nullptr, 0);
 		ctx->CSSetConstantBuffers(1, 1, &cb_original);
 		ctx->CSSetSamplers(0, 1, &g_managed_resources.samplers["point_clamp"_h]);
 		ctx->CSSetShaderResources(0, 1, &srv_depth);
@@ -292,12 +288,12 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		ctx->Dispatch((g_swapchain_width + 16 - 1) / 16, (g_swapchain_height + 16 - 1) / 16, 1);
 
 		// Unbind UAVs.
-		static constexpr std::array<ID3D11UnorderedAccessView*, g_uav_vb_gtao_prefilter_depths16x16.size()> uav_nulls_prefilter_depths_pass = {};
+		static constexpr std::array<ID3D11UnorderedAccessView*, g_uav_gtao_prefilter_depths16x16.size()> uav_nulls_prefilter_depths_pass = {};
 		ctx->CSSetUnorderedAccessViews(0, uav_nulls_prefilter_depths_pass.size(), uav_nulls_prefilter_depths_pass.data(), nullptr);
 
 		//
 		
-		// VB-GTAOMainPass pass
+		// GTAOMainPass pass
 		//
 		// We will render to the original RT (rgba8_unorm).
 		// Also we will skip denoise here and rely on the game's denoiser instead.
@@ -309,22 +305,22 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		}
 
 		// Create PS.
-		[[unlikely]] if (!g_managed_resources.pixel_shaders["vb_gtao_main_pass"_h]) {
+		[[unlikely]] if (!g_managed_resources.pixel_shaders["gtao_main_pass"_h]) {
 			const std::string viewport_pixel_size_str = std::format("float2({},{})", 1.0f / (float)g_swapchain_width, 1.0f / (float)g_swapchain_height);
-			const std::string vb_gtao_quality_val = std::to_string(g_vb_gtao_quality);
+			const std::string gtao_quality_val = std::to_string(g_gtao_quality);
 			const D3D_SHADER_MACRO defines[] = {
 				{ "VIEWPORT_PIXEL_SIZE", viewport_pixel_size_str.c_str() },
-				{ "VB_GTAO_QUALITY", vb_gtao_quality_val.c_str() },
+				{ "GTAO_QUALITY", gtao_quality_val.c_str() },
 				{ nullptr, nullptr }
 			};
-			create_pixel_shader(g_device, g_managed_resources.pixel_shaders["vb_gtao_main_pass"_h].put(), L"VB-GTAO_impl.hlsl", "main_pass_ps", defines);
+			create_pixel_shader(g_device, g_managed_resources.pixel_shaders["gtao_main_pass"_h].put(), L"GTAO_impl.hlsl", "main_pass_ps", defines);
 		}
 
 		// Bindings.
 		ctx->VSSetShader(g_managed_resources.vertex_shaders["fullscreen_triangle"_h].get(), nullptr, 0);
-		ctx->PSSetShader(g_managed_resources.pixel_shaders["vb_gtao_main_pass"_h].get(), nullptr, 0);
+		ctx->PSSetShader(g_managed_resources.pixel_shaders["gtao_main_pass"_h].get(), nullptr, 0);
 		ctx->PSSetSamplers(0, 1, &g_managed_resources.samplers["point_clamp"_h]);
-		ctx->PSSetShaderResources(0, 1, &g_managed_resources.shader_resource_views["vb_gtao_prefilter_depths16x16"_h]);
+		ctx->PSSetShaderResources(0, 1, &g_managed_resources.shader_resource_views["gtao_prefilter_depths16x16"_h]);
 
 		ctx->Draw(3, 0);
 
@@ -542,12 +538,8 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		// Create PS.
 		[[unlikely]] if (!g_managed_resources.pixel_shaders["amd_ffx_lfga"_h]) {
 			const std::string amd_ffx_lfga_amount_str = std::to_string(g_amd_ffx_lfga_amount);
-			const std::string srgb_str = g_trc == TRC_SRGB ? "SRGB" : "";
-			const std::string gamma_str = std::to_string(g_gamma);
 			const D3D_SHADER_MACRO defines[] = {
 				{ "AMOUNT", amd_ffx_lfga_amount_str.c_str() },
-				{ srgb_str.c_str(), nullptr },
-				{ "GAMMA", gamma_str.c_str() },
 				{ nullptr, nullptr }
 			};
 			create_pixel_shader(g_device, g_managed_resources.pixel_shaders["amd_ffx_lfga"_h].put(), L"AMD_FFX_LFGA_ps.hlsl", "main", defines);
@@ -880,7 +872,7 @@ static void on_init_swapchain(reshade::api::swapchain* swapchain, bool resize)
 	native_swapchain->GetDesc(&desc);
 
 	// Save device.
-	ensure(native_swapchain->GetDevice(IID_PPV_ARGS(&g_device)), >= 0);
+	g_device = (ID3D11Device*)swapchain->get_device()->get_native();
 
 	// Save swapchain size.
 	g_swapchain_width = desc.BufferDesc.Width;
@@ -903,9 +895,9 @@ static void on_init_swapchain(reshade::api::swapchain* swapchain, bool resize)
 	}
 
 	// Reset resolution dependent resources.
-	g_managed_resources.compute_shaders["vb_gtao_prefilter_depths16x16"_h].reset();
-	release_com_array(g_uav_vb_gtao_prefilter_depths16x16);
-	g_managed_resources.pixel_shaders["vb_gtao_main_pass"_h].reset();
+	g_managed_resources.compute_shaders["gtao_prefilter_depths16x16"_h].reset();
+	release_com_array(g_uav_gtao_prefilter_depths16x16);
+	g_managed_resources.pixel_shaders["gtao_main_pass"_h].reset();
 }
 
 static void on_destroy_device(reshade::api::device* device)
@@ -916,7 +908,7 @@ static void on_destroy_device(reshade::api::device* device)
 	if (g_enable_dlss) {
 		DLSS::get_instance().shutdown();
 	}
-	release_com_array(g_uav_vb_gtao_prefilter_depths16x16);
+	release_com_array(g_uav_gtao_prefilter_depths16x16);
 	g_cb.reset();
 	g_managed_resources.clear();
 }
@@ -952,20 +944,14 @@ static void read_config()
 	if (!reshade::get_config_value(nullptr, NAME, "BloomIntensity", g_bloom_intensity)) {
 		reshade::set_config_value(nullptr, NAME, "BloomIntensity", g_bloom_intensity);
 	}
-	if (!reshade::get_config_value(nullptr, NAME, "VBGTAOQuality", g_vb_gtao_quality)) {
-		reshade::set_config_value(nullptr, NAME, "VBGTAOQuality", g_vb_gtao_quality);
+	if (!reshade::get_config_value(nullptr, NAME, "GTAOQuality", g_gtao_quality)) {
+		reshade::set_config_value(nullptr, NAME, "GTAOQuality", g_gtao_quality);
 	}
 	if (!reshade::get_config_value(nullptr, NAME, "Sharpness", g_amd_ffx_cas_sharpness)) {
 		reshade::set_config_value(nullptr, NAME, "Sharpness", g_amd_ffx_cas_sharpness);
 	}
 	if (!reshade::get_config_value(nullptr, NAME, "GrainAmount", g_amd_ffx_lfga_amount)) {
 		reshade::set_config_value(nullptr, NAME, "GrainAmount", g_amd_ffx_lfga_amount);
-	}
-	if (!reshade::get_config_value(nullptr, NAME, "TRC", g_trc)) {
-		reshade::set_config_value(nullptr, NAME, "TRC", g_trc);
-	}
-	if (!reshade::get_config_value(nullptr, NAME, "Gamma", g_gamma)) {
-		reshade::set_config_value(nullptr, NAME, "Gamma", g_gamma);
 	}
 	if (!reshade::get_config_value(nullptr, NAME, "ForceModernWindowed", g_force_modern_windowed)) {
 		reshade::set_config_value(nullptr, NAME, "ForceModernWindowed", g_force_modern_windowed);
@@ -1048,10 +1034,10 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 	}
 	ImGui::Spacing();
 
-	static constexpr std::array vb_gtao_quality_items = { "Low", "Medium", "High", "Very High", "Ultra" };
-	if (ImGui::Combo("VB-GTAO quality", &g_vb_gtao_quality, vb_gtao_quality_items.data(), vb_gtao_quality_items.size())) {
-		g_managed_resources.pixel_shaders["vb_gtao_main_pass"_h].reset();
-		reshade::set_config_value(nullptr, NAME, "VBGTAOQuality", g_vb_gtao_quality);
+	static constexpr std::array gtao_quality_items = { "Low", "Medium", "High", "Very High", "Ultra" };
+	if (ImGui::Combo("GTAO quality", &g_gtao_quality, gtao_quality_items.data(), gtao_quality_items.size())) {
+		g_managed_resources.pixel_shaders["gtao_main_pass"_h].reset();
+		reshade::set_config_value(nullptr, NAME, "GTAOQuality", g_gtao_quality);
 	}
 	ImGui::Spacing();
 
@@ -1078,19 +1064,6 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 		g_managed_resources.pixel_shaders["amd_ffx_lfga"_h].reset();
 		reshade::set_config_value(nullptr, NAME, "GrainAmount", g_amd_ffx_lfga_amount);
 	}
-	ImGui::Spacing();
-
-	static constexpr std::array trc_items = { "sRGB", "Gamma" };
-	if (ImGui::Combo("TRC", &g_trc, trc_items.data(), trc_items.size())) {
-		reshade::set_config_value(nullptr, "Dishonored2GraphicalUpgrade", "TRC", g_trc);
-		g_managed_resources.pixel_shaders["amd_ffx_lfga"_h].reset();
-	}
-	ImGui::BeginDisabled(g_trc == TRC_SRGB);
-	if (ImGui::SliderFloat("Gamma", &g_gamma, 1.0f, 3.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp)) {
-		reshade::set_config_value(nullptr, "Dishonored2GraphicalUpgrade", "Gamma", g_gamma);
-		g_managed_resources.pixel_shaders["amd_ffx_lfga"_h].reset();
-	}
-	ImGui::EndDisabled();
 	ImGui::Spacing();
 
 	if (ImGui::Checkbox("Force modern windowed", &g_force_modern_windowed)) {
