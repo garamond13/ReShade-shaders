@@ -6,21 +6,23 @@
 #include "DLSS/DLSS.h"
 
 extern "C" __declspec(dllexport) const char* NAME = "PreyGraphicalUpgrade";
-extern "C" __declspec(dllexport) const char* DESCRIPTION = "v1.0.0";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "v2.0.0";
 extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/PreyGraphicalUpgrade";
 
 // Shader hooks.
 //
 
 constexpr Shader_hash g_ps_shadow_mask_0xB01E0A76 = { 0xB01E0A76, { 0xc35b1438, 0xd049, 0x445b, { 0xab, 0x80, 0xfe, 0xfe, 0xbe, 0xfc, 0xb2, 0x61 }}};
-
 constexpr Shader_hash g_ps_ao_0xDB98D83F = { 0xDB98D83F, { 0x900c80a, 0x260a, 0x44fb, { 0x94, 0x44, 0x41, 0x56, 0xf0, 0x60, 0x25, 0xa9 }}};
+constexpr Shader_hash g_ps_ssr_0xAED014D7 = { 0xAED014D7, { 0xf0b0baa0, 0x8f0, 0x4d32, { 0x8b, 0xf3, 0x53, 0xb2, 0xf3, 0x1b, 0x1c, 0x25 }}};
 
+// Motion blur.
 constexpr Shader_hash g_ps_motion_blur_0x09633436 = { 0x09633436, { 0x9e3ee1f9, 0x9ef7, 0x42b8, { 0x90, 0x1, 0xad, 0x6, 0x4d, 0x5a, 0x77, 0x72 }}};
 constexpr Shader_hash g_ps_motion_blur_0x50E44977 = { 0x50E44977, { 0x81ad4432, 0x3700, 0x4750, { 0xab, 0x93, 0x57, 0x44, 0x3e, 0x56, 0x64, 0xf1 }}};
 constexpr Shader_hash g_ps_motion_blur_0x9DFDDC83 = { 0x9DFDDC83, { 0x27409c0, 0xb962, 0x4565, { 0x8b, 0x6, 0xcc, 0x47, 0x4, 0x6d, 0x12, 0xbc }}};
 constexpr Shader_hash g_ps_motion_blur_0xD0C2257A = { 0xD0C2257A, { 0xec4c025a, 0xc1e4, 0x4713, { 0x94, 0x56, 0x45, 0xf0, 0xca, 0xe1, 0xae, 0x84 }}};
 
+// SMAA.
 constexpr Shader_hash g_ps_smaa_edge_detection_0x47B723BD = { 0x47B723BD, { 0x8fae771c, 0x8fde, 0x48b8, { 0xa8, 0x3, 0x75, 0x44, 0xa0, 0x33, 0xa, 0x38 }}};
 constexpr Shader_hash g_ps_smaa_blending_weight_calculation_0x5636A813 = { 0x5636A813, { 0xbba9d644, 0xfb55, 0x4934, { 0x8b, 0x20, 0xcf, 0x2a, 0x7a, 0x37, 0x2f, 0xfe }}};
 constexpr Shader_hash g_ps_smaa_neighborhood_blending_0x2E9A5D4C = { 0x2E9A5D4C, { 0xc38ce36, 0x2d4, 0x42a6, { 0x9c, 0x5a, 0x4, 0x80, 0xbf, 0x83, 0x8, 0x2e }}};
@@ -28,6 +30,8 @@ constexpr Shader_hash g_ps_smaa_2tx_0xBF813081 = { 0xBF813081, { 0xa9f436b, 0x8a
 
 constexpr Shader_hash g_ps_post_aa_composite_0x83AE9250 = { 0x83AE9250, { 0xd9b9f937, 0x6ec2, 0x4723, { 0x92, 0x5b, 0x17, 0xed, 0xa, 0x71, 0xd1, 0x2e }}};
 constexpr Shader_hash g_ps_post_aa_composite_0xED6287FE = { 0xED6287FE, { 0x9497c921, 0x3a22, 0x4535, { 0x84, 0xdf, 0x49, 0x35, 0x20, 0x5b, 0x51, 0x40 }}};
+constexpr Shader_hash g_ps_lens_effects_0x51F2811A = { 0x51F2811A, { 0x85c3a7b9, 0x4dc1, 0x476f, { 0xa3, 0x20, 0xba, 0xcb, 0x24, 0xb2, 0x2c, 0x92 }}};
+constexpr Shader_hash g_ps_lens_effects_0xDAA20F29 = { 0xDAA20F29, { 0xb2c0b0c4, 0xefeb, 0x4595, { 0xbf, 0xf1, 0xa5, 0xd3, 0x5d, 0x9f, 0xd, 0xdb }}};
 
 // Only when "SMAA 2TX" is on.
 constexpr Shader_hash g_ps_post_aa_composite_0x496492FE = { 0x496492FE, { 0x9fe2e596, 0x5011, 0x4266, { 0xa6, 0x9c, 0x29, 0xef, 0x29, 0xa4, 0x22, 0x23 }}};
@@ -46,6 +50,7 @@ void* g_mapped_cb_data;
 static bool g_force_vsync_off = true;
 static bool g_force_modern_windowed = true;
 static bool g_disable_motion_blur = true;
+static bool g_disable_lens_effects = true;
 static float g_vigenette_strength = 1.0f;
 
 // GTAO
@@ -95,6 +100,20 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 	uint32_t hash;
 	UINT size;
 	HRESULT hr;
+
+	size = sizeof(hash);
+	hr = ps->GetPrivateData(g_ps_ssr_0xAED014D7.guid, &size, &hash);
+	if (SUCCEEDED(hr) && hash == g_ps_ssr_0xAED014D7.hash) {
+		// Create PS.
+		[[unlikely]] if (!g_managed_resources.pixel_shaders["ssr_0xAED014D7"_h]) {
+			create_pixel_shader(g_device, g_managed_resources.pixel_shaders["ssr_0xAED014D7"_h].put(), L"SSR_0xAED014D7_ps.hlsl");
+		}
+
+		// Bindings.
+		ctx->PSSetShader(g_managed_resources.pixel_shaders["ssr_0xAED014D7"_h].get(), nullptr, 0);
+
+		return false;
+	}
 
 	size = sizeof(hash);
 	hr = ps->GetPrivateData(g_ps_shadow_mask_0xB01E0A76.guid, &size, &hash);
@@ -481,6 +500,17 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		return false;
 	}
 
+	// Draws multiple effects, lens flare should be the last (6th).
+	// TODO: Disable lens flare separatly?
+	size = sizeof(hash);
+	hr = ps->GetPrivateData(g_ps_lens_effects_0x51F2811A.guid, &size, &hash);
+	if (SUCCEEDED(hr) && hash == g_ps_lens_effects_0x51F2811A.hash) {
+		if (g_disable_lens_effects) {
+			return true;
+		}
+		return false;
+	}
+
 	return false;
 }
 
@@ -521,6 +551,15 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 		return false;
 	}
 
+	size = sizeof(hash);
+	hr = ps->GetPrivateData(g_ps_lens_effects_0xDAA20F29.guid, &size, &hash);
+	if (SUCCEEDED(hr) && hash == g_ps_lens_effects_0xDAA20F29.hash) {
+		if (g_disable_lens_effects) {
+			return true;
+		}
+		return false;
+	}
+
 	return false;
 }
 
@@ -531,6 +570,9 @@ static void on_init_pipeline(reshade::api::device* device, reshade::api::pipelin
 			auto desc = (reshade::api::shader_desc*)subobjects[i].data;
 			const auto hash = compute_crc32((const uint8_t*)desc->code, desc->code_size);
 			switch (hash) {
+				case g_ps_ssr_0xAED014D7.hash:
+					ensure(((ID3D11PixelShader*)pipeline.handle)->SetPrivateData(g_ps_ssr_0xAED014D7.guid, sizeof(g_ps_ssr_0xAED014D7.hash), &g_ps_ssr_0xAED014D7.hash), >= 0);
+					return;
 				case g_ps_shadow_mask_0xB01E0A76.hash:
 					ensure(((ID3D11PixelShader*)pipeline.handle)->SetPrivateData(g_ps_shadow_mask_0xB01E0A76.guid, sizeof(g_ps_shadow_mask_0xB01E0A76.hash), &g_ps_shadow_mask_0xB01E0A76.hash), >= 0);
 					return;
@@ -573,6 +615,12 @@ static void on_init_pipeline(reshade::api::device* device, reshade::api::pipelin
 				case g_ps_post_aa_composite_0xFAEE5EE9.hash:
 					ensure(((ID3D11PixelShader*)pipeline.handle)->SetPrivateData(g_ps_post_aa_composite_0xFAEE5EE9.guid, sizeof(g_ps_post_aa_composite_0xFAEE5EE9.hash), &g_ps_post_aa_composite_0xFAEE5EE9.hash), >= 0);
 					return;
+				case g_ps_lens_effects_0x51F2811A.hash:
+					ensure(((ID3D11PixelShader*)pipeline.handle)->SetPrivateData(g_ps_lens_effects_0x51F2811A.guid, sizeof(g_ps_lens_effects_0x51F2811A.hash), &g_ps_lens_effects_0x51F2811A.hash), >= 0);
+					return;
+				case g_ps_lens_effects_0xDAA20F29.hash:
+					ensure(((ID3D11PixelShader*)pipeline.handle)->SetPrivateData(g_ps_lens_effects_0xDAA20F29.guid, sizeof(g_ps_lens_effects_0xDAA20F29.hash), &g_ps_lens_effects_0xDAA20F29.hash), >= 0);
+					return;
 			}
 		}
 	}
@@ -614,10 +662,10 @@ static bool on_create_resource_view(reshade::api::device* device, reshade::api::
 			return true;
 		}
 
-		if (resource_desc.texture.format == reshade::api::format::r32g32_float) {
-			desc.format = reshade::api::format::r32g32_float;
-			return true;
-		}
+		//if (resource_desc.texture.format == reshade::api::format::r32g32_float) {
+		//	desc.format = reshade::api::format::r32g32_float;
+		//	return true;
+		//}
 
 		//if (resource_desc.texture.format == reshade::api::format::r16g16b16a16_unorm) {
 		//	desc.format = reshade::api::format::r16g16b16a16_unorm;
@@ -637,10 +685,11 @@ static bool on_create_resource(reshade::api::device* device, reshade::api::resou
 			return true;
 		}
 
-		if (desc.texture.format == reshade::api::format::r16g16_float) {
-			desc.texture.format = reshade::api::format::r32g32_float;
-			return true;
-		}
+		// Breaking SSR.
+		//if (desc.texture.format == reshade::api::format::r16g16_float) {
+		//	desc.texture.format = reshade::api::format::r32g32_float;
+		//	return true;
+		//}
 
 		// AO output gets stuck in pause menu.
 		//if (desc.texture.format == reshade::api::format::r8g8b8a8_unorm) {
@@ -767,8 +816,11 @@ static void read_config()
 	if (!reshade::get_config_value(nullptr, NAME, "VigenetteStrength", g_vigenette_strength)) {
 		reshade::set_config_value(nullptr, NAME, "VigenetteStrength", g_vigenette_strength);
 	}
-	if (!reshade::get_config_value(nullptr, NAME, "DisablemotionBlur", g_disable_motion_blur)) {
-		reshade::set_config_value(nullptr, NAME, "DisablemotionBlur", g_disable_motion_blur);
+	if (!reshade::get_config_value(nullptr, NAME, "DisableLensEffects", g_disable_motion_blur)) {
+		reshade::set_config_value(nullptr, NAME, "DisableLensEffects", g_disable_motion_blur);
+	}
+	if (!reshade::get_config_value(nullptr, NAME, "DisableMotionBlur", g_disable_motion_blur)) {
+		reshade::set_config_value(nullptr, NAME, "DisableMotionBlur", g_disable_motion_blur);
 	}
 	if (!reshade::get_config_value(nullptr, NAME, "ForceModernWindowed", g_force_modern_windowed)) {
 		reshade::set_config_value(nullptr, NAME, "ForceModernWindowed", g_force_modern_windowed);
@@ -863,8 +915,13 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 	}
 	ImGui::Spacing();
 
+	if (ImGui::Checkbox("Disable lens effects", &g_disable_lens_effects)) {
+		reshade::set_config_value(nullptr, NAME, "DisableLensEffects", g_disable_lens_effects);
+	}
+	ImGui::Spacing();
+
 	if (ImGui::Checkbox("Disable motion blur", &g_disable_motion_blur)) {
-		reshade::set_config_value(nullptr, NAME, "DisablemotionBlur", g_disable_motion_blur);
+		reshade::set_config_value(nullptr, NAME, "DisableMotionBlur", g_disable_motion_blur);
 	}
 	ImGui::Spacing();
 

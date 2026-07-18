@@ -86,23 +86,23 @@ cbuffer CBSSDO : register(b0)
 //
 
 // If TAA is used.
-#if VB_GTAO_QUALITY == 0 // Low
+#if GTAO_QUALITY == 0 // Low
 	#define SLICE_COUNT 2.0
-#elif VB_GTAO_QUALITY == 1 // Medium
+#elif GTAO_QUALITY == 1 // Medium
 	#define SLICE_COUNT 4.0
-#elif VB_GTAO_QUALITY == 2 // High
+#elif GTAO_QUALITY == 2 // High
 	#define SLICE_COUNT 6.0
-#elif VB_GTAO_QUALITY == 3 // Very High
-	#define SLICE_COUNT 7.0
-#elif VB_GTAO_QUALITY == 4 // Ultra
-	#define SLICE_COUNT 9.0
+#elif GTAO_QUALITY == 3 // Very High
+	#define SLICE_COUNT 8.0
+#elif GTAO_QUALITY == 4 // Ultra
+	#define SLICE_COUNT 10.0
 #endif
 
 #define NDC_TO_VIEW_MUL cbSSDO.viewSpaceParams.xy
 #define NDC_TO_VIEW_ADD cbSSDO.viewSpaceParams.zw
 #define NDC_TO_VIEW_MUL_X_PIXEL_SIZE (NDC_TO_VIEW_MUL * VIEWPORT_PIXEL_SIZE)
 
-#define XE_GTAO_DEPTH_MIP_LEVELS 5.0
+#define GTAO_DEPTH_MIP_LEVELS 5.0
 
 #define GTAO_PI 3.1415926535897932384626433832795
 #define GTAO_PI_HALF 1.5707963267948966192313216916398
@@ -330,7 +330,7 @@ void GTAO_MainPass(uint2 pixCoord, float2 localNoise, float3 viewspaceNormal, Te
 				float sampleOffsetLength = length(sampleOffset);
 
 				// note: when sampling, using point_point_point or point_point_linear sampler works, but linear_linear_linear will cause unwanted interpolation between neighbouring depth values on the same MIP level!
-				const float mipLevel = clamp(log2(sampleOffsetLength) - DEPTH_MIP_SAMPLING_OFFSET, 0.0, XE_GTAO_DEPTH_MIP_LEVELS);
+				const float mipLevel = clamp(log2(sampleOffsetLength) - DEPTH_MIP_SAMPLING_OFFSET, 0.0, GTAO_DEPTH_MIP_LEVELS);
 
 				// Snap to pixel center (more correct direction math, avoids artifacts due to sampling pos not matching depth texel center - messes up slope - but adds other
 				// artifacts due to them being pushed off the slice). Also use full precision for high res cases.
@@ -436,7 +436,7 @@ float2 SpatioTemporalNoise(uint2 pixCoord, uint temporalIndex)
 	float2 noise;
 
 	// Hilbert curve driving R2 (see https://www.shadertoy.com/view/3tB3z3)
-	#ifdef XE_GTAO_HILBERT_LUT_AVAILABLE // load from lookup texture...
+	#ifdef GTAO_HILBERT_LUT_AVAILABLE // load from lookup texture...
 	uint index = g_srcHilbertLUT.Load(uint3(pixCoord % 64, 0)).x;
 	#else // ...or generate in-place?
 	uint index = HilbertIndex(pixCoord.x, pixCoord.y);

@@ -1,10 +1,12 @@
 # PreyGraphicalUpgrade
 
 - Modern borderless window (flip mod, tearing).
-- Replaced ambient occlusion (Screen Space Directional Occlusion->Full Resolution) with GTAO.
 - Optionally replace TAA (SMAA 2TX) with DLSS (DLAA).
+- Replaced ambient occlusion (Screen Space Directional Occlusion->Full Resolution) with GTAO.
+- Fixed and improved Screen Space Reflections.
 - Adjustable vigenette strenghth.
 - Optionally disable motion blur.
+- Optionally disable lens effects.
 - Fixed pixelated shadows.
 - Force 16x anisotropic filtering.
 - Upgraded render targets.
