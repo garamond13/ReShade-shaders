@@ -249,8 +249,9 @@ void GTAO_MainPass(uint2 pixCoord, float2 localNoise, float3 viewspaceNormal, Te
 	const float3 pixCenterPos = GTAO_ComputeViewspacePosition(normalizedScreenPos, viewspaceZ);
 	const float3 viewVec = normalize(-pixCenterPos);
 
-	const float falloffRange = FALLOFF_RANGE * RADIUS;
-	const float falloffFrom = RADIUS * (1.0 - FALLOFF_RANGE);
+	const float radius = RADIUS; // Optimization.
+	const float falloffRange = FALLOFF_RANGE * radius;
+	const float falloffFrom = radius * (1.0 - FALLOFF_RANGE);
 
 	// fadeout precompute optimisation
 	const float falloffMul = -rcp(falloffRange);
@@ -269,7 +270,7 @@ void GTAO_MainPass(uint2 pixCoord, float2 localNoise, float3 viewspaceNormal, Te
 		// approx viewspace pixel size at pixCoord; approximation of NDCToViewspace( normalizedScreenPos.xy + consts.ViewportPixelSize.xy, pixCenterPos.z ).xy - pixCenterPos.xy;
 		const float2 pixelDirRBViewspaceSizeAtCenterZ = viewspaceZ.xx * NDC_TO_VIEW_MUL_X_PIXEL_SIZE;
 
-		float screenspaceRadius = RADIUS * rcp(pixelDirRBViewspaceSizeAtCenterZ.x);
+		float screenspaceRadius = radius * rcp(pixelDirRBViewspaceSizeAtCenterZ.x);
 
 		// this is the min distance to start sampling from to avoid sampling from the center pixel (no useful data obtained from sampling center pixel)
 		const float minS = pixelTooCloseThreshold * rcp(screenspaceRadius);
@@ -361,7 +362,7 @@ void GTAO_MainPass(uint2 pixCoord, float2 localNoise, float3 viewspaceNormal, Te
 				//
 
 				// Compute obscurance
-				const float radiusWS = RADIUS * viewspaceZ;
+				const float radiusWS = radius * viewspaceZ;
 				const float emitterScale = 2.5;
 				const float emitterArea = (emitterScale * GTAO_PI * radiusWS * radiusWS) / (SLICE_COUNT * STEPS_PER_SLICE * 2.0);
 				float fNdotSamp0 = dot(viewspaceNormal, sampleHorizonVec0);

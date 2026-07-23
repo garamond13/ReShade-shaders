@@ -18,6 +18,10 @@
 #endif
 
 GRAPHICAL_UPGRADE_CB_BEGIN
+float2 src_size;
+float2 inv_src_size;
+float2 axis;
+float sigma;
 uint gtao_temporal_index;
 GRAPHICAL_UPGRADE_CB_END
 

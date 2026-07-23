@@ -6,7 +6,7 @@
 #include "DLSS/DLSS.h"
 
 extern "C" __declspec(dllexport) const char* NAME = "PreyGraphicalUpgrade";
-extern "C" __declspec(dllexport) const char* DESCRIPTION = "v2.0.0";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "v3.0.0";
 extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/PreyGraphicalUpgrade";
 
 // Shader hooks.
@@ -22,14 +22,18 @@ constexpr Shader_hash g_ps_motion_blur_0x50E44977 = { 0x50E44977, { 0x81ad4432, 
 constexpr Shader_hash g_ps_motion_blur_0x9DFDDC83 = { 0x9DFDDC83, { 0x27409c0, 0xb962, 0x4565, { 0x8b, 0x6, 0xcc, 0x47, 0x4, 0x6d, 0x12, 0xbc }}};
 constexpr Shader_hash g_ps_motion_blur_0xD0C2257A = { 0xD0C2257A, { 0xec4c025a, 0xc1e4, 0x4713, { 0x94, 0x56, 0x45, 0xf0, 0xca, 0xe1, 0xae, 0x84 }}};
 
+constexpr Shader_hash g_ps_downsample_0xD4E64E5D = { 0xD4E64E5D, { 0x6410d2e6, 0x90d1, 0x4ca9, { 0xad, 0x43, 0xe9, 0xd0, 0x7e, 0x60, 0x6f, 0xa3 }}};
+constexpr Shader_hash g_ps_bloom_0x246F473B = { 0x246F473B, { 0xbc52921e, 0x854a, 0x4837, { 0xb6, 0xb9, 0x8a, 0x21, 0x2c, 0xd, 0x7, 0x7a }}};
+constexpr Shader_hash g_ps_bloom_0x0A210C5D = { 0x0A210C5D, { 0xea96cc1d, 0x1749, 0x4a95, { 0xa3, 0x78, 0xa2, 0x4c, 0xa2, 0xbb, 0x90, 0x18 }}};
+constexpr Shader_hash g_ps_tonemap_0x37ACE8EF = { 0x37ACE8EF, { 0x7c3bbbc4, 0xe87c, 0x4890, { 0x99, 0x84, 0xd2, 0x69, 0x47, 0x22, 0x46, 0x10 }}};
+constexpr Shader_hash g_ps_tonemap_0xB5DC761A = { 0xB5DC761A, { 0x452fbbf4, 0x4eda, 0x478e, { 0xb0, 0x61, 0x96, 0xa6, 0x6f, 0xe5, 0xe2, 0xa3 }}};
+
 // SMAA.
 constexpr Shader_hash g_ps_smaa_edge_detection_0x47B723BD = { 0x47B723BD, { 0x8fae771c, 0x8fde, 0x48b8, { 0xa8, 0x3, 0x75, 0x44, 0xa0, 0x33, 0xa, 0x38 }}};
 constexpr Shader_hash g_ps_smaa_blending_weight_calculation_0x5636A813 = { 0x5636A813, { 0xbba9d644, 0xfb55, 0x4934, { 0x8b, 0x20, 0xcf, 0x2a, 0x7a, 0x37, 0x2f, 0xfe }}};
 constexpr Shader_hash g_ps_smaa_neighborhood_blending_0x2E9A5D4C = { 0x2E9A5D4C, { 0xc38ce36, 0x2d4, 0x42a6, { 0x9c, 0x5a, 0x4, 0x80, 0xbf, 0x83, 0x8, 0x2e }}};
 constexpr Shader_hash g_ps_smaa_2tx_0xBF813081 = { 0xBF813081, { 0xa9f436b, 0x8aaa, 0x4c83, { 0xbb, 0xdc, 0x9d, 0xa6, 0xbe, 0x1, 0x4d, 0x93 }}};
 
-constexpr Shader_hash g_ps_post_aa_composite_0x83AE9250 = { 0x83AE9250, { 0xd9b9f937, 0x6ec2, 0x4723, { 0x92, 0x5b, 0x17, 0xed, 0xa, 0x71, 0xd1, 0x2e }}};
-constexpr Shader_hash g_ps_post_aa_composite_0xED6287FE = { 0xED6287FE, { 0x9497c921, 0x3a22, 0x4535, { 0x84, 0xdf, 0x49, 0x35, 0x20, 0x5b, 0x51, 0x40 }}};
 constexpr Shader_hash g_ps_lens_effects_0x51F2811A = { 0x51F2811A, { 0x85c3a7b9, 0x4dc1, 0x476f, { 0xa3, 0x20, 0xba, 0xcb, 0x24, 0xb2, 0x2c, 0x92 }}};
 constexpr Shader_hash g_ps_lens_effects_0xDAA20F29 = { 0xDAA20F29, { 0xb2c0b0c4, 0xefeb, 0x4595, { 0xbf, 0xf1, 0xa5, 0xd3, 0x5d, 0x9f, 0xd, 0xdb }}};
 
@@ -62,6 +66,13 @@ static bool g_enable_ao = true;
 static bool g_disable_ssdo;
 #endif
 
+// Bloom
+static int g_bloom_nmips;
+static std::vector<float> g_bloom_sigmas;
+static float g_bloom_intensity = 1.0f;
+static int g_bloom_input_width;
+static int g_bloom_input_height;
+
 // DLSS
 constexpr int g_dlss_flags{
 	NVSDK_NGX_DLSS_Feature_Flags_MVLowRes |
@@ -77,6 +88,10 @@ static float g_jitter_y;
 
 // Device resources.
 static std::array<ID3D11UnorderedAccessView*, GTAO_DEPTH_MIP_LEVELS> g_uav_gtao_prefilter_depths16x16;
+static std::vector<ID3D11RenderTargetView*> g_rtv_bloom_mips_y;
+static std::vector<ID3D11ShaderResourceView*> g_srv_bloom_mips_y;
+static std::vector<ID3D11RenderTargetView*> g_rtv_bloom_mips_x;
+static std::vector<ID3D11ShaderResourceView*> g_srv_bloom_mips_x;
 
 static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count, uint32_t instance_count, uint32_t first_vertex, uint32_t first_instance)
 {
@@ -297,6 +312,327 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 	}
 
 	size = sizeof(hash);
+	hr = ps->GetPrivateData(g_ps_downsample_0xD4E64E5D.guid, &size, &hash);
+	if (SUCCEEDED(hr) && hash == g_ps_downsample_0xD4E64E5D.hash) {
+
+		// We just need SRV0 (half resolution scene with killed fireflies),
+		// do the original draw first so we don't need to do full restore later.
+		cmd_list->draw(vertex_count, instance_count, first_vertex, first_instance);
+
+		#if DEV
+		// Primitive topology should be D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST.
+		D3D11_PRIMITIVE_TOPOLOGY primitive_topology;
+		ctx->IAGetPrimitiveTopology(&primitive_topology);
+		if (primitive_topology != D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST) {
+			log_debug("0xD4E64E5D: The expected primitive topology wasn't what we expected it to be!");
+		}
+		#endif
+
+		// Backup VS.
+		Com_ptr<ID3D11VertexShader> vs_original;
+		ctx->VSGetShader(vs_original.put(), nullptr, nullptr);
+
+		// Backup rasterizer.
+		Com_ptr<ID3D11RasterizerState> rasterizer;
+		ctx->RSGetState(rasterizer.put());
+
+		// Backup Blend.
+		Com_ptr<ID3D11BlendState> blend_original;
+		FLOAT blend_factor_original[4];
+		UINT sample_mask_original;
+		ctx->OMGetBlendState(blend_original.put(), blend_factor_original, &sample_mask_original);
+
+		// Get bloom input width and height.
+		[[unlikely]] if (!g_bloom_input_width) {
+			// Get SRV0's texture description.
+			Com_ptr<ID3D11ShaderResourceView> srv;
+			ctx->PSGetShaderResources(0, 1, srv.put());
+			Com_ptr<ID3D11Resource> resource;
+			srv->GetResource(resource.put());
+			Com_ptr<ID3D11Texture2D> tex;
+			ensure(resource->QueryInterface(tex.put()), >= 0);
+			D3D11_TEXTURE2D_DESC tex_desc;
+			tex->GetDesc(&tex_desc);
+
+			g_bloom_input_width = tex_desc.Width;
+			g_bloom_input_height = tex_desc.Height;
+		}
+
+		// Create MIPs and views.
+		//
+
+		const UINT y_mip0_width = g_bloom_input_width >> 1;
+		const UINT y_mip0_height = g_bloom_input_height >> 1;
+
+		// Create Y MIPs and views.
+		[[unlikely]] if (!g_rtv_bloom_mips_y[0]) {
+			D3D11_TEXTURE2D_DESC tex_desc = {};
+			tex_desc.Width = y_mip0_width;
+			tex_desc.Height = y_mip0_height;
+			tex_desc.MipLevels = g_bloom_nmips;
+			tex_desc.ArraySize = 1;
+			tex_desc.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+			tex_desc.SampleDesc.Count = 1;
+			tex_desc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
+
+			Com_ptr<ID3D11Texture2D> tex;
+			ensure(g_device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
+
+			D3D11_RENDER_TARGET_VIEW_DESC rtv_desc = {};
+			rtv_desc.Format = tex_desc.Format;
+			rtv_desc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
+
+			D3D11_SHADER_RESOURCE_VIEW_DESC srv_desc = {};
+			srv_desc.Format = tex_desc.Format;
+			srv_desc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+			srv_desc.Texture2D.MipLevels = 1;
+
+			for (int i = 0; i < g_bloom_nmips; ++i) {
+				rtv_desc.Texture2D.MipSlice = i;
+				ensure(g_device->CreateRenderTargetView(tex.get(), &rtv_desc, &g_rtv_bloom_mips_y[i]), >= 0);
+				srv_desc.Texture2D.MostDetailedMip = i;
+				ensure(g_device->CreateShaderResourceView(tex.get(), &srv_desc, &g_srv_bloom_mips_y[i]), >= 0);
+			}
+		}
+
+		const UINT x_mip0_width = g_bloom_input_width >> 1;
+		const UINT x_mip0_height = g_bloom_input_height;
+
+		// Create X MIPs and views.
+		[[unlikely]] if (!g_rtv_bloom_mips_x[0]) {
+			// Create X MIP0 and views.
+			D3D11_TEXTURE2D_DESC tex_desc = {};
+			tex_desc.Width = x_mip0_width;
+			tex_desc.Height = x_mip0_height;
+			tex_desc.MipLevels = 1;
+			tex_desc.ArraySize = 1;
+			tex_desc.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+			tex_desc.SampleDesc.Count = 1;
+			tex_desc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
+
+			Com_ptr<ID3D11Texture2D> tex;
+			ensure(g_device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
+			ensure(g_device->CreateRenderTargetView(tex.get(), nullptr, &g_rtv_bloom_mips_x[0]), >= 0);
+			ensure(g_device->CreateShaderResourceView(tex.get(), nullptr, &g_srv_bloom_mips_x[0]), >= 0);
+
+			// Create rest of X MIPs and views.
+			for (UINT i = 1; i < g_bloom_nmips; ++i) {
+				tex_desc.Width = std::max(1u, x_mip0_width >> i);
+				tex_desc.Height = std::max(1u, x_mip0_height >> i);
+				ensure(g_device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
+				ensure(g_device->CreateRenderTargetView(tex.get(), nullptr, &g_rtv_bloom_mips_x[i]), >= 0);
+				ensure(g_device->CreateShaderResourceView(tex.get(), nullptr, &g_srv_bloom_mips_x[i]), >= 0);
+			}
+		}
+
+		//
+
+		// Prefilter + downsample pass
+		//
+
+		// Create VS.
+		[[unlikely]] if (!g_managed_resources.vertex_shaders["fullscreen_triangle"_h]) {
+			create_vertex_shader(g_device, g_managed_resources.vertex_shaders["fullscreen_triangle"_h].put(), L"FullscreenTriangle_vs.hlsl");
+		}
+
+		// Create PS.
+		[[unlikely]] if (!g_managed_resources.pixel_shaders["bloom_downsample"_h]) {
+			create_pixel_shader(g_device, g_managed_resources.pixel_shaders["bloom_downsample"_h].put(), L"Bloom_impl.hlsl", "downsample_ps");
+		}
+
+		// Create CB.
+		[[unlikely]] if (!g_cb) {
+			create_constant_buffer(g_device, sizeof(g_cb_data), g_cb.put());
+		}
+
+		D3D11_VIEWPORT viewport_x = {};
+		viewport_x.Width = x_mip0_width;
+		viewport_x.Height = x_mip0_height;
+
+		// Update CB.
+		g_cb_data.src_size = float2(g_swapchain_width, g_swapchain_height);
+		g_cb_data.inv_src_size = float2(1.0f / g_cb_data.src_size.x, 1.0f / g_cb_data.src_size.y);
+		g_cb_data.axis = float2(1.0f, 0.0f);
+		g_cb_data.sigma = g_bloom_sigmas[0];
+		update_constant_buffer(ctx, g_cb.get(), &g_cb_data, sizeof(g_cb_data));
+
+		// Bindings.
+		ctx->OMSetRenderTargets(1, &g_rtv_bloom_mips_x[0], nullptr);
+		ctx->VSSetShader(g_managed_resources.vertex_shaders["fullscreen_triangle"_h].get(), nullptr, 0);
+		ctx->RSSetState(nullptr);
+		ctx->RSSetViewports(1, &viewport_x);
+		ctx->PSSetShader(g_managed_resources.pixel_shaders["bloom_downsample"_h].get(), nullptr, 0);
+		ctx->PSSetConstantBuffers(GRAPHICAL_UPGRADE_CB_SLOT, 1, &g_cb);
+
+		// Draw X pass.
+		ctx->Draw(3, 0);
+
+		std::vector<D3D11_VIEWPORT> viewports_y(g_bloom_nmips);
+		viewports_y[0].Width = y_mip0_width;
+		viewports_y[0].Height = y_mip0_height;
+
+		// Update CB.
+		g_cb_data.src_size = float2(x_mip0_width, x_mip0_height);
+		g_cb_data.inv_src_size = float2(1.0f / g_cb_data.src_size.x, 1.0f / g_cb_data.src_size.y);
+		g_cb_data.axis = float2(0.0f, 1.0f);
+		update_constant_buffer(ctx, g_cb.get(), &g_cb_data, sizeof(g_cb_data));
+
+		// Bindings.
+		ctx->OMSetRenderTargets(1, &g_rtv_bloom_mips_y[0], nullptr);
+		ctx->RSSetViewports(1, &viewports_y[0]);
+		ctx->PSSetShaderResources(0, 1, &g_srv_bloom_mips_x[0]);
+
+		// Draw Y pass.
+		ctx->Draw(3, 0);
+
+		//
+
+		// Downsample passes
+		//
+
+		// Render downsample passes.
+		for (UINT i = 1; i < g_bloom_nmips; ++i) {
+			viewport_x.Width = std::max(1u, x_mip0_width >> i);
+			viewport_x.Height = std::max(1u, x_mip0_height >> i);
+
+			// Update CB.
+			g_cb_data.src_size = float2(viewports_y[i - 1].Width, viewports_y[i - 1].Height);
+			g_cb_data.axis = float2(1.0f, 0.0f);
+			g_cb_data.inv_src_size = float2(1.0f / g_cb_data.src_size.x, 1.0f / g_cb_data.src_size.y);
+			g_cb_data.sigma = g_bloom_sigmas[i];
+			update_constant_buffer(ctx, g_cb.get(), &g_cb_data, sizeof(g_cb_data));
+
+			// Bindings.
+			ctx->OMSetRenderTargets(1, &g_rtv_bloom_mips_x[i], nullptr);
+			ctx->RSSetViewports(1, &viewport_x);
+			ctx->PSSetShaderResources(0, 1, &g_srv_bloom_mips_y[i - 1]);
+
+			// Draw X pass.
+			ctx->Draw(3, 0);
+
+			viewports_y[i].Width = std::max(1u, y_mip0_width >> i);
+			viewports_y[i].Height = std::max(1u, y_mip0_height >> i);
+
+			// Update CB.
+			g_cb_data.src_size = float2(viewport_x.Width, viewport_x.Height);
+			g_cb_data.axis = float2(0.0f, 1.0f);
+			g_cb_data.inv_src_size = float2(1.0f / g_cb_data.src_size.x, 1.0f / g_cb_data.src_size.y);
+			update_constant_buffer(ctx, g_cb.get(), &g_cb_data, sizeof(g_cb_data));
+
+			// Bindings.
+			ctx->OMSetRenderTargets(1, &g_rtv_bloom_mips_y[i], nullptr);
+			ctx->RSSetViewports(1, &viewports_y[i]);
+			ctx->PSSetShaderResources(0, 1, &g_srv_bloom_mips_x[i]);
+
+			// Draw Y pass.
+			ctx->Draw(3, 0);
+		}
+
+		//
+
+		// Upsample passes
+		//
+
+		// Create PS.
+		[[unlikely]] if (!g_managed_resources.pixel_shaders["bloom_upsample"_h]) {
+			create_pixel_shader(g_device, g_managed_resources.pixel_shaders["bloom_upsample"_h].put(), L"Bloom_impl.hlsl", "upsample_ps");
+		}
+
+		// Create blend.
+		[[unlikely]] if (!g_managed_resources.blends["bloom"_h]) {
+			CD3D11_BLEND_DESC desc(D3D11_DEFAULT);
+			desc.RenderTarget[0].BlendEnable = TRUE;
+			desc.RenderTarget[0].SrcBlend = D3D11_BLEND_BLEND_FACTOR;
+			desc.RenderTarget[0].DestBlend = D3D11_BLEND_BLEND_FACTOR;
+			ensure(g_device->CreateBlendState(&desc, g_managed_resources.blends["bloom"_h].put()), >= 0);
+		}
+
+		// Bindings.
+		ctx->PSSetShader(g_managed_resources.pixel_shaders["bloom_upsample"_h].get(), nullptr, 0);
+
+		for (int i = g_bloom_nmips - 1; i > 0; --i) {
+			// If both dst and src are D3D11_BLEND_BLEND_FACTOR,
+			// factor of 0.5 will be enegrgy preserving.
+			static constexpr FLOAT blend_factor[] = { 0.5f, 0.5f, 0.5f, 0.5f };
+
+			// Update CB.
+			g_cb_data.src_size = float2(viewports_y[i].Width, viewports_y[i].Height);
+			g_cb_data.inv_src_size = float2(1.0f / g_cb_data.src_size.x, 1.0f / g_cb_data.src_size.y);
+			update_constant_buffer(ctx, g_cb.get(), &g_cb_data, sizeof(g_cb_data));
+
+			// Bindings.
+			ctx->OMSetRenderTargets(1, &g_rtv_bloom_mips_y[i - 1], nullptr);
+			ctx->RSSetViewports(1, &viewports_y[i - 1]);
+			ctx->PSSetShaderResources(0, 1, &g_srv_bloom_mips_y[i]);
+			ctx->OMSetBlendState(g_managed_resources.blends["bloom"_h].get(), blend_factor, UINT_MAX);
+
+			ctx->Draw(3, 0);
+		}
+
+		//
+
+		// Restore.
+		// Rasterizer must be restored, others maybe.
+		ctx->VSSetShader(vs_original.get(), nullptr, 0);
+		ctx->RSSetState(rasterizer.get());
+		ctx->OMSetBlendState(blend_original.get(), blend_factor_original, sample_mask_original);
+
+		return true;
+	}
+
+	size = sizeof(hash);
+	hr = ps->GetPrivateData(g_ps_bloom_0x246F473B.guid, &size, &hash);
+	if (SUCCEEDED(hr) && hash == g_ps_bloom_0x246F473B.hash) {
+		return true;
+	}
+
+	size = sizeof(hash);
+	hr = ps->GetPrivateData(g_ps_bloom_0x0A210C5D.guid, &size, &hash);
+	if (SUCCEEDED(hr) && hash == g_ps_bloom_0x0A210C5D.hash) {
+		return true;
+	}
+
+	size = sizeof(hash);
+	hr = ps->GetPrivateData(g_ps_tonemap_0x37ACE8EF.guid, &size, &hash);
+	if (SUCCEEDED(hr) && hash == g_ps_tonemap_0x37ACE8EF.hash) {
+		// Create PS.
+		[[unlikely]] if (!g_managed_resources.pixel_shaders["tonemap_0x37ACE8EF"_h]) {
+			const std::string bloom_intensity_str = std::to_string(g_bloom_intensity);
+			const D3D_SHADER_MACRO defines[] = {
+				{ "BLOOM_INTENSITY", bloom_intensity_str.c_str() },
+				{ nullptr, nullptr }
+			};
+			create_pixel_shader(g_device, g_managed_resources.pixel_shaders["tonemap_0x37ACE8EF"_h].put(), L"Tonemap_0x37ACE8EF_ps.hlsl", "main", defines);
+		}
+
+		// Bindings.
+		ctx->PSSetShader(g_managed_resources.pixel_shaders["tonemap_0x37ACE8EF"_h].get(), nullptr, 0);
+		ctx->PSSetShaderResources(2, 1, &g_srv_bloom_mips_y[0]);
+
+		return false;
+	}
+
+	size = sizeof(hash);
+	hr = ps->GetPrivateData(g_ps_tonemap_0xB5DC761A.guid, &size, &hash);
+	if (SUCCEEDED(hr) && hash == g_ps_tonemap_0xB5DC761A.hash) {
+		// Create PS.
+		[[unlikely]] if (!g_managed_resources.pixel_shaders["tonemap_0xB5DC761A"_h]) {
+			const std::string bloom_intensity_str = std::to_string(g_bloom_intensity);
+			const D3D_SHADER_MACRO defines[] = {
+				{ "BLOOM_INTENSITY", bloom_intensity_str.c_str() },
+				{ nullptr, nullptr }
+			};
+			create_pixel_shader(g_device, g_managed_resources.pixel_shaders["tonemap_0xB5DC761A"_h].put(), L"Tonemap_0xB5DC761A_ps.hlsl", "main", defines);
+		}
+
+		// Bindings.
+		ctx->PSSetShader(g_managed_resources.pixel_shaders["tonemap_0xB5DC761A"_h].get(), nullptr, 0);
+		ctx->PSSetShaderResources(2, 1, &g_srv_bloom_mips_y[0]);
+
+		return false;
+	}
+
+	size = sizeof(hash);
 	hr = ps->GetPrivateData(g_ps_smaa_edge_detection_0x47B723BD.guid, &size, &hash);
 	if (SUCCEEDED(hr) && hash == g_ps_smaa_edge_detection_0x47B723BD.hash) {
 		if (g_enable_dlss) {
@@ -444,44 +780,6 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 	}
 
 	size = sizeof(hash);
-	hr = ps->GetPrivateData(g_ps_post_aa_composite_0x83AE9250.guid, &size, &hash);
-	if (SUCCEEDED(hr) && hash == g_ps_post_aa_composite_0x83AE9250.hash) {
-		// Create PS.
-		[[unlikely]] if (!g_managed_resources.pixel_shaders["post_aa_composite_0x83AE9250"_h]) {
-			const std::string vigenette_strength_val = std::to_string(g_vigenette_strength);
-			const D3D_SHADER_MACRO defines[] = {
-				{ "VIGENETTE_STRENGTH", vigenette_strength_val.c_str() },
-				{ nullptr, nullptr }
-			};
-			create_pixel_shader(g_device, g_managed_resources.pixel_shaders["post_aa_composite_0x83AE9250"_h].put(), L"PostAAComposite_0x83AE9250_ps.hlsl", "main", defines);
-		}
-
-		// Bindings.
-		ctx->PSSetShader(g_managed_resources.pixel_shaders["post_aa_composite_0x83AE9250"_h].get(), nullptr, 0);
-
-		return false;
-	}
-
-	size = sizeof(hash);
-	hr = ps->GetPrivateData(g_ps_post_aa_composite_0xED6287FE.guid, &size, &hash);
-	if (SUCCEEDED(hr) && hash == g_ps_post_aa_composite_0xED6287FE.hash) {
-		// Create PS.
-		[[unlikely]] if (!g_managed_resources.pixel_shaders["post_aa_composite_0xED6287FE"_h]) {
-			const std::string vigenette_strength_val = std::to_string(g_vigenette_strength);
-			const D3D_SHADER_MACRO defines[] = {
-				{ "VIGENETTE_STRENGTH", vigenette_strength_val.c_str() },
-				{ nullptr, nullptr }
-			};
-			create_pixel_shader(g_device, g_managed_resources.pixel_shaders["post_aa_composite_0xED6287FE"_h].put(), L"PostAAComposite_0xED6287FE_ps.hlsl", "main", defines);
-		}
-
-		// Bindings.
-		ctx->PSSetShader(g_managed_resources.pixel_shaders["post_aa_composite_0xED6287FE"_h].get(), nullptr, 0);
-
-		return false;
-	}
-
-	size = sizeof(hash);
 	hr = ps->GetPrivateData(g_ps_post_aa_composite_0xFAEE5EE9.guid, &size, &hash);
 	if (SUCCEEDED(hr) && hash == g_ps_post_aa_composite_0xFAEE5EE9.hash) {
 		// Create PS.
@@ -606,12 +904,6 @@ static void on_init_pipeline(reshade::api::device* device, reshade::api::pipelin
 				case g_ps_post_aa_composite_0x496492FE.hash:
 					ensure(((ID3D11PixelShader*)pipeline.handle)->SetPrivateData(g_ps_post_aa_composite_0x496492FE.guid, sizeof(g_ps_post_aa_composite_0x496492FE.hash), &g_ps_post_aa_composite_0x496492FE.hash), >= 0);
 					return;
-				case g_ps_post_aa_composite_0x83AE9250.hash:
-					ensure(((ID3D11PixelShader*)pipeline.handle)->SetPrivateData(g_ps_post_aa_composite_0x83AE9250.guid, sizeof(g_ps_post_aa_composite_0x83AE9250.hash), &g_ps_post_aa_composite_0x83AE9250.hash), >= 0);
-					return;
-				case g_ps_post_aa_composite_0xED6287FE.hash:
-					ensure(((ID3D11PixelShader*)pipeline.handle)->SetPrivateData(g_ps_post_aa_composite_0xED6287FE.guid, sizeof(g_ps_post_aa_composite_0xED6287FE.hash), &g_ps_post_aa_composite_0xED6287FE.hash), >= 0);
-					return;
 				case g_ps_post_aa_composite_0xFAEE5EE9.hash:
 					ensure(((ID3D11PixelShader*)pipeline.handle)->SetPrivateData(g_ps_post_aa_composite_0xFAEE5EE9.guid, sizeof(g_ps_post_aa_composite_0xFAEE5EE9.hash), &g_ps_post_aa_composite_0xFAEE5EE9.hash), >= 0);
 					return;
@@ -620,6 +912,21 @@ static void on_init_pipeline(reshade::api::device* device, reshade::api::pipelin
 					return;
 				case g_ps_lens_effects_0xDAA20F29.hash:
 					ensure(((ID3D11PixelShader*)pipeline.handle)->SetPrivateData(g_ps_lens_effects_0xDAA20F29.guid, sizeof(g_ps_lens_effects_0xDAA20F29.hash), &g_ps_lens_effects_0xDAA20F29.hash), >= 0);
+					return;
+				case g_ps_tonemap_0x37ACE8EF.hash:
+					ensure(((ID3D11PixelShader*)pipeline.handle)->SetPrivateData(g_ps_tonemap_0x37ACE8EF.guid, sizeof(g_ps_tonemap_0x37ACE8EF.hash), &g_ps_tonemap_0x37ACE8EF.hash), >= 0);
+					return;
+				case g_ps_tonemap_0xB5DC761A.hash:
+					ensure(((ID3D11PixelShader*)pipeline.handle)->SetPrivateData(g_ps_tonemap_0xB5DC761A.guid, sizeof(g_ps_tonemap_0xB5DC761A.hash), &g_ps_tonemap_0xB5DC761A.hash), >= 0);
+					return;
+				case g_ps_downsample_0xD4E64E5D.hash:
+					ensure(((ID3D11PixelShader*)pipeline.handle)->SetPrivateData(g_ps_downsample_0xD4E64E5D.guid, sizeof(g_ps_downsample_0xD4E64E5D.hash), &g_ps_downsample_0xD4E64E5D.hash), >= 0);
+					return;
+				case g_ps_bloom_0x246F473B.hash:
+					ensure(((ID3D11PixelShader*)pipeline.handle)->SetPrivateData(g_ps_bloom_0x246F473B.guid, sizeof(g_ps_bloom_0x246F473B.hash), &g_ps_bloom_0x246F473B.hash), >= 0);
+					return;
+				case g_ps_bloom_0x0A210C5D.hash:
+					ensure(((ID3D11PixelShader*)pipeline.handle)->SetPrivateData(g_ps_bloom_0x0A210C5D.guid, sizeof(g_ps_bloom_0x0A210C5D.hash), &g_ps_bloom_0x0A210C5D.hash), >= 0);
 					return;
 			}
 		}
@@ -775,6 +1082,12 @@ static void on_init_swapchain(reshade::api::swapchain* swapchain, bool resize)
 	g_managed_resources.compute_shaders["gtao_prefilter_depths16x16"_h].reset();
 	reset_com_array(g_uav_gtao_prefilter_depths16x16);
 	g_managed_resources.pixel_shaders["gtao_main_pass"_h].reset();
+	reset_com_array(g_rtv_bloom_mips_y);
+	reset_com_array(g_srv_bloom_mips_y);
+	reset_com_array(g_rtv_bloom_mips_x);
+	reset_com_array(g_srv_bloom_mips_x);
+	g_bloom_input_width = 0;
+	g_bloom_input_height = 0;
 	g_managed_resources.textures_2d["dlss_output"_h].reset();
 }
 
@@ -786,7 +1099,11 @@ static void on_destroy_device(reshade::api::device* device)
 	if (g_enable_dlss) {
 		DLSS::get_instance().shutdown();
 	}
-	reset_com_array(g_uav_gtao_prefilter_depths16x16);
+	release_com_array(g_uav_gtao_prefilter_depths16x16);
+	release_com_array(g_rtv_bloom_mips_y);
+	release_com_array(g_srv_bloom_mips_y);
+	release_com_array(g_rtv_bloom_mips_x);
+	release_com_array(g_srv_bloom_mips_x);
 	g_cb.reset();
 	g_managed_resources.clear();
 }
@@ -812,6 +1129,9 @@ static void read_config()
 
 	if (!reshade::get_config_value(nullptr, NAME, "GTAOQuality", g_gtao_quality)) {
 		reshade::set_config_value(nullptr, NAME, "GTAOQuality", g_gtao_quality);
+	}
+	if (!reshade::get_config_value(nullptr, NAME, "BloomIntensity", g_bloom_intensity)) {
+		reshade::set_config_value(nullptr, NAME, "BloomIntensity", g_bloom_intensity);
 	}
 	if (!reshade::get_config_value(nullptr, NAME, "VigenetteStrength", g_vigenette_strength)) {
 		reshade::set_config_value(nullptr, NAME, "VigenetteStrength", g_vigenette_strength);
@@ -855,6 +1175,25 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 		ensure(dxgi_device->GetMaximumFrameLatency(&max_latency), >= 0);
 		log_debug("MaximumFrameLatency: {}", max_latency);
 	}
+	ImGui::Spacing();
+
+	// For whatever reason changing Bloom nmips is crashing the game. Race condition?
+	//if (ImGui::SliderInt("Bloom nmips", &g_bloom_nmips, 1, 10)) {
+	//	release_com_array(g_rtv_bloom_mips_y);
+	//	release_com_array(g_srv_bloom_mips_y);
+	//	release_com_array(g_rtv_bloom_mips_x);
+	//	release_com_array(g_srv_bloom_mips_x);
+	//	g_rtv_bloom_mips_y.resize(g_bloom_nmips);
+	//	g_srv_bloom_mips_y.resize(g_bloom_nmips);
+	//	g_rtv_bloom_mips_x.resize(g_bloom_nmips);
+	//	g_srv_bloom_mips_x.resize(g_bloom_nmips);
+	//	g_bloom_sigmas.resize(g_bloom_nmips);
+	//}
+	for (int i = 0; i < g_bloom_nmips; ++i) {
+		const std::string name = "Sigma" + std::to_string(i);
+		ImGui::SliderFloat(name.c_str(), &g_bloom_sigmas[i], 0.0f, 15.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp);
+	}
+
 	ImGui::NewLine();
 	#endif
 
@@ -906,6 +1245,13 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 	}
 	ImGui::Spacing();
 
+	if (ImGui::SliderFloat("Bloom intensity", &g_bloom_intensity, 0.0f, 3.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp)) {
+		g_managed_resources.pixel_shaders["tonemap_0x37ACE8EF"_h].reset();
+		g_managed_resources.pixel_shaders["tonemap_0xB5DC761A"_h].reset();
+		reshade::set_config_value(nullptr, NAME, "BloomIntensity", g_bloom_intensity);
+	}
+	ImGui::Spacing();
+
 	if (ImGui::SliderFloat("Vigenette strength", &g_vigenette_strength, 0.0f, 2.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp)) {
 		g_managed_resources.pixel_shaders["post_aa_composite_0x496492FE"_h].reset();
 		g_managed_resources.pixel_shaders["post_aa_composite_0x83AE9250"_h].reset();
@@ -954,6 +1300,21 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)
 
 			init_graphical_upgrade_path();
 			read_config();
+
+			// Bloom.
+			g_bloom_nmips = 6;
+			g_rtv_bloom_mips_y.resize(g_bloom_nmips);
+			g_srv_bloom_mips_y.resize(g_bloom_nmips);
+			g_rtv_bloom_mips_x.resize(g_bloom_nmips);
+			g_srv_bloom_mips_x.resize(g_bloom_nmips);
+			g_bloom_sigmas.resize(g_bloom_nmips);
+			g_bloom_sigmas[0] = 1.0f; // 1.0 for the first MIP here is fine cause input is prefiltered.
+			g_bloom_sigmas[1] = 2.0f;
+			g_bloom_sigmas[2] = 2.0f;
+			g_bloom_sigmas[3] = 2.0f;
+			g_bloom_sigmas[4] = 1.0f;
+			g_bloom_sigmas[5] = 1.0f;
+
 			reshade::register_event<reshade::addon_event::draw>(on_draw);
 			reshade::register_event<reshade::addon_event::draw_indexed>(on_draw_indexed);
 			reshade::register_event<reshade::addon_event::init_pipeline>(on_init_pipeline);

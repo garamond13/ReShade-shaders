@@ -3,8 +3,10 @@
 - Modern borderless window (flip mod, tearing).
 - Optionally replace TAA (SMAA 2TX) with DLSS (DLAA).
 - Replaced ambient occlusion (Screen Space Directional Occlusion->Full Resolution) with GTAO.
+- Replaced bloom.
 - Fixed and improved Screen Space Reflections.
 - Adjustable vigenette strenghth.
+- Adjustable bloom intensity.
 - Optionally disable motion blur.
 - Optionally disable lens effects.
 - Fixed pixelated shadows.
@@ -20,6 +22,7 @@
 ## Notes
 
  - "OPTIONS->VIDEO->ADVANCED SETTINGS->Adaptive Resolution" should be set to "OFF".
+ - "OPTIONS->VIDEO->ADVANCED SETTINGS->Anti-aliasing" should be set to "SMAA 2TX".
  - For DLSS, in "Configuration file(s) location/game.cfg" (see https://www.pcgamingwiki.com/wiki/Prey_(2017) ) `r_AntialiasingTAAPattern = 6` should be added. Make the game.cfg file read-only cause the game may overwrite it and revert the change.
 
 ## Compilation
