@@ -6,7 +6,7 @@
 #include "DLSS/DLSS.h"
 
 extern "C" __declspec(dllexport) const char* NAME = "PreyGraphicalUpgrade";
-extern "C" __declspec(dllexport) const char* DESCRIPTION = "v3.1.0";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "v4.0.0";
 extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/PreyGraphicalUpgrade";
 
 // Shader hooks.
@@ -25,8 +25,12 @@ constexpr Shader_hash g_ps_motion_blur_0xD0C2257A = { 0xD0C2257A, { 0xec4c025a, 
 constexpr Shader_hash g_ps_downsample_0xD4E64E5D = { 0xD4E64E5D, { 0x6410d2e6, 0x90d1, 0x4ca9, { 0xad, 0x43, 0xe9, 0xd0, 0x7e, 0x60, 0x6f, 0xa3 }}};
 constexpr Shader_hash g_ps_bloom_0x246F473B = { 0x246F473B, { 0xbc52921e, 0x854a, 0x4837, { 0xb6, 0xb9, 0x8a, 0x21, 0x2c, 0xd, 0x7, 0x7a }}};
 constexpr Shader_hash g_ps_bloom_0x0A210C5D = { 0x0A210C5D, { 0xea96cc1d, 0x1749, 0x4a95, { 0xa3, 0x78, 0xa2, 0x4c, 0xa2, 0xbb, 0x90, 0x18 }}};
+constexpr Shader_hash g_ps_generate_lut_0x8902E4CF = { 0x8902E4CF, { 0x7aef2492, 0xb61d, 0x4956, { 0xa9, 0x67, 0x60, 0x26, 0x44, 0x7d, 0x8b, 0x4 }}};
+constexpr Shader_hash g_ps_generate_lut_0x57B2FF36 = { 0x57B2FF36, { 0x6dd70a27, 0x9ccc, 0x4654, { 0x9c, 0x61, 0x2b, 0x6e, 0x59, 0x57, 0xe1, 0x64 }}};
 constexpr Shader_hash g_ps_tonemap_0x37ACE8EF = { 0x37ACE8EF, { 0x7c3bbbc4, 0xe87c, 0x4890, { 0x99, 0x84, 0xd2, 0x69, 0x47, 0x22, 0x46, 0x10 }}};
 constexpr Shader_hash g_ps_tonemap_0xB5DC761A = { 0xB5DC761A, { 0x452fbbf4, 0x4eda, 0x478e, { 0xb0, 0x61, 0x96, 0xa6, 0x6f, 0xe5, 0xe2, 0xa3 }}};
+constexpr Shader_hash g_ps_object_highlighting_0x327F97C8 = { 0x327F97C8, { 0xfd492921, 0x6f42, 0x4701, { 0x8d, 0x83, 0xaf, 0xe4, 0x84, 0xb2, 0x9c, 0x3e }}};
+constexpr Shader_hash g_ps_object_highlighting_0x6443F246 = { 0x6443F246, { 0xf748c038, 0xf4ac, 0x455c, { 0x9e, 0x6c, 0x3d, 0x59, 0x25, 0x70, 0x40, 0xc8 }}};
 
 // SMAA.
 constexpr Shader_hash g_ps_smaa_edge_detection_0x47B723BD = { 0x47B723BD, { 0x8fae771c, 0x8fde, 0x48b8, { 0xa8, 0x3, 0x75, 0x44, 0xa0, 0x33, 0xa, 0x38 }}};
@@ -56,6 +60,7 @@ static bool g_force_modern_windowed = true;
 static bool g_disable_motion_blur = true;
 static bool g_disable_lens_effects = true;
 static float g_vigenette_strength = 1.0f;
+static bool g_disable_object_highlighting = false;
 
 // GTAO
 constexpr size_t GTAO_DEPTH_MIP_LEVELS = 5;
@@ -269,7 +274,7 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		Com_ptr<ID3D11RenderTargetView> rtv;
 		ctx->OMGetRenderTargets(1, rtv.put(), nullptr);
 		Com_ptr<ID3D11Resource> resource;
-		rtv->GetResource(g_managed_resources.resources["scene"_h].put());
+		rtv->GetResource(g_managed_resources.resources["ao"_h].put());
 		#endif
 
 		return true;
@@ -593,6 +598,60 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 	}
 
 	size = sizeof(hash);
+	hr = ps->GetPrivateData(g_ps_generate_lut_0x8902E4CF.guid, &size, &hash);
+	if (SUCCEEDED(hr) && hash == g_ps_generate_lut_0x8902E4CF.hash) {
+		// Create RT.
+		[[unlikely]] if (!g_managed_resources.render_target_views["generate_lut"_h]) {
+			// Get original RT texture description.
+			ctx->OMGetRenderTargets(1, g_managed_resources.render_target_views["generate_lut"_h].put(), nullptr);
+			Com_ptr<ID3D11Resource> resource;
+			g_managed_resources.render_target_views["generate_lut"_h]->GetResource(resource.put());
+			Com_ptr<ID3D11Texture2D> tex;
+			ensure(resource->QueryInterface(tex.put()), >= 0);
+			D3D11_TEXTURE2D_DESC tex_desc;
+			tex->GetDesc(&tex_desc);
+
+			// Create the new RT and views.
+			tex_desc.Format = DXGI_FORMAT_R16G16B16A16_UNORM;
+			ensure(g_device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
+			ensure(g_device->CreateRenderTargetView(tex.get(), nullptr, g_managed_resources.render_target_views["generate_lut"_h].put()), >= 0);
+			ensure(g_device->CreateShaderResourceView(tex.get(), nullptr, g_managed_resources.shader_resource_views["generate_lut"_h].put()), >= 0);
+		}
+
+		// Bindings.
+		ctx->OMSetRenderTargets(1, &g_managed_resources.render_target_views["generate_lut"_h], nullptr);
+
+		return false;
+	}
+
+	size = sizeof(hash);
+	hr = ps->GetPrivateData(g_ps_generate_lut_0x57B2FF36.guid, &size, &hash);
+	if (SUCCEEDED(hr) && hash == g_ps_generate_lut_0x57B2FF36.hash) {
+		// Create RT.
+		[[unlikely]] if (!g_managed_resources.render_target_views["generate_lut"_h]) {
+			// Get original RT texture description.
+			ctx->OMGetRenderTargets(1, g_managed_resources.render_target_views["generate_lut"_h].put(), nullptr);
+			Com_ptr<ID3D11Resource> resource;
+			g_managed_resources.render_target_views["generate_lut"_h]->GetResource(resource.put());
+			Com_ptr<ID3D11Texture2D> tex;
+			ensure(resource->QueryInterface(tex.put()), >= 0);
+			D3D11_TEXTURE2D_DESC tex_desc;
+			tex->GetDesc(&tex_desc);
+
+			// Create the new RT and views.
+			tex_desc.Format = DXGI_FORMAT_R16G16B16A16_UNORM;
+			ensure(g_device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
+			ensure(g_device->CreateRenderTargetView(tex.get(), nullptr, g_managed_resources.render_target_views["generate_lut"_h].put()), >= 0);
+			ensure(g_device->CreateShaderResourceView(tex.get(), nullptr, g_managed_resources.shader_resource_views["generate_lut"_h].put()), >= 0);
+		}
+
+		// Bindings.
+		ctx->OMSetRenderTargets(1, &g_managed_resources.render_target_views["generate_lut"_h], nullptr);
+
+		return false;
+	}
+
+	size = sizeof(hash);
 	hr = ps->GetPrivateData(g_ps_tonemap_0x37ACE8EF.guid, &size, &hash);
 	if (SUCCEEDED(hr) && hash == g_ps_tonemap_0x37ACE8EF.hash) {
 		// Create PS.
@@ -605,9 +664,27 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 			create_pixel_shader(g_device, g_managed_resources.pixel_shaders["tonemap_0x37ACE8EF"_h].put(), L"Tonemap_0x37ACE8EF_ps.hlsl", "main", defines);
 		}
 
+		// Create RT.
+		[[unlikely]] if (!g_managed_resources.render_target_views["tonemap"_h]) {
+			// Get original RT texture description.
+			ctx->OMGetRenderTargets(1, g_managed_resources.render_target_views["tonemap"_h].put(), nullptr);
+			Com_ptr<ID3D11Resource> resource;
+			g_managed_resources.render_target_views["tonemap"_h]->GetResource(resource.put());
+			ensure(resource->QueryInterface(g_managed_resources.textures_2d["tonemap"_h].put()), >= 0);
+			D3D11_TEXTURE2D_DESC tex_desc;
+			g_managed_resources.textures_2d["tonemap"_h]->GetDesc(&tex_desc);
+
+			// Create the new RT and views.
+			tex_desc.Format = DXGI_FORMAT_R16G16B16A16_UNORM;
+			ensure(g_device->CreateTexture2D(&tex_desc, nullptr, g_managed_resources.textures_2d["tonemap"_h].put()), >= 0);
+			ensure(g_device->CreateRenderTargetView(g_managed_resources.textures_2d["tonemap"_h].get(), nullptr, g_managed_resources.render_target_views["tonemap"_h].put()), >= 0);
+		}
+
 		// Bindings.
+		ctx->OMSetRenderTargets(1, &g_managed_resources.render_target_views["tonemap"_h], nullptr);
 		ctx->PSSetShader(g_managed_resources.pixel_shaders["tonemap_0x37ACE8EF"_h].get(), nullptr, 0);
 		ctx->PSSetShaderResources(2, 1, &g_srv_bloom_mips_y[0]);
+		ctx->PSSetShaderResources(8, 1, &g_managed_resources.shader_resource_views["generate_lut"_h]);
 
 		return false;
 	}
@@ -625,9 +702,28 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 			create_pixel_shader(g_device, g_managed_resources.pixel_shaders["tonemap_0xB5DC761A"_h].put(), L"Tonemap_0xB5DC761A_ps.hlsl", "main", defines);
 		}
 
+		// Create RT.
+		[[unlikely]] if (!g_managed_resources.render_target_views["tonemap"_h]) {
+			// Get original RT texture description.
+			ctx->OMGetRenderTargets(1, g_managed_resources.render_target_views["tonemap"_h].put(), nullptr);
+			Com_ptr<ID3D11Resource> resource;
+			g_managed_resources.render_target_views["tonemap"_h]->GetResource(resource.put());
+			ensure(resource->QueryInterface(g_managed_resources.textures_2d["tonemap"_h].put()), >= 0);
+			D3D11_TEXTURE2D_DESC tex_desc;
+			g_managed_resources.textures_2d["tonemap"_h]->GetDesc(&tex_desc);
+
+			// Create the new RT and views.
+			tex_desc.Format = DXGI_FORMAT_R16G16B16A16_UNORM;
+			ensure(g_device->CreateTexture2D(&tex_desc, nullptr, g_managed_resources.textures_2d["tonemap"_h].put()), >= 0);
+			ensure(g_device->CreateRenderTargetView(g_managed_resources.textures_2d["tonemap"_h].get(), nullptr, g_managed_resources.render_target_views["tonemap"_h].put()), >= 0);
+			ensure(g_device->CreateShaderResourceView(g_managed_resources.textures_2d["tonemap"_h].get(), nullptr, g_managed_resources.shader_resource_views["tonemap"_h].put()), >= 0);
+		}
+
 		// Bindings.
+		ctx->OMSetRenderTargets(1, &g_managed_resources.render_target_views["tonemap"_h], nullptr);
 		ctx->PSSetShader(g_managed_resources.pixel_shaders["tonemap_0xB5DC761A"_h].get(), nullptr, 0);
 		ctx->PSSetShaderResources(2, 1, &g_srv_bloom_mips_y[0]);
+		ctx->PSSetShaderResources(8, 1, &g_managed_resources.shader_resource_views["generate_lut"_h]);
 
 		return false;
 	}
@@ -636,13 +732,12 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 	hr = ps->GetPrivateData(g_ps_smaa_edge_detection_0x47B723BD.guid, &size, &hash);
 	if (SUCCEEDED(hr) && hash == g_ps_smaa_edge_detection_0x47B723BD.hash) {
 		if (g_enable_dlss) {
-			#if !SHOW_AO
-			Com_ptr<ID3D11ShaderResourceView> srv;
-			ctx->PSGetShaderResources(0, 1, srv.put());
-			srv->GetResource(g_managed_resources.resources["scene"_h].put());
-			#endif
 			return true;
 		}
+
+		// Bindings.
+		ctx->PSSetShaderResources(0, 1, &g_managed_resources.shader_resource_views["tonemap"_h]);
+
 		return false;
 	}
 
@@ -661,6 +756,12 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		if (g_enable_dlss) {
 			return true;
 		}
+
+		// Bindings.
+		// RTV should be rgba8unorm. Not worth upgrading, SMAA 2TX in this game is so bad regardless.
+		// TODO: Linearize scene (tonemap). Originally it's not, maybe why it's so bad?
+		ctx->PSSetShaderResources(1, 1, &g_managed_resources.shader_resource_views["tonemap"_h]);
+
 		return false;
 	}
 
@@ -721,6 +822,7 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 				g_managed_resources.textures_2d["dlss_output"_h]->GetDesc(&tex_desc);
 
 				// Create DLSS output.
+				// The format should be rgba16f.
 				tex_desc.BindFlags = D3D11_BIND_UNORDERED_ACCESS;
 				ensure(g_device->CreateTexture2D(&tex_desc, nullptr, g_managed_resources.textures_2d["dlss_output"_h].put()), >= 0);
 			}
@@ -732,7 +834,13 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 			srv_depth->GetResource(resource_depth.put());
 
 			NVSDK_NGX_D3D11_DLSS_Eval_Params eval_params = {};
-			eval_params.Feature.pInColor = g_managed_resources.resources["scene"_h].get();
+
+			#if DEV && SHOW_AO
+			eval_params.Feature.pInColor = g_managed_resources.resources["ao"_h].get();
+			#else
+			eval_params.Feature.pInColor = g_managed_resources.textures_2d["tonemap"_h].get();
+			#endif
+
 			eval_params.Feature.pInOutput = g_managed_resources.textures_2d["dlss_output"_h].get();
 			eval_params.pInDepth = resource_depth.get();
 			eval_params.pInMotionVectors = g_managed_resources.textures_2d["mvs"_h].get();
@@ -858,6 +966,40 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 		return false;
 	}
 
+	size = sizeof(hash);
+	hr = ps->GetPrivateData(g_ps_object_highlighting_0x327F97C8.guid, &size, &hash);
+	if (SUCCEEDED(hr) && hash == g_ps_object_highlighting_0x327F97C8.hash) {
+		if (g_disable_object_highlighting) {
+			return true;
+		}
+
+		// Get DSV, we have to rebind it.
+		Com_ptr<ID3D11DepthStencilView> dsv;
+		ctx->OMGetRenderTargets(0, nullptr, dsv.put());
+
+		// Bindings.
+		ctx->OMSetRenderTargets(1, &g_managed_resources.render_target_views["tonemap"_h], dsv.get());
+
+		return false;
+	}
+
+	size = sizeof(hash);
+	hr = ps->GetPrivateData(g_ps_object_highlighting_0x6443F246.guid, &size, &hash);
+	if (SUCCEEDED(hr) && hash == g_ps_object_highlighting_0x6443F246.hash) {
+		if (g_disable_object_highlighting) {
+			return true;
+		}
+
+		// Get DSV, we have to rebind it.
+		Com_ptr<ID3D11DepthStencilView> dsv;
+		ctx->OMGetRenderTargets(0, nullptr, dsv.put());
+
+		// Bindings.
+		ctx->OMSetRenderTargets(1, &g_managed_resources.render_target_views["tonemap"_h], dsv.get());
+
+		return false;
+	}
+
 	return false;
 }
 
@@ -927,6 +1069,18 @@ static void on_init_pipeline(reshade::api::device* device, reshade::api::pipelin
 					return;
 				case g_ps_bloom_0x0A210C5D.hash:
 					ensure(((ID3D11PixelShader*)pipeline.handle)->SetPrivateData(g_ps_bloom_0x0A210C5D.guid, sizeof(g_ps_bloom_0x0A210C5D.hash), &g_ps_bloom_0x0A210C5D.hash), >= 0);
+					return;
+				case g_ps_object_highlighting_0x327F97C8.hash:
+					ensure(((ID3D11PixelShader*)pipeline.handle)->SetPrivateData(g_ps_object_highlighting_0x327F97C8.guid, sizeof(g_ps_object_highlighting_0x327F97C8.hash), &g_ps_object_highlighting_0x327F97C8.hash), >= 0);
+					return;
+				case g_ps_object_highlighting_0x6443F246.hash:
+					ensure(((ID3D11PixelShader*)pipeline.handle)->SetPrivateData(g_ps_object_highlighting_0x6443F246.guid, sizeof(g_ps_object_highlighting_0x6443F246.hash), &g_ps_object_highlighting_0x6443F246.hash), >= 0);
+					return;
+				case g_ps_generate_lut_0x8902E4CF.hash:
+					ensure(((ID3D11PixelShader*)pipeline.handle)->SetPrivateData(g_ps_generate_lut_0x8902E4CF.guid, sizeof(g_ps_generate_lut_0x8902E4CF.hash), &g_ps_generate_lut_0x8902E4CF.hash), >= 0);
+					return;
+				case g_ps_generate_lut_0x57B2FF36.hash:
+					ensure(((ID3D11PixelShader*)pipeline.handle)->SetPrivateData(g_ps_generate_lut_0x57B2FF36.guid, sizeof(g_ps_generate_lut_0x57B2FF36.hash), &g_ps_generate_lut_0x57B2FF36.hash), >= 0);
 					return;
 			}
 		}
@@ -1120,6 +1274,9 @@ static void read_config()
 	if (!reshade::get_config_value(nullptr, NAME, "DisableMotionBlur", g_disable_motion_blur)) {
 		reshade::set_config_value(nullptr, NAME, "DisableMotionBlur", g_disable_motion_blur);
 	}
+	if (!reshade::get_config_value(nullptr, NAME, "DisableObjectHighlighting", g_disable_object_highlighting)) {
+		reshade::set_config_value(nullptr, NAME, "DisableObjectHighlighting", g_disable_object_highlighting);
+	}
 	if (!reshade::get_config_value(nullptr, NAME, "ForceModernWindowed", g_force_modern_windowed)) {
 		reshade::set_config_value(nullptr, NAME, "ForceModernWindowed", g_force_modern_windowed);
 	}
@@ -1246,6 +1403,11 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 
 	if (ImGui::Checkbox("Disable motion blur", &g_disable_motion_blur)) {
 		reshade::set_config_value(nullptr, NAME, "DisableMotionBlur", g_disable_motion_blur);
+	}
+	ImGui::Spacing();
+
+	if (ImGui::Checkbox("Disable object highlighting", &g_disable_object_highlighting)) {
+		reshade::set_config_value(nullptr, NAME, "DisableObjectHighlighting", g_disable_object_highlighting);
 	}
 	ImGui::Spacing();
 
