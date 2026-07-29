@@ -6,7 +6,7 @@
 #include "DLSS/DLSS.h"
 
 extern "C" __declspec(dllexport) const char* NAME = "PreyGraphicalUpgrade";
-extern "C" __declspec(dllexport) const char* DESCRIPTION = "v3.0.0";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "v3.1.0";
 extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/PreyGraphicalUpgrade";
 
 // Shader hooks.
@@ -721,7 +721,7 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 				g_managed_resources.textures_2d["dlss_output"_h]->GetDesc(&tex_desc);
 
 				// Create DLSS output.
-				tex_desc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS;
+				tex_desc.BindFlags = D3D11_BIND_UNORDERED_ACCESS;
 				ensure(g_device->CreateTexture2D(&tex_desc, nullptr, g_managed_resources.textures_2d["dlss_output"_h].put()), >= 0);
 			}
 
@@ -968,16 +968,6 @@ static bool on_create_resource_view(reshade::api::device* device, reshade::api::
 			desc.format = reshade::api::format::r16g16b16a16_float;
 			return true;
 		}
-
-		//if (resource_desc.texture.format == reshade::api::format::r32g32_float) {
-		//	desc.format = reshade::api::format::r32g32_float;
-		//	return true;
-		//}
-
-		//if (resource_desc.texture.format == reshade::api::format::r16g16b16a16_unorm) {
-		//	desc.format = reshade::api::format::r16g16b16a16_unorm;
-		//	return true;
-		//}
 	}
 
 	return false;
@@ -991,18 +981,6 @@ static bool on_create_resource(reshade::api::device* device, reshade::api::resou
 			desc.texture.format = reshade::api::format::r16g16b16a16_float;
 			return true;
 		}
-
-		// Breaking SSR.
-		//if (desc.texture.format == reshade::api::format::r16g16_float) {
-		//	desc.texture.format = reshade::api::format::r32g32_float;
-		//	return true;
-		//}
-
-		// AO output gets stuck in pause menu.
-		//if (desc.texture.format == reshade::api::format::r8g8b8a8_unorm) {
-		//	desc.texture.format = reshade::api::format::r16g16b16a16_unorm;
-		//	return true;
-		//}
 	}
 
 	return false;

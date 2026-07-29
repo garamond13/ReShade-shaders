@@ -142,6 +142,9 @@ void main(
   r0.xyz = r0.xxx * r0.yzw + -r1.xxx;
   r0.xyz = HDRColorBalance.www * r0.xyz + r1.xxx;
   r0.xyz = HDRColorBalance.xyz * r0.xyz;
+
+  // Tonemap.
+  // TODO: Move tonemap after DLSS?
   r0.xyz = max(float3(0,0,0), r0.xyz);
   r1.xyz = r0.xyz * float3(0.879999995,0.879999995,0.879999995) + float3(0.0300000012,0.0300000012,0.0300000012);
   r1.xyz = r0.xyz * r1.xyz + float3(0.00200000009,0.00200000009,0.00200000009);
@@ -174,18 +177,23 @@ void main(
   // Tetrahedral LUT sampling.
   r0.xyz = sample_tetrahedral(r0.xyz, colorChartTex, 16);
 
-  r1.xy = float2(0.57889998,0.57889998) + v1.xy;
-  r0.w = dot(r1.xy, float2(34.4830017,89.637001));
-  r0.w = sin(r0.w);
-  r1.xyz = float3(29156.4766,38273.5625,47843.7539) * r0.www;
-  r1.xyz = frac(r1.xyz);
-  r0.w = dot(v1.xy, float2(34.4830017,89.637001));
-  r0.w = sin(r0.w);
-  r2.xyz = float3(29156.4766,38273.5625,47843.7539) * r0.www;
-  r2.xyz = frac(r2.xyz);
-  r1.xyz = r2.xyz + r1.xyz;
-  r1.xyz = float3(-0.5,-0.5,-0.5) + r1.xyz;
-  o0.xyz = r1.xyz * float3(0.00392156886,0.00392156886,0.00392156886) + r0.xyz;
+  // Original 8 bit dither.
+  //r1.xy = float2(0.57889998,0.57889998) + v1.xy;
+  //r0.w = dot(r1.xy, float2(34.4830017,89.637001));
+  //r0.w = sin(r0.w);
+  //r1.xyz = float3(29156.4766,38273.5625,47843.7539) * r0.www;
+  //r1.xyz = frac(r1.xyz);
+  //r0.w = dot(v1.xy, float2(34.4830017,89.637001));
+  //r0.w = sin(r0.w);
+  //r2.xyz = float3(29156.4766,38273.5625,47843.7539) * r0.www;
+  //r2.xyz = frac(r2.xyz);
+  //r1.xyz = r2.xyz + r1.xyz;
+  //r1.xyz = float3(-0.5,-0.5,-0.5) + r1.xyz;
+  //o0.xyz = r1.xyz * float3(0.00392156886,0.00392156886,0.00392156886) + r0.xyz;
+
+  // Undithered output.
+  o0.xyz = r0.xyz;
+
   o0.w = 0;
   return;
 }
