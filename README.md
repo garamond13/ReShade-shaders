@@ -80,6 +80,9 @@ Graphical upgrade for Dishonored 2. See Addons/Dishonored2GraphicalUpgrade for d
 **DishonoredDOTOGraphicalUpgrade**  
 Graphical upgrade for Dishonored: Death of the Outsider. See Addons/DishonoredDOTOGraphicalUpgrade for details.
 
+**Fallout4GraphicalUpgrade**  
+Graphical upgrade for Fallout 4. See Addons/Fallout4GraphicalUpgrade for details.
+
 **FarCry2GraphicalUpgrade**  
 Graphical upgrade for Far Cry 2. See Addons/FarCry2GraphicalUpgrade for details.
 
