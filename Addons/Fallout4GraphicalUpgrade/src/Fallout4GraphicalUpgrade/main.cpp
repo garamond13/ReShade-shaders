@@ -6,7 +6,7 @@
 #include "DLSS/DLSS.h"
 
 extern "C" __declspec(dllexport) const char* NAME = "Fallout4GraphicalUpgrade";
-extern "C" __declspec(dllexport) const char* DESCRIPTION = "v1.0.0";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "v2.0.0";
 extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/Fallout4GraphicalUpgrade";
 
 // Shader hooks.
@@ -30,6 +30,7 @@ uintptr_t g_mapped_cb_handle;
 void* g_mapped_cb_data;
 static bool g_force_vsync_off = true;
 static bool g_force_modern_windowed = true;
+static float g_amd_ffx_cas_sharpness = 0.0f;
 
 // GTAO
 constexpr size_t GTAO_DEPTH_MIP_LEVELS = 5;
@@ -81,6 +82,9 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 			// Get the TAA CB. We need to track it later on map/unmap.
 			ctx->PSGetConstantBuffers(2, 1, g_managed_resources.buffers["taa_0x61CC29E6_cb2"_h].put());
 
+			// DLSS pass
+			//
+
 			// DLSS requires an immediate context for execution!
 			assert(ctx->GetType() == D3D11_DEVICE_CONTEXT_IMMEDIATE);
 
@@ -103,21 +107,18 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 			std::array<ID3D11RenderTargetView*, 2> rtvs;
 			ctx->OMGetRenderTargets(rtvs.size(), rtvs.data(), nullptr);
 
-			// RTV1 should be the current frame and the backbuffer.
-			Com_ptr<ID3D11Resource> resource_output;
-			rtvs[1]->GetResource(resource_output.put());
-
 			// Create the output resource for DLSS.
-			// If we try to draw DLSS directly to the output (RTV1) it half works and eventualy the game crashes. Why??
 			[[unlikely]] if (!g_managed_resources.textures_2d["dlss_output"_h]) {
-				// Get original RT texture description.
-				ensure(resource_output->QueryInterface(g_managed_resources.textures_2d["dlss_output"_h].put()), >= 0);
-				D3D11_TEXTURE2D_DESC tex_desc;
-				g_managed_resources.textures_2d["dlss_output"_h]->GetDesc(&tex_desc);
-
-				// Create DLSS output.
-				tex_desc.BindFlags = D3D11_BIND_UNORDERED_ACCESS;
+				D3D11_TEXTURE2D_DESC tex_desc = {};
+				tex_desc.Width = g_swapchain_width;
+				tex_desc.Height = g_swapchain_height;
+				tex_desc.MipLevels = 1;
+				tex_desc.ArraySize = 1;
+				tex_desc.Format = DXGI_FORMAT_R16G16B16A16_UNORM;
+				tex_desc.SampleDesc.Count = 1;
+				tex_desc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS;
 				ensure(g_device->CreateTexture2D(&tex_desc, nullptr, g_managed_resources.textures_2d["dlss_output"_h].put()), >= 0);
+				ensure(g_device->CreateShaderResourceView(g_managed_resources.textures_2d["dlss_output"_h].get(), nullptr, g_managed_resources.shader_resource_views["dlss_output"_h].put()), >= 0);
 			}
 
 			#if DEV && SHOW_AO
@@ -143,8 +144,62 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 
 			g_dlss_status = DLSS::get_instance().draw(ctx, eval_params);
 
-			// Copy DLSS output to the original TAA's current frame output.
-			ctx->CopyResource(resource_output.get(), g_managed_resources.textures_2d["dlss_output"_h].get());
+			//
+
+			// Linearize pass
+			//
+
+			// Create PS.
+			[[unlikely]] if (!g_managed_resources.pixel_shaders["linearize"_h]) {
+				create_pixel_shader(g_device, g_managed_resources.pixel_shaders["linearize"_h].put(), L"Linearize_ps.hlsl");
+			}
+
+			// Create RT.
+			[[unlikely]] if (!g_managed_resources.render_target_views["linearize"_h]) {
+				D3D11_TEXTURE2D_DESC tex_desc = {};
+				tex_desc.Width = g_swapchain_width;
+				tex_desc.Height = g_swapchain_height;
+				tex_desc.MipLevels = 1;
+				tex_desc.ArraySize = 1;
+				tex_desc.Format = DXGI_FORMAT_R16G16B16A16_UNORM;
+				tex_desc.SampleDesc.Count = 1;
+				tex_desc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
+				Com_ptr<ID3D11Texture2D> tex;
+				ensure(g_device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
+				ensure(g_device->CreateRenderTargetView(tex.get(), nullptr, g_managed_resources.render_target_views["linearize"_h].put()), >= 0);
+				ensure(g_device->CreateShaderResourceView(tex.get(), nullptr, g_managed_resources.shader_resource_views["linearize"_h].put()), >= 0);
+			}
+
+			// Bindings.
+			ctx->OMSetRenderTargets(1, &g_managed_resources.render_target_views["linearize"_h], nullptr);
+			ctx->PSSetShader(g_managed_resources.pixel_shaders["linearize"_h].get(), nullptr, 0);
+			ctx->PSSetShaderResources(0, 1, &g_managed_resources.shader_resource_views["dlss_output"_h]);
+
+			cmd_list->draw_indexed(index_count, instance_count, first_index, vertex_offset, first_instance);
+
+			//
+
+			// AMD FFX CAS pass
+			//
+
+			// Create PS.
+			[[unlikely]] if (!g_managed_resources.pixel_shaders["amd_ffx_cas"_h]) {
+				const std::string amd_ffx_cas_sharpness_str = std::to_string(g_amd_ffx_cas_sharpness);
+				const D3D_SHADER_MACRO defines[] = {
+					{ "SHARPNESS", amd_ffx_cas_sharpness_str.c_str() },
+					{ nullptr, nullptr }
+				};
+				create_pixel_shader(g_device, g_managed_resources.pixel_shaders["amd_ffx_cas"_h].put(), L"AMD_FFX_CAS_ps.hlsl", "main", defines);
+			}
+
+			// Bindings.
+			ctx->OMSetRenderTargets(1, &rtvs[1], nullptr);
+			ctx->PSSetShader(g_managed_resources.pixel_shaders["amd_ffx_cas"_h].get(), nullptr, 0);
+			ctx->PSSetShaderResources(0, 1, &g_managed_resources.shader_resource_views["linearize"_h]);
+
+			cmd_list->draw_indexed(index_count, instance_count, first_index, vertex_offset, first_instance);
+
+			//
 
 			release_com_array(srvs);
 			release_com_array(rtvs);
@@ -564,6 +619,7 @@ static void on_init_swapchain(reshade::api::swapchain* swapchain, bool resize)
 	//
 
 	g_managed_resources.textures_2d["dlss_output"_h].reset();
+	g_managed_resources.render_target_views["linearize"_h].reset();
 
 	// GTAO.
 	g_managed_resources.compute_shaders["gtao_prefilter_depths16x16"_h].reset();
@@ -626,6 +682,9 @@ static void read_config()
 
 	if (!reshade::get_config_value(nullptr, NAME, "GTAOQuality", g_gtao_quality)) {
 		reshade::set_config_value(nullptr, NAME, "GTAOQuality", g_gtao_quality);
+	}
+	if (!reshade::get_config_value(nullptr, NAME, "Sharpness", g_amd_ffx_cas_sharpness)) {
+		reshade::set_config_value(nullptr, NAME, "Sharpness", g_amd_ffx_cas_sharpness);
 	}
 	if (!reshade::get_config_value(nullptr, NAME, "ForceModernWindowed", g_force_modern_windowed)) {
 		reshade::set_config_value(nullptr, NAME, "ForceModernWindowed", g_force_modern_windowed);
@@ -690,6 +749,12 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 			ImGui::Text("DLSS status: Faild or not running!");
 		}
 		g_dlss_status = false;
+	}
+	ImGui::Spacing();
+
+	if (ImGui::SliderFloat("Sharpness", &g_amd_ffx_cas_sharpness, 0.0f, 1.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp)) {
+		g_managed_resources.pixel_shaders["amd_ffx_cas"_h].reset();
+		reshade::set_config_value(nullptr, NAME, "Sharpness", g_amd_ffx_cas_sharpness);
 	}
 	ImGui::EndDisabled();
 	ImGui::Spacing();
