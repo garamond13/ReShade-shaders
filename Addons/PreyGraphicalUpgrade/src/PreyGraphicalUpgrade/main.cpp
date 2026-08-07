@@ -6,7 +6,7 @@
 #include "DLSS/DLSS.h"
 
 extern "C" __declspec(dllexport) const char* NAME = "PreyGraphicalUpgrade";
-extern "C" __declspec(dllexport) const char* DESCRIPTION = "v4.0.0";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "v4.0.1";
 extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/PreyGraphicalUpgrade";
 
 // Shader hooks.
@@ -366,40 +366,6 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		// Create MIPs and views.
 		//
 
-		const UINT y_mip0_width = g_bloom_input_width >> 1;
-		const UINT y_mip0_height = g_bloom_input_height >> 1;
-
-		// Create Y MIPs and views.
-		[[unlikely]] if (!g_rtv_bloom_mips_y[0]) {
-			D3D11_TEXTURE2D_DESC tex_desc = {};
-			tex_desc.Width = y_mip0_width;
-			tex_desc.Height = y_mip0_height;
-			tex_desc.MipLevels = g_bloom_nmips;
-			tex_desc.ArraySize = 1;
-			tex_desc.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
-			tex_desc.SampleDesc.Count = 1;
-			tex_desc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
-
-			Com_ptr<ID3D11Texture2D> tex;
-			ensure(g_device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
-
-			D3D11_RENDER_TARGET_VIEW_DESC rtv_desc = {};
-			rtv_desc.Format = tex_desc.Format;
-			rtv_desc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
-
-			D3D11_SHADER_RESOURCE_VIEW_DESC srv_desc = {};
-			srv_desc.Format = tex_desc.Format;
-			srv_desc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
-			srv_desc.Texture2D.MipLevels = 1;
-
-			for (int i = 0; i < g_bloom_nmips; ++i) {
-				rtv_desc.Texture2D.MipSlice = i;
-				ensure(g_device->CreateRenderTargetView(tex.get(), &rtv_desc, &g_rtv_bloom_mips_y[i]), >= 0);
-				srv_desc.Texture2D.MostDetailedMip = i;
-				ensure(g_device->CreateShaderResourceView(tex.get(), &srv_desc, &g_srv_bloom_mips_y[i]), >= 0);
-			}
-		}
-
 		const UINT x_mip0_width = g_bloom_input_width >> 1;
 		const UINT x_mip0_height = g_bloom_input_height;
 
@@ -414,7 +380,6 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 			tex_desc.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
 			tex_desc.SampleDesc.Count = 1;
 			tex_desc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
-
 			Com_ptr<ID3D11Texture2D> tex;
 			ensure(g_device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
 			ensure(g_device->CreateRenderTargetView(tex.get(), nullptr, &g_rtv_bloom_mips_x[0]), >= 0);
@@ -430,9 +395,41 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 			}
 		}
 
+		const UINT y_mip0_width = g_bloom_input_width >> 1;
+		const UINT y_mip0_height = g_bloom_input_height >> 1;
+
+		// Create Y MIPs and views.
+		[[unlikely]] if (!g_rtv_bloom_mips_y[0]) {
+			D3D11_TEXTURE2D_DESC tex_desc = {};
+			tex_desc.Width = y_mip0_width;
+			tex_desc.Height = y_mip0_height;
+			tex_desc.MipLevels = g_bloom_nmips;
+			tex_desc.ArraySize = 1;
+			tex_desc.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+			tex_desc.SampleDesc.Count = 1;
+			tex_desc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
+			Com_ptr<ID3D11Texture2D> tex;
+			ensure(g_device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
+			D3D11_RENDER_TARGET_VIEW_DESC rtv_desc = {};
+			rtv_desc.Format = tex_desc.Format;
+			rtv_desc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
+			D3D11_SHADER_RESOURCE_VIEW_DESC srv_desc = {};
+			srv_desc.Format = tex_desc.Format;
+			srv_desc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+			srv_desc.Texture2D.MipLevels = 1;
+			for (int i = 0; i < g_bloom_nmips; ++i) {
+				rtv_desc.Texture2D.MipSlice = i;
+				ensure(g_device->CreateRenderTargetView(tex.get(), &rtv_desc, &g_rtv_bloom_mips_y[i]), >= 0);
+				srv_desc.Texture2D.MostDetailedMip = i;
+				ensure(g_device->CreateShaderResourceView(tex.get(), &srv_desc, &g_srv_bloom_mips_y[i]), >= 0);
+			}
+		}
+
 		//
 
-		// Prefilter + downsample pass
+		// The first downsample pass
+		//
+		// The input is prefiltered.
 		//
 
 		// Create VS.
@@ -455,7 +452,7 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		viewport_x.Height = x_mip0_height;
 
 		// Update CB.
-		g_cb_data.src_size = float2(g_swapchain_width, g_swapchain_height);
+		g_cb_data.src_size = float2(g_bloom_input_width, g_bloom_input_height);
 		g_cb_data.inv_src_size = float2(1.0f / g_cb_data.src_size.x, 1.0f / g_cb_data.src_size.y);
 		g_cb_data.axis = float2(1.0f, 0.0f);
 		g_cb_data.sigma = g_bloom_sigmas[0];
@@ -552,14 +549,15 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 			ensure(g_device->CreateBlendState(&desc, g_managed_resources.blends["bloom"_h].put()), >= 0);
 		}
 
+		// If both dst and src are D3D11_BLEND_BLEND_FACTOR,
+		// factor of 0.5 will be enegrgy preserving.
+		static constexpr FLOAT blend_factor[] = { 0.5f, 0.5f, 0.5f, 0.5f };
+
 		// Bindings.
 		ctx->PSSetShader(g_managed_resources.pixel_shaders["bloom_upsample"_h].get(), nullptr, 0);
+		ctx->OMSetBlendState(g_managed_resources.blends["bloom"_h].get(), blend_factor, UINT_MAX);
 
 		for (int i = g_bloom_nmips - 1; i > 0; --i) {
-			// If both dst and src are D3D11_BLEND_BLEND_FACTOR,
-			// factor of 0.5 will be enegrgy preserving.
-			static constexpr FLOAT blend_factor[] = { 0.5f, 0.5f, 0.5f, 0.5f };
-
 			// Update CB.
 			g_cb_data.src_size = float2(viewports_y[i].Width, viewports_y[i].Height);
 			g_cb_data.inv_src_size = float2(1.0f / g_cb_data.src_size.x, 1.0f / g_cb_data.src_size.y);
@@ -569,7 +567,6 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 			ctx->OMSetRenderTargets(1, &g_rtv_bloom_mips_y[i - 1], nullptr);
 			ctx->RSSetViewports(1, &viewports_y[i - 1]);
 			ctx->PSSetShaderResources(0, 1, &g_srv_bloom_mips_y[i]);
-			ctx->OMSetBlendState(g_managed_resources.blends["bloom"_h].get(), blend_factor, UINT_MAX);
 
 			ctx->Draw(3, 0);
 		}
