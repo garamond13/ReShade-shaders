@@ -32,9 +32,9 @@ float get_luma(float3 color)
 	return dot(color, float3(0.2126, 0.7152, 0.0722));
 }
 
-float3 sample_tetrahedral(float3 color, Texture3D lut, int lut_size)
+float3 sample_tetrahedral(Texture3D lut, float3 color, int lut_size)
 {
-	const float3 coord = saturate(color) * (float)(lut_size - 1);
+	const float3 coord = color * (float)(lut_size - 1);
 
 	// See https://doi.org/10.2312/egp.20211031
 	//
