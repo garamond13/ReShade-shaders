@@ -6,7 +6,7 @@
 #include "DLSS/DLSS.h"
 
 extern "C" __declspec(dllexport) const char* NAME = "Fallout4GraphicalUpgrade";
-extern "C" __declspec(dllexport) const char* DESCRIPTION = "v3.0.0";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "v3.0.1";
 extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/Fallout4GraphicalUpgrade";
 
 // Shader hooks.
@@ -18,7 +18,7 @@ constexpr Shader_hash g_cs_ssao_denoise_x_0xE151AD86 = { 0xE151AD86, { 0x382abde
 constexpr Shader_hash g_cs_ssao_denoise_y_0x7E8F370A = { 0x7E8F370A, { 0x59e5c9bc, 0x20d7, 0x4c4a, { 0x89, 0x72, 0x86, 0x72, 0x4a, 0x38, 0x9b, 0x20 }}};
 constexpr Shader_hash g_ps_downsample_0x05868F11 = { 0x05868F11, { 0x942e66e7, 0x8906, 0x4fbe, { 0xb3, 0x69, 0x49, 0x85, 0x99, 0x7f, 0xa7, 0x93 }}};
 constexpr Shader_hash g_ps_bloom_0x5D1B5B1A = { 0x5D1B5B1A, { 0x5fb9020c, 0x18a4, 0x43a0, { 0x90, 0x6e, 0xbb, 0xcd, 0xc5, 0xa7, 0x89, 0x74 }}};
-constexpr Shader_hash g_ps_bloom_0x9B7CD304 = { 0x9B7CD304, { 0x2f52ab9c, 0x54a6, 0x439d, { 0xa3, 0xc1, 0xf9, 0x9, 0x6f, 0xc9, 0xeb, 0x20 }}};
+constexpr Shader_hash g_ps_apply_blur_kernel_0x9B7CD304 = { 0x9B7CD304, { 0x2f52ab9c, 0x54a6, 0x439d, { 0xa3, 0xc1, 0xf9, 0x9, 0x6f, 0xc9, 0xeb, 0x20 }}};
 constexpr Shader_hash g_ps_tonemap_0x80802E60 = { 0x80802E60, { 0x3e347b1a, 0x7279, 0x4b58, { 0xa6, 0x77, 0xc3, 0xb4, 0x56, 0x5a, 0x73, 0x7 }}};
 constexpr Shader_hash g_ps_taa_0x61CC29E6 = { 0x61CC29E6, { 0x6671e3c6, 0xad72, 0x453f, { 0xa1, 0xbb, 0x6b, 0x3a, 0x3c, 0x58, 0x56, 0x48 }}};
 
@@ -44,9 +44,9 @@ static bool g_has_drawn_ssao;
 // Bloom
 static int g_bloom_nmips;
 static std::vector<float> g_bloom_sigmas;
-static float g_bloom_intensity = 1.0f;
 static int g_bloom_input_width;
 static int g_bloom_input_height;
+static bool g_has_run_ps_bloom_0x5D1B5B1A;
 
 // DLSS
 constexpr int g_dlss_flags{
@@ -107,6 +107,8 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 	size = sizeof(hash);
 	hr = ps->GetPrivateData(g_ps_bloom_0x5D1B5B1A.guid, &size, &hash);
 	if (SUCCEEDED(hr) && hash == g_ps_bloom_0x5D1B5B1A.hash) {
+		g_has_run_ps_bloom_0x5D1B5B1A = true;
+
 		// Create PS.
 		[[unlikely]] if (!g_managed_resources.pixel_shaders["bloom_0x5D1B5B1A"_h]) {
 			create_pixel_shader(g_device, g_managed_resources.pixel_shaders["bloom_0x5D1B5B1A"_h].put(), L"Bloom_0x5D1B5B1A_ps.hlsl");
@@ -119,8 +121,13 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 	}
 
 	size = sizeof(hash);
-	hr = ps->GetPrivateData(g_ps_bloom_0x9B7CD304.guid, &size, &hash);
-	if (SUCCEEDED(hr) && hash == g_ps_bloom_0x9B7CD304.hash) {
+	hr = ps->GetPrivateData(g_ps_apply_blur_kernel_0x9B7CD304.guid, &size, &hash);
+	if (SUCCEEDED(hr) && hash == g_ps_apply_blur_kernel_0x9B7CD304.hash) {
+		if (!g_has_run_ps_bloom_0x5D1B5B1A) {
+			return false;
+		}
+		g_has_run_ps_bloom_0x5D1B5B1A = false;
+
 		// Backup viewport.
 		D3D11_VIEWPORT viewport_original;
 		UINT nviewports = 1;
@@ -817,8 +824,8 @@ static void on_init_pipeline(reshade::api::device* device, reshade::api::pipelin
 				case g_ps_bloom_0x5D1B5B1A.hash:
 					ensure(((ID3D11PixelShader*)pipeline.handle)->SetPrivateData(g_ps_bloom_0x5D1B5B1A.guid, sizeof(g_ps_bloom_0x5D1B5B1A.hash), &g_ps_bloom_0x5D1B5B1A.hash), >= 0);
 					return;
-				case g_ps_bloom_0x9B7CD304.hash:
-					ensure(((ID3D11PixelShader*)pipeline.handle)->SetPrivateData(g_ps_bloom_0x9B7CD304.guid, sizeof(g_ps_bloom_0x9B7CD304.hash), &g_ps_bloom_0x9B7CD304.hash), >= 0);
+				case g_ps_apply_blur_kernel_0x9B7CD304.hash:
+					ensure(((ID3D11PixelShader*)pipeline.handle)->SetPrivateData(g_ps_apply_blur_kernel_0x9B7CD304.guid, sizeof(g_ps_apply_blur_kernel_0x9B7CD304.hash), &g_ps_apply_blur_kernel_0x9B7CD304.hash), >= 0);
 					return;
 				case g_ps_tonemap_0x80802E60.hash:
 					ensure(((ID3D11PixelShader*)pipeline.handle)->SetPrivateData(g_ps_tonemap_0x80802E60.guid, sizeof(g_ps_tonemap_0x80802E60.hash), &g_ps_tonemap_0x80802E60.hash), >= 0);
