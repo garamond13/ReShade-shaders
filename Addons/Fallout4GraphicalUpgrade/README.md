@@ -19,6 +19,7 @@
 ## Notes
 
 - DLSS may crash the game during loading screen on some DLSS presets.
+- In rare cases (example: exiting "COOKING STATION") the game may for no reason whatsoever switch to different TAA shader which will cause DLSS to stop running. The solution is to open "Pip-Boy", that should switch back the TAA shader and DLSS should continue running. 
 
 ## Compilation
 
