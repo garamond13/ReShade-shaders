@@ -12,6 +12,28 @@ cbuffer cb2 : register(b2)
 // 3Dmigoto declarations
 #define cmp -
 
+#define BLOOM_THRESHOLD cb2[0].x
+#define BLOOM_SOFT_KNEE cb2[0].x
+
+float3 quadratic_threshold(float3 color)
+{
+  const float epsilon = 1e-6;
+
+  // Pixel brightness.
+  float br = max(max(color.r, color.g), color.b);
+  br = max(epsilon, br);
+
+  // Under the threshold part, a quadratic curve.
+  // Above the threshold part will be a linear curve.
+  const float k = max(epsilon, BLOOM_SOFT_KNEE);
+  const float3 curve = float3(BLOOM_THRESHOLD - k, k * 2.0, 0.25 / k);
+  float rq = clamp(br - curve.x, 0.0, curve.y);
+  rq = curve.z * rq * rq;
+
+  // Combine and apply the brightness response curve.
+  return color * max(rq, br - BLOOM_THRESHOLD) * rcp(br);
+}
+
 void main(
   float4 v0 : SV_POSITION0,
   float2 v1 : TEXCOORD0,
@@ -40,7 +62,7 @@ void main(
 
   // Only apply the threshold.
   r1.xyz = t0.Sample(s0_s, v1.xy).xyz;
-  r1.xyz = -cb2[0].xxx + r1.xyz;
+  r1.xyz = quadratic_threshold(r1.xyz); // Originally, r1.xyz = -cb2[0].xxx + r1.xyz;
   r1.xyz = max(float3(0,0,0), r1.xyz);
   r1.xyz = cb2[0].yyy * r1.xyz;
 

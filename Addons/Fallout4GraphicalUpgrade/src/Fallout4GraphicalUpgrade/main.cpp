@@ -6,7 +6,7 @@
 #include "DLSS/DLSS.h"
 
 extern "C" __declspec(dllexport) const char* NAME = "Fallout4GraphicalUpgrade";
-extern "C" __declspec(dllexport) const char* DESCRIPTION = "v3.0.1";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "v3.1.0";
 extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/Fallout4GraphicalUpgrade";
 
 // Shader hooks.
