@@ -6,7 +6,7 @@
 #include "DLSS/DLSS.h"
 
 extern "C" __declspec(dllexport) const char* NAME = "Fallout4GraphicalUpgrade";
-extern "C" __declspec(dllexport) const char* DESCRIPTION = "v3.1.0";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "v3.1.1";
 extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/Fallout4GraphicalUpgrade";
 
 // Shader hooks.
@@ -475,7 +475,7 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 			eval_params.InRenderSubrectDimensions.Height = g_swapchain_height;
 
 			// Jitters are in UV offsets so we need to scale them to pixel offsets for DLSS.
-			eval_params.InJitterOffsetX = g_jitter_x * (float)g_swapchain_width * 1.0f;
+			eval_params.InJitterOffsetX = g_jitter_x * (float)g_swapchain_width * -1.0f;
 			eval_params.InJitterOffsetY = g_jitter_y * (float)g_swapchain_height * -1.0f;
 
 			g_dlss_status = DLSS::get_instance().draw(ctx, eval_params);
