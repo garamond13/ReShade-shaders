@@ -6,7 +6,7 @@
 #include "DLSS/DLSS.h"
 
 extern "C" __declspec(dllexport) const char* NAME = "Fallout4GraphicalUpgrade";
-extern "C" __declspec(dllexport) const char* DESCRIPTION = "v4.0.0";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "v4.0.1";
 extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/Fallout4GraphicalUpgrade";
 
 // Shader hooks.
@@ -1010,6 +1010,7 @@ static void on_init_swapchain(reshade::api::swapchain* swapchain, bool resize)
 	g_managed_resources.compute_shaders["gtao_denoise_pass2"_h].reset();
 
 	// Bloom.
+	g_managed_resources.render_target_views["bloom_sanitize_scene"_h].reset();
 	reset_com_array(g_rtv_bloom_mips_y);
 	reset_com_array(g_srv_bloom_mips_y);
 	reset_com_array(g_rtv_bloom_mips_x);
