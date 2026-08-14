@@ -6,7 +6,7 @@
 #include "DLSS/DLSS.h"
 
 extern "C" __declspec(dllexport) const char* NAME = "Fallout4GraphicalUpgrade";
-extern "C" __declspec(dllexport) const char* DESCRIPTION = "v3.1.1";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "v4.0.0";
 extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/Fallout4GraphicalUpgrade";
 
 // Shader hooks.
@@ -19,6 +19,7 @@ constexpr Shader_hash g_cs_ssao_denoise_y_0x7E8F370A = { 0x7E8F370A, { 0x59e5c9b
 constexpr Shader_hash g_ps_downsample_0x05868F11 = { 0x05868F11, { 0x942e66e7, 0x8906, 0x4fbe, { 0xb3, 0x69, 0x49, 0x85, 0x99, 0x7f, 0xa7, 0x93 }}};
 constexpr Shader_hash g_ps_bloom_0x5D1B5B1A = { 0x5D1B5B1A, { 0x5fb9020c, 0x18a4, 0x43a0, { 0x90, 0x6e, 0xbb, 0xcd, 0xc5, 0xa7, 0x89, 0x74 }}};
 constexpr Shader_hash g_ps_apply_blur_kernel_0x9B7CD304 = { 0x9B7CD304, { 0x2f52ab9c, 0x54a6, 0x439d, { 0xa3, 0xc1, 0xf9, 0x9, 0x6f, 0xc9, 0xeb, 0x20 }}};
+constexpr Shader_hash g_ps_apply_bloom_0x67685D89 = { 0x67685D89, { 0xff347a21, 0xac17, 0x44b0, { 0xa4, 0x4d, 0x37, 0x1a, 0x40, 0x3f, 0x35, 0x35 }}};
 constexpr Shader_hash g_ps_tonemap_0x80802E60 = { 0x80802E60, { 0x3e347b1a, 0x7279, 0x4b58, { 0xa6, 0x77, 0xc3, 0xb4, 0x56, 0x5a, 0x73, 0x7 }}};
 constexpr Shader_hash g_ps_taa_0x61CC29E6 = { 0x61CC29E6, { 0x6671e3c6, 0xad72, 0x453f, { 0xa1, 0xbb, 0x6b, 0x3a, 0x3c, 0x58, 0x56, 0x48 }}};
 
@@ -44,8 +45,7 @@ static bool g_has_drawn_ssao;
 // Bloom
 static int g_bloom_nmips;
 static std::vector<float> g_bloom_sigmas;
-static int g_bloom_input_width;
-static int g_bloom_input_height;
+static float g_bloom_intensity = 1.0f;
 static bool g_has_run_ps_bloom_0x5D1B5B1A;
 
 // DLSS
@@ -93,6 +93,9 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 	size = sizeof(hash);
 	hr = ps->GetPrivateData(g_ps_downsample_0x05868F11.guid, &size, &hash);
 	if (SUCCEEDED(hr) && hash == g_ps_downsample_0x05868F11.hash) {
+		// This should be valid for the bloom.
+		ctx->PSGetShaderResources(0, 1, g_managed_resources.shader_resource_views["scene"_h].put());
+
 		// Create PS.
 		[[unlikely]] if (!g_managed_resources.pixel_shaders["downsample_0x05868F11"_h]) {
 			create_pixel_shader(g_device, g_managed_resources.pixel_shaders["downsample_0x05868F11"_h].put(), L"Downsample_0x05868F11_ps.hlsl");
@@ -109,33 +112,15 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 	if (SUCCEEDED(hr) && hash == g_ps_bloom_0x5D1B5B1A.hash) {
 		g_has_run_ps_bloom_0x5D1B5B1A = true;
 
-		// Create PS.
-		[[unlikely]] if (!g_managed_resources.pixel_shaders["bloom_0x5D1B5B1A"_h]) {
-			create_pixel_shader(g_device, g_managed_resources.pixel_shaders["bloom_0x5D1B5B1A"_h].put(), L"Bloom_0x5D1B5B1A_ps.hlsl");
-		}
+		// Backup Viewports.
+		UINT num_viewports;
+		ctx->RSGetViewports(&num_viewports, nullptr);
+		std::vector<D3D11_VIEWPORT> viewports_original(num_viewports);
+		ctx->RSGetViewports(&num_viewports, viewports_original.data());
 
-		// Bindings.
-		ctx->PSSetShader(g_managed_resources.pixel_shaders["bloom_0x5D1B5B1A"_h].get(), nullptr, 0);
-
-		return false;
-	}
-
-	size = sizeof(hash);
-	hr = ps->GetPrivateData(g_ps_apply_blur_kernel_0x9B7CD304.guid, &size, &hash);
-	if (SUCCEEDED(hr) && hash == g_ps_apply_blur_kernel_0x9B7CD304.hash) {
-		if (!g_has_run_ps_bloom_0x5D1B5B1A) {
-			return false;
-		}
-		g_has_run_ps_bloom_0x5D1B5B1A = false;
-
-		// Backup viewport.
-		D3D11_VIEWPORT viewport_original;
-		UINT nviewports = 1;
-		ctx->RSGetViewports(&nviewports, &viewport_original);
-
-		// Backup sampler.
-		Com_ptr<ID3D11SamplerState> smp_original;
-		ctx->PSGetSamplers(0, 1, smp_original.put());
+		// Backup samplers.
+		Com_ptr<ID3D11SamplerState> ps_sampler_original;
+		ctx->PSGetSamplers(0, 1, ps_sampler_original.put());
 
 		// Backup Blend.
 		Com_ptr<ID3D11BlendState> blend_original;
@@ -143,32 +128,51 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 		UINT sample_mask_original;
 		ctx->OMGetBlendState(blend_original.put(), blend_factor_original, &sample_mask_original);
 
-		// Backup RTV and DSV.
-		Com_ptr<ID3D11RenderTargetView> rtv_original;
-		Com_ptr<ID3D11DepthStencilView> dsv;
-		ctx->OMGetRenderTargets(1, rtv_original.put(), dsv.put());
+		// Sanitize scene pass.
 
-		// Get bloom input width and height.
-		[[unlikely]] if (!g_bloom_input_width) {
-			// Get SRV0's texture description.
-			Com_ptr<ID3D11ShaderResourceView> srv;
-			ctx->PSGetShaderResources(0, 1, srv.put());
-			Com_ptr<ID3D11Resource> resource;
-			srv->GetResource(resource.put());
-			Com_ptr<ID3D11Texture2D> tex;
-			ensure(resource->QueryInterface(tex.put()), >= 0);
-			D3D11_TEXTURE2D_DESC tex_desc;
-			tex->GetDesc(&tex_desc);
-
-			g_bloom_input_width = tex_desc.Width;
-			g_bloom_input_height = tex_desc.Height;
+		// Create PS.
+		[[unlikely]] if (!g_managed_resources.pixel_shaders["bloom_sanitize_scene"_h]) {
+			create_pixel_shader(g_device, g_managed_resources.pixel_shaders["bloom_sanitize_scene"_h].put(), L"Bloom_impl.hlsl", "sanitize_scene_ps");
 		}
+
+		// Create RT and views.
+		[[unlikely]] if (!g_managed_resources.render_target_views["bloom_sanitize_scene"_h]) {
+			D3D11_TEXTURE2D_DESC tex_desc = {};
+			tex_desc.Width = g_swapchain_width;
+			tex_desc.Height = g_swapchain_height;
+			tex_desc.MipLevels = 1;
+			tex_desc.ArraySize = 1;
+			tex_desc.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+			tex_desc.SampleDesc.Count = 1;
+			tex_desc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
+			Com_ptr<ID3D11Texture2D> tex;
+			ensure(g_device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
+			ensure(g_device->CreateRenderTargetView(tex.get(), nullptr, g_managed_resources.render_target_views["bloom_sanitize_scene"_h].put()), >= 0);
+			ensure(g_device->CreateShaderResourceView(tex.get(), nullptr, g_managed_resources.shader_resource_views["bloom_sanitize_scene"_h].put()), >= 0);
+		}
+
+		D3D11_VIEWPORT viewport = {};
+		viewport.Width = g_swapchain_width;
+		viewport.Height = g_swapchain_height;
+
+		// Bindings
+		ctx->OMSetRenderTargets(1, &g_managed_resources.render_target_views["bloom_sanitize_scene"_h], nullptr);
+		ctx->RSSetViewports(1, &viewport);
+		ctx->PSSetShader(g_managed_resources.pixel_shaders["bloom_sanitize_scene"_h].get(), nullptr, 0);
+		ctx->PSSetShaderResources(0, 1, &g_managed_resources.shader_resource_views["scene"_h]);
+
+		cmd_list->draw_indexed(index_count, instance_count, first_index, vertex_offset, first_instance);
+
+		//
+
+		const int bloom_input_width = g_swapchain_width;
+		const int bloom_input_height = g_swapchain_height;
 
 		// Create MIPs and views.
 		//
 
-		const UINT x_mip0_width = g_bloom_input_width >> 1;
-		const UINT x_mip0_height = g_bloom_input_height;
+		const UINT x_mip0_width = bloom_input_width >> 1;
+		const UINT x_mip0_height = bloom_input_height;
 
 		// Create X MIPs and views.
 		[[unlikely]] if (!g_rtv_bloom_mips_x[0]) {
@@ -196,8 +200,8 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 			}
 		}
 
-		const UINT y_mip0_width = g_bloom_input_width >> 1;
-		const UINT y_mip0_height = g_bloom_input_height >> 1;
+		const UINT y_mip0_width = bloom_input_width >> 1;
+		const UINT y_mip0_height = bloom_input_height >> 1;
 
 		// Create Y MIPs and views.
 		[[unlikely]] if (!g_rtv_bloom_mips_y[0]) {
@@ -227,15 +231,18 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 		}
 
 		//
-
-		// The first downsample pass
-		//
-		// The input is prefiltered.
+		
+		// Prefilter and downsample pass
 		//
 
 		// Create PS.
 		[[unlikely]] if (!g_managed_resources.pixel_shaders["bloom_downsample"_h]) {
 			create_pixel_shader(g_device, g_managed_resources.pixel_shaders["bloom_downsample"_h].put(), L"Bloom_impl.hlsl", "downsample_ps");
+		}
+
+		// Create PS.
+		[[unlikely]] if (!g_managed_resources.pixel_shaders["bloom_prefilter"_h]) {
+			create_pixel_shader(g_device, g_managed_resources.pixel_shaders["bloom_prefilter"_h].put(), L"Bloom_impl.hlsl", "prefilter_ps");
 		}
 
 		// Create CB.
@@ -253,7 +260,7 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 		viewport_x.Height = x_mip0_height;
 
 		// Update CB.
-		g_cb_data.src_size = float2(g_bloom_input_width, g_bloom_input_height);
+		g_cb_data.src_size = float2(bloom_input_width, bloom_input_height);
 		g_cb_data.inv_src_size = float2(1.0f / g_cb_data.src_size.x, 1.0f / g_cb_data.src_size.y);
 		g_cb_data.axis = float2(1.0f, 0.0f);
 		g_cb_data.sigma = g_bloom_sigmas[0];
@@ -265,6 +272,7 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 		ctx->PSSetShader(g_managed_resources.pixel_shaders["bloom_downsample"_h].get(), nullptr, 0);
 		ctx->PSSetConstantBuffers(GRAPHICAL_UPGRADE_CB_SLOT, 1, &g_cb);
 		ctx->PSSetSamplers(0, 1, &g_managed_resources.samplers["linear"_h]);
+		ctx->PSSetShaderResources(0, 1, &g_managed_resources.shader_resource_views["bloom_sanitize_scene"_h]);
 
 		// Draw X pass.
 		cmd_list->draw_indexed(index_count, instance_count, first_index, vertex_offset, first_instance);
@@ -281,16 +289,20 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 
 		// Bindings.
 		ctx->OMSetRenderTargets(1, &g_rtv_bloom_mips_y[0], nullptr);
-		ctx->RSSetViewports(1, &viewports_y[0]);
+		ctx->PSSetShader(g_managed_resources.pixel_shaders["bloom_prefilter"_h].get(), nullptr, 0);
 		ctx->PSSetShaderResources(0, 1, &g_srv_bloom_mips_x[0]);
+		ctx->RSSetViewports(1, &viewports_y[0]);
 
 		// Draw Y pass.
 		cmd_list->draw_indexed(index_count, instance_count, first_index, vertex_offset, first_instance);
 
 		//
 
-		// Rest of downsample passes
+		// Downsample passes
 		//
+
+		// Bindings.
+		ctx->PSSetShader(g_managed_resources.pixel_shaders["bloom_downsample"_h].get(), nullptr, 0);
 
 		// Render downsample passes.
 		for (UINT i = 1; i < g_bloom_nmips; ++i) {
@@ -306,8 +318,8 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 
 			// Bindings.
 			ctx->OMSetRenderTargets(1, &g_rtv_bloom_mips_x[i], nullptr);
-			ctx->RSSetViewports(1, &viewport_x);
 			ctx->PSSetShaderResources(0, 1, &g_srv_bloom_mips_y[i - 1]);
+			ctx->RSSetViewports(1, &viewport_x);
 
 			// Draw X pass.
 			cmd_list->draw_indexed(index_count, instance_count, first_index, vertex_offset, first_instance);
@@ -323,8 +335,8 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 
 			// Bindings.
 			ctx->OMSetRenderTargets(1, &g_rtv_bloom_mips_y[i], nullptr);
-			ctx->RSSetViewports(1, &viewports_y[i]);
 			ctx->PSSetShaderResources(0, 1, &g_srv_bloom_mips_x[i]);
+			ctx->RSSetViewports(1, &viewports_y[i]);
 
 			// Draw Y pass.
 			cmd_list->draw_indexed(index_count, instance_count, first_index, vertex_offset, first_instance);
@@ -371,31 +383,45 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 			cmd_list->draw_indexed(index_count, instance_count, first_index, vertex_offset, first_instance);
 		}
 
-		// The final upsample pass
-		//
-		// We are binding the original RTV.
-		//
-
-		// Update CB.
-		g_cb_data.src_size = float2(viewports_y[0].Width, viewports_y[0].Height);
-		g_cb_data.inv_src_size = float2(1.0f / g_cb_data.src_size.x, 1.0f / g_cb_data.src_size.y);
-		update_constant_buffer(ctx, g_cb.get(), &g_cb_data, sizeof(g_cb_data));
-
-		// Bindings.
-		ctx->OMSetRenderTargets(1, &rtv_original, dsv.get());
-		ctx->RSSetViewports(1, &viewport_original);
-		ctx->PSSetShaderResources(0, 1, &g_srv_bloom_mips_y[0]);
-
-		cmd_list->draw_indexed(index_count, instance_count, first_index, vertex_offset, first_instance);
-
 		//
 
 		// Restore.
 		// May not be necessary, needs testing.
-		ctx->PSSetSamplers(0, 1, &smp_original);
 		ctx->OMSetBlendState(blend_original.get(), blend_factor_original, sample_mask_original);
+		ctx->RSSetViewports(viewports_original.size(), viewports_original.data());
+		ctx->PSSetSamplers(0, 1, &ps_sampler_original);
 
 		return true;
+	}
+
+	size = sizeof(hash);
+	hr = ps->GetPrivateData(g_ps_apply_blur_kernel_0x9B7CD304.guid, &size, &hash);
+	if (SUCCEEDED(hr) && hash == g_ps_apply_blur_kernel_0x9B7CD304.hash) {
+		if (!g_has_run_ps_bloom_0x5D1B5B1A) {
+			return false;
+		}
+		g_has_run_ps_bloom_0x5D1B5B1A = false;
+		return true;
+	}
+
+	size = sizeof(hash);
+	hr = ps->GetPrivateData(g_ps_apply_bloom_0x67685D89.guid, &size, &hash);
+	if (SUCCEEDED(hr) && hash == g_ps_apply_bloom_0x67685D89.hash) {
+		// Create PS.
+		[[unlikely]] if (!g_managed_resources.pixel_shaders["apply_bloom_0x67685D89"_h]) {
+			const std::string bloom_intensity_str = std::to_string(g_bloom_intensity);
+			const D3D_SHADER_MACRO defines[] = {
+				{ "BLOOM_INTENSITY", bloom_intensity_str.c_str() },
+				{ nullptr, nullptr }
+			};
+			create_pixel_shader(g_device, g_managed_resources.pixel_shaders["apply_bloom_0x67685D89"_h].put(), L"ApplyBloom_0x67685D89_ps.hlsl", "main", defines);
+		}
+
+		// Bindings.
+		ctx->PSSetShader(g_managed_resources.pixel_shaders["apply_bloom_0x67685D89"_h].get(), nullptr, 0);
+		ctx->PSSetShaderResources(1, 1, &g_srv_bloom_mips_y[0]);
+
+		return false;
 	}
 
 	size = sizeof(hash);
@@ -408,6 +434,7 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 
 		// Bindings.
 		ctx->PSSetShader(g_managed_resources.pixel_shaders["tonemap_0x80802E60"_h].get(), nullptr, 0);
+
 		return false;
 	}
 
@@ -475,7 +502,7 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 			eval_params.InRenderSubrectDimensions.Height = g_swapchain_height;
 
 			// Jitters are in UV offsets so we need to scale them to pixel offsets for DLSS.
-			eval_params.InJitterOffsetX = g_jitter_x * (float)g_swapchain_width * -1.0f;
+			eval_params.InJitterOffsetX = g_jitter_x * (float)g_swapchain_width * 1.0f;
 			eval_params.InJitterOffsetY = g_jitter_y * (float)g_swapchain_height * -1.0f;
 
 			g_dlss_status = DLSS::get_instance().draw(ctx, eval_params);
@@ -827,6 +854,9 @@ static void on_init_pipeline(reshade::api::device* device, reshade::api::pipelin
 				case g_ps_apply_blur_kernel_0x9B7CD304.hash:
 					ensure(((ID3D11PixelShader*)pipeline.handle)->SetPrivateData(g_ps_apply_blur_kernel_0x9B7CD304.guid, sizeof(g_ps_apply_blur_kernel_0x9B7CD304.hash), &g_ps_apply_blur_kernel_0x9B7CD304.hash), >= 0);
 					return;
+				case g_ps_apply_bloom_0x67685D89.hash:
+					ensure(((ID3D11PixelShader*)pipeline.handle)->SetPrivateData(g_ps_apply_bloom_0x67685D89.guid, sizeof(g_ps_apply_bloom_0x67685D89.hash), &g_ps_apply_bloom_0x67685D89.hash), >= 0);
+					return;
 				case g_ps_tonemap_0x80802E60.hash:
 					ensure(((ID3D11PixelShader*)pipeline.handle)->SetPrivateData(g_ps_tonemap_0x80802E60.guid, sizeof(g_ps_tonemap_0x80802E60.hash), &g_ps_tonemap_0x80802E60.hash), >= 0);
 					return;
@@ -984,8 +1014,6 @@ static void on_init_swapchain(reshade::api::swapchain* swapchain, bool resize)
 	reset_com_array(g_srv_bloom_mips_y);
 	reset_com_array(g_rtv_bloom_mips_x);
 	reset_com_array(g_srv_bloom_mips_x);
-	g_bloom_input_width = 0;
-	g_bloom_input_height = 0;
 
 	//
 }
@@ -1044,6 +1072,9 @@ static void read_config()
 
 	if (!reshade::get_config_value(nullptr, NAME, "GTAOQuality", g_gtao_quality)) {
 		reshade::set_config_value(nullptr, NAME, "GTAOQuality", g_gtao_quality);
+	}
+	if (!reshade::get_config_value(nullptr, NAME, "BloomIntensity", g_bloom_intensity)) {
+		reshade::set_config_value(nullptr, NAME, "BloomIntensity", g_bloom_intensity);
 	}
 	if (!reshade::get_config_value(nullptr, NAME, "Sharpness", g_amd_ffx_cas_sharpness)) {
 		reshade::set_config_value(nullptr, NAME, "Sharpness", g_amd_ffx_cas_sharpness);
@@ -1147,6 +1178,12 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 	}
 	ImGui::Spacing();
 
+	if (ImGui::SliderFloat("Bloom intensity", &g_bloom_intensity, 0.0f, 3.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp)) {
+		g_managed_resources.pixel_shaders["apply_bloom_0x67685D89"_h].reset();
+		reshade::set_config_value(nullptr, NAME, "BloomIntensity", g_bloom_intensity);
+	}
+	ImGui::Spacing();
+
 	if (ImGui::Checkbox("Force modern windowed", &g_force_modern_windowed)) {
 		reshade::set_config_value(nullptr, NAME, "ForceModernWindowed", g_force_modern_windowed);
 	}
@@ -1184,10 +1221,10 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)
 			g_rtv_bloom_mips_x.resize(g_bloom_nmips);
 			g_srv_bloom_mips_x.resize(g_bloom_nmips);
 			g_bloom_sigmas.resize(g_bloom_nmips);
-			g_bloom_sigmas[0] = 1.0f; // 1.0 for the first MIP here is fine cause input is prefiltered.
-			g_bloom_sigmas[1] = 1.0f;
-			g_bloom_sigmas[2] = 1.0f;
-			g_bloom_sigmas[3] = 1.0f;
+			g_bloom_sigmas[0] = 1.5f;
+			g_bloom_sigmas[1] = 4.0f;
+			g_bloom_sigmas[2] = 4.0f;
+			g_bloom_sigmas[3] = 4.0f;
 
 			reshade::register_event<reshade::addon_event::draw_indexed>(on_draw_indexed);
 			reshade::register_event<reshade::addon_event::dispatch>(on_dispatch);
