@@ -6,7 +6,7 @@
 #include "DLSS/DLSS.h"
 
 extern "C" __declspec(dllexport) const char* NAME = "TheElderScrollsVSkyrimGraphicalUpgrade";
-extern "C" __declspec(dllexport) const char* DESCRIPTION = "v1.0.0";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "v1.0.1";
 extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/TheElderScrollsVSkyrimGraphicalUpgrade";
 
 // Shader hooks.
@@ -969,6 +969,12 @@ static void on_destroy_device(reshade::api::device* device)
 	}
 	g_cb.reset();
 	g_managed_resources.clear();
+
+	reset_com_array(g_uav_gtao_prefilter_depths16x16);
+	reset_com_array(g_rtv_bloom_mips_y);
+	reset_com_array(g_srv_bloom_mips_y);
+	reset_com_array(g_rtv_bloom_mips_x);
+	reset_com_array(g_srv_bloom_mips_x);
 }
 
 static void read_config()
@@ -1008,9 +1014,6 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 {
 	#if DEV
 	if (ImGui::Button("Dev button")) {
-		g_managed_resources.pixel_shaders["bloom_sanitize_scene"_h].reset();
-		g_managed_resources.pixel_shaders["bloom_prefilter"_h].reset();
-		g_managed_resources.pixel_shaders["tonemap_0x936CE1A3"_h].reset();
 	}
 
 	ImGui::Spacing();
