@@ -116,5 +116,8 @@ Graphical upgrade for Prey (2017). See Addons/PreyGraphicalUpgrade for details.
 **SlayTheSpireGraphicalUpgrade**  
 Graphical upgrade for Slay the Spire. See Addons/SlayTheSpireGraphicalUpgrade for details.
 
+**TheElderScrollsVSkyrimGraphicalUpgrade**  
+Graphical upgrade for The Elder Scrolls V: Skyrim Special Edition. See Addons/TheElderScrollsVSkyrimGraphicalUpgrade for details.
+
 **TheEvilWithin2GraphicalUpgrade**  
 Graphical upgrade for The Evil Within 2. See Addons/TheEvilWithin2GraphicalUpgrade for details.
