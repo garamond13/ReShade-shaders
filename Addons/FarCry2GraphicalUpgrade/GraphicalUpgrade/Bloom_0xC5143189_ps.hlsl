@@ -25,10 +25,8 @@ Texture2D LinearTextureSampler : register(t0);
 Texture2D AdaptedLuminanceSampler : register(t1);
 Texture2D VignetteSampler : register(t2);
 
-
 // 3Dmigoto declarations
 #define cmp -
-
 
 void main(
   float4 v0 : SV_Position0,
@@ -78,14 +76,15 @@ void main(
   r1.x = -BloomParams.y + r0.x;
   r0.x = saturate(r1.x / r0.x);
   r2.xyz = r1.yzw * r0.xxx + r0.yzw;
-  r0.xy = (int2)r2.xz & int2(0x7fffffff,0x7fffffff);
-  r0.xy = cmp((int2)r0.xy == int2(0x7f800000,0x7f800000));
-  r0.x = (int)r0.y | (int)r0.x;
-  r0.xyzw = r0.xxxx ? float4(0,0,0,0) : r2.xyzw;
 
-  // Clamp NaNs.
-  // Fixes the black sqaure bug.
-  r0 = max(0.0, r0);
+  // The original inf check.
+  //r0.xy = (int2)r2.xz & int2(0x7fffffff,0x7fffffff);
+  //r0.xy = cmp((int2)r0.xy == int2(0x7f800000,0x7f800000));
+  //r0.x = (int)r0.y | (int)r0.x;
+  //r0.xyzw = r0.xxxx ? float4(0,0,0,0) : r2.xyzw;
+
+  // Check for NaNs too, fixes the black square bug.
+  r0.xyzw = all(isfinite(r2.xyzw)) ? r2.xyzw : 0.0;
 
   r1.x = 0.25 * r0.w;
   r2.x = VignetteSampler.Sample(VignetteSampler_s, v3.xy).x;

@@ -2,6 +2,12 @@
 
 #include "Common.h"
 
+template<std::floating_point T>
+constexpr T to_rad_mul = std::numbers::pi_v<T> / (T)180;
+
+template<std::floating_point T>
+constexpr T to_deg_mul = (T)180 / std::numbers::pi_v<T>;
+
 template<typename... Args>
 void log_info(std::string_view fmt, Args&&... args)
 {
@@ -23,6 +29,27 @@ void log_debug(std::string_view fmt, Args&&... args)
 	reshade::log::message(reshade::log::level::debug, msg.c_str());
 }
 
+// Fowler–Noll–Vo hash function (FNV-1a 32bit)
+// https://en.wikipedia.org/wiki/Fowler%E2%80%93Noll%E2%80%93Vo_hash_function
+//
+// str has to be null terminated!
+consteval uint32_t hash_name(const char* str)
+{
+	constexpr uint32_t fnv_offset_basis = 2166136261u;
+	constexpr uint32_t fnv_prime = 16777619u;
+	uint32_t hash = fnv_offset_basis;
+	while (*str) {
+		hash ^= (uint8_t)*str;
+		hash *= fnv_prime;
+		++str;
+	}
+	return hash;
+}
+
+consteval uint32_t operator"" _h(const char* str, size_t len)
+{
+	return hash_name(str);
+}
 
 inline auto to_string(reshade::api::format format)
 {

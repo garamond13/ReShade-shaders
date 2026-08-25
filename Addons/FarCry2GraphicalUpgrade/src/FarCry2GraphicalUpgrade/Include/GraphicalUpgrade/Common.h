@@ -6,13 +6,9 @@
 #include <crc32_hash.hpp>
 
 // DirectX
-//#include <wrl/client.h>
 #include <dxgi1_6.h>
 #include <d3d10_1.h>
 #include <d3dcompiler.h>
-
-#include "Ensure.h"
-#include "ComPtr.h"
 
 // std
 #include <vector>
@@ -20,4 +16,8 @@
 #include <array>
 #include <string>
 #include <format>
+#include <chrono>
+#include <thread>
 #include <fstream>
+#include <numbers>
+#include <unordered_map>
