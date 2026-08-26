@@ -5,7 +5,7 @@
 #include "Include/GraphicalUpgradeCB.hlsli.h"
 
 extern "C" __declspec(dllexport) const char* NAME = "FarCry2GraphicalUpgrade";
-extern "C" __declspec(dllexport) const char* DESCRIPTION = "v3.0.0";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "v3.1.0";
 extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/FarCry2GraphicalUpgrade";
 
 // Shader hooks.

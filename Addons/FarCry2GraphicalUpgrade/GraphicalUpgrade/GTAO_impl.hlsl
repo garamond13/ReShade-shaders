@@ -51,7 +51,7 @@ cbuffer ViewportShaderParameterProvider : register(b12)
 #endif
 
 #ifndef EFFECT_RADIUS
-#define EFFECT_RADIUS 0.6
+#define EFFECT_RADIUS 0.5
 #endif
 
 #ifndef THICKNESS
@@ -351,8 +351,15 @@ void MainPass(uint2 pixCoord, float2 localNoise, Texture2D<float> sourceViewspac
 		visibility += 1.0 - float(countbits(globalOccludedBitfield)) / float(SECTOR_COUNT);
 	}
 	visibility /= SLICE_COUNT;
-	visibility = pow(visibility, FINAL_VALUE_POWER);
-	visibility = clamp(visibility, 0.03, 1.0); // disallow total occlusion (which wouldn't make any sense anyhow since pixel is visible but also helps with packing bent normals)
+
+	// The AO gets drawn on top of fog. Not much we can do about it, there is no dedicated fog shader.
+	// We will reduce the final value power (intensity) with distance as a workaround using Generalized Normal Window (GNW).
+	const float s = 45.0;
+	const float n = 3.0;
+	const float final_value_power = FINAL_VALUE_POWER * exp(-pow(viewspaceZ / s, n));
+
+	visibility = pow(visibility, final_value_power);
+	visibility = max(0.03, visibility); // disallow total occlusion (which wouldn't make any sense anyhow since pixel is visible but also helps with packing bent normals)
 
 	outWorkingAOTermAndEdges.x = saturate(visibility / OCCLUSION_TERM_SCALE);
 	outWorkingAOTermAndEdges.y = PackEdges(edgesLRTB);
