@@ -1,7 +1,8 @@
 # FarCry2GraphicalUpgrade
 
 - Modern borderless window (flip mod, tearing).
-- Optional ambient occlusion (Visibility Bitmask - GTAO). 
+- Optional ambient occlusion (Visibility Bitmask - GTAO).
+- Optinal alternative tonemapping.
 - Sharpening filter (Modified AMD FFX CAS).
 - Fixed/improved bloom.
 - Fixed the DX10 black square bug.

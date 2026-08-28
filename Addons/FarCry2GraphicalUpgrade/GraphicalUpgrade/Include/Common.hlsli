@@ -32,12 +32,36 @@ float get_luma(float3 color)
 	return dot(color, float3(0.2126, 0.7152, 0.0722));
 }
 
+// Smooth saturate
+//
 // `p` should be in range (0, +inf).
-float3 smooth_saturate(float3 color, float p)
+//
+
+float smooth_saturate(float x, float p)
 {
-	color = max(0.0, color);
-	return color / pow(1.0 + pow(color, p), 1.0 / p);
+	x = max(0.0, x);
+	return x / pow(1.0 + pow(x, p), 1.0 / p);
 }
+
+float2 smooth_saturate(float2 x, float p)
+{
+	x = max(0.0, x);
+	return x / pow(1.0 + pow(x, p), 1.0 / p);
+}
+
+float3 smooth_saturate(float3 x, float p)
+{
+	x = max(0.0, x);
+	return x / pow(1.0 + pow(x, p), 1.0 / p);
+}
+
+float4 smooth_saturate(float4 x, float p)
+{
+	x = max(0.0, x);
+	return x / pow(1.0 + pow(x, p), 1.0 / p);
+}
+
+//
 
 float3 sample_tetrahedral(float3 color, Texture3D lut, int lut_size)
 {
@@ -224,7 +248,7 @@ float perlin_noise(float3 P)
 	float3 fade_xyz = fade(Pf0);
 	float4 n_z = lerp(float4(n000, n100, n010, n110), float4(n001, n101, n011, n111), fade_xyz.z);
 	float2 n_yz = lerp(n_z.xy, n_z.zw, fade_xyz.y);
-	float n_xyz = lerp(n_yz.x, n_yz.y, fade_xyz.x); 
+	float n_xyz = lerp(n_yz.x, n_yz.y, fade_xyz.x);
 	return 2.2 * n_xyz;
 }
 

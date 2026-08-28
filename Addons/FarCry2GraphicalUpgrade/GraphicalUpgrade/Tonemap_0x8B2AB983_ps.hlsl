@@ -11,9 +11,9 @@ cbuffer _Globals : register(b0)
   float2 BloomParams : packoffset(c29.y);
   float2 LuminanceBlendFactors : packoffset(c30);
   float2 LuminanceRange : packoffset(c30.z);
-  float Saturation : packoffset(c31);
+  float Saturation : packoffset(c31); // Should be 0.5
   float SinCityEffectIntensity : packoffset(c31.y);
-  float3 ColorRemapData : packoffset(c32);
+  float3 ColorRemapData : packoffset(c32); // Should be ~float3(0.963381469, 1.03623199, 1.11178863)
   float3 ContrastData : packoffset(c33);
   float2 LuminanceAdaptationRange : packoffset(c34);
   float2 VignetteTextureAverage : packoffset(c34.z);
@@ -28,6 +28,10 @@ Texture2D<float4> AdaptedLuminanceSampler : register(t2);
 
 #ifndef BLOOM_INTENSITY
 #define BLOOM_INTENSITY 1.0
+#endif
+
+#ifndef ALTERNATIVE_TONEMAP
+#define ALTERNATIVE_TONEMAP 0
 #endif
 
 // 3Dmigoto declarations
@@ -54,10 +58,17 @@ void main(
   r1.x = saturate(1 + -r1.x);
   r2 = CombinedBloomSampler.Sample(CombinedBloomSampler_s, v1.zw) * BLOOM_INTENSITY;
   r1.xyzw = r2.xyzz * r1.xxxx;
+
+  #if !ALTERNATIVE_TONEMAP
   r0.xyzw = saturate(r1.xyzw * BloomParams.xxxx + r0.xyzw);
   r0.xyzw = log2(r0.xyzw);
   r0.xyzw = ColorRemapData.xyzz * r0.xyzw;
   r0.xyzw = exp2(r0.xyzw);
+  #else
+  r0.xyzw = smooth_saturate(r1.xyzw * BloomParams.xxxx + r0.xyzw, 13.0);
+  r0.xyzw = pow(r0.xyzw, 1.0 + (ColorRemapData.xyzz - 1.0) * 0.85); // 85% of the original effect.
+  #endif
+
   r1.xyzw = r0.xyww * ContrastData.xxxx + ContrastData.yyyy;
   r1.xyzw = r0.xyww * r1.xyzw + ContrastData.zzzz;
   r2.xyz = r1.xyw * r0.xyw;
@@ -68,9 +79,18 @@ void main(
   //o0.xyzw = Saturation * r0.xyzw + r2.xxxx;
 
   // Linearized output.
+  //
+
+  #if !ALTERNATIVE_TONEMAP
   r1.xyzw = Saturation * r0.xyzw + r2.xxxx;
+  #else
+  r1.xyzw = (1.0 + (Saturation - 1.0) * 0.5) * r0.xyzw + r2.xxxx; // 50% of the original (de)saturation.
+  #endif
+
   r1.xyz = srgb_to_linear(r1.xyz);
   o0.xyzw = r1.xyzw;
+
+  //
 
   return;
 }

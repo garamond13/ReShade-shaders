@@ -5,7 +5,7 @@
 #include "Include/GraphicalUpgradeCB.hlsli.h"
 
 extern "C" __declspec(dllexport) const char* NAME = "FarCry2GraphicalUpgrade";
-extern "C" __declspec(dllexport) const char* DESCRIPTION = "v3.1.0";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "v4.0.0";
 extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/FarCry2GraphicalUpgrade";
 
 // Shader hooks.
@@ -36,12 +36,15 @@ static bool g_force_vsync_off = true;
 static bool g_force_modern_windowed = true;
 static float g_amd_ffx_cas_sharpness = 0.0f;
 static float g_bloom_intensity = 1.0;
+static bool g_alternative_tonemap;
 
+// GTAO.
 constexpr int GTAO_DEPTH_MIP_LEVELS = 5;
 static bool g_enable_gtao = true;
 static int g_gtao_quality = 2; // 0 - Low, 1 - Medium, 2 - High, 3 - Very High, 4 - Ultra
 static bool g_draw_gtao;
 
+// Device resources.
 static std::array<ID3D10RenderTargetView*, GTAO_DEPTH_MIP_LEVELS> g_rtv_gtao_working_depth_mips;
 static std::array<ID3D10ShaderResourceView*, GTAO_DEPTH_MIP_LEVELS> g_srv_gtao_working_depth_mips;
 
@@ -334,7 +337,7 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 	auto on_linearize_depth = [&]() {
 		if (g_enable_gtao) {
 			g_draw_gtao = true;
-			device->PSGetConstantBuffers(0, 1, g_managed_resources.buffers["linearize_depth_cb0"_h].put()); 
+			device->PSGetConstantBuffers(0, 1, g_managed_resources.buffers["linearize_depth_cb0"_h].put());
 
 			// Create linearized depth SRV.
 			Com_ptr<ID3D10RenderTargetView> rtv;
@@ -515,8 +518,10 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		// Create PS.
 		[[unlikely]] if (!g_managed_resources.pixel_shaders["tonemap_0x8B2AB983"_h]) {
 			const std::string bloom_intensity_str = std::to_string(g_bloom_intensity);
+			const std::string alternative_tonemap_str = std::to_string((int)g_alternative_tonemap);
 			const D3D_SHADER_MACRO defines[] = {
 				{ "BLOOM_INTENSITY", bloom_intensity_str.c_str() },
+				{ "ALTERNATIVE_TONEMAP", alternative_tonemap_str.c_str() },
 				{ nullptr, nullptr }
 			};
 			create_pixel_shader(device, g_managed_resources.pixel_shaders["tonemap_0x8B2AB983"_h].put(), L"Tonemap_0x8B2AB983_ps.hlsl", "main", defines);
@@ -828,6 +833,9 @@ static void read_config()
 	if (!reshade::get_config_value(nullptr, NAME, "BloomIntensity", g_bloom_intensity)) {
 		reshade::set_config_value(nullptr, NAME, "BloomIntensity", g_bloom_intensity);
 	}
+	if (!reshade::get_config_value(nullptr, NAME, "AlternativeTonemap", g_alternative_tonemap)) {
+		reshade::set_config_value(nullptr, NAME, "AlternativeTonemap", g_alternative_tonemap);
+	}
 	if (!reshade::get_config_value(nullptr, NAME, "ForceModernWindowed", g_force_modern_windowed)) {
 		reshade::set_config_value(nullptr, NAME, "ForceModernWindowed", g_force_modern_windowed);
 	}
@@ -894,6 +902,11 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 		g_managed_resources.pixel_shaders["tonemap_0x8B2AB983"_h].reset();
 	}
 	ImGui::Spacing();
+
+	if (ImGui::Checkbox("Alternative tonemap", &g_alternative_tonemap)) {
+		g_managed_resources.pixel_shaders["tonemap_0x8B2AB983"_h].reset();
+		reshade::set_config_value(nullptr, NAME, "AlternativeTonemap", g_alternative_tonemap);
+	}
 
 	if (ImGui::Checkbox("Force modern windowed", &g_force_modern_windowed)) {
 		reshade::set_config_value(nullptr, NAME, "ForceModernWindowed", g_force_modern_windowed);
