@@ -1,33 +1,30 @@
 #define DEV 0
 #define OUTPUT_ASSEMBLY 0
-#include "Helpers.h"
-#include "TRC.h"
-#include "BlueNoiseTex.h"
+#include "Include/GraphicalUpgrade.h"
+#include "Include/GraphicalUpgradeCB.hlsli.h"
 
-struct alignas(16) CB_data
-{
-   float tex_noise_index;
-};
+extern "C" __declspec(dllexport) const char* NAME = "AfterimageGraphicalUpgrade";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "v2.0.0";
+extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/AfterimageGraphicalUpgrade";
 
 // Shader hooks.
 //
 
-constexpr uint32_t g_ps_tonemap_0x87C347A4_hash = 0x87C347A4;
-constexpr GUID g_ps_tonemap_0x87C347A4_guid = { 0x702cd243, 0xfd79, 0x4b77, { 0xb5, 0x95, 0xf7, 0x35, 0x4a, 0x52, 0xbe, 0xa5 } };
+constexpr Shader_hash g_ps_tonemap_0x87C347A4 = { 0x87C347A4, { 0x116435be, 0xd2f1, 0x4c0d, { 0xa1, 0x3, 0x13, 0xf9, 0x0, 0x44, 0xfa, 0xf3 }}};
 
 //
 
-static CB_data g_cb_data;
-static uint32_t g_swapchain_width;
-static uint32_t g_swapchain_height;
+static ID3D11Device* g_device;
+static Managed_resources g_managed_resources;
+static Graphical_upgrade_cb_data g_cb_data;
+static Com_ptr<ID3D11Buffer> g_cb;
+static int g_swapchain_width;
+static int g_swapchain_height;
 static bool g_force_vsync_off = true;
+static bool g_force_modern_windowed = true;
 static float g_bloom_intensity = 1.0f;
-static float g_amd_ffx_cas_sharpness = 0.4f;
-static float g_amd_ffx_lfga_amount = 0.4f;
-
-// Tone responce curve.
-static TRC g_trc = TRC_SRGB;
-static float g_gamma = 2.2f;
+static float g_amd_ffx_cas_sharpness = 0.0f;
+static float g_amd_ffx_lfga_amount = 0.3f;
 
 // FPS limiter.
 //
@@ -41,13 +38,7 @@ static std::chrono::duration<double> g_accounted_error; // in seconds
 
 //
 
-static std::unordered_map<uint32_t, Com_ptr<ID3D11RenderTargetView>> g_rtv;
-static std::unordered_map<uint32_t, Com_ptr<ID3D11ShaderResourceView>> g_srv;
-static std::unordered_map<uint32_t, Com_ptr<ID3D11VertexShader>> g_vs;
-static std::unordered_map<uint32_t, Com_ptr<ID3D11PixelShader>> g_ps;
-static std::unordered_map<uint32_t, Com_ptr<ID3D11Buffer>> g_cb;
-
-static void on_present(reshade::api::command_queue* queue, reshade::api::swapchain* swapchain, const reshade::api::rect* source_rect, const reshade::api::rect* dest_rect, uint32_t dirty_rect_count, const reshade::api::rect* dirty_rects)
+static void on_finish_present(reshade::api::command_queue* queue, reshade::api::swapchain* swapchain)
 {
 	static std::chrono::high_resolution_clock::time_point start;
 
@@ -77,10 +68,19 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 		return false;
 	}
 
+	#if DEV
+	Com_ptr<ID3D11Device> device;
+	ctx->GetDevice(device.put());
+	assert(device == g_device);
+	#endif
+
 	uint32_t hash;
-	UINT size = sizeof(hash);
-	auto hr = ps->GetPrivateData(g_ps_tonemap_0x87C347A4_guid, &size, &hash);
-	if (SUCCEEDED(hr) && hash == g_ps_tonemap_0x87C347A4_hash) {
+	UINT size;
+	HRESULT hr;
+
+	size = sizeof(hash);
+	hr = ps->GetPrivateData(g_ps_tonemap_0x87C347A4.guid, &size, &hash);
+	if (SUCCEEDED(hr) && hash == g_ps_tonemap_0x87C347A4.hash) {
 		Com_ptr<ID3D11Device> device;
 		ctx->GetDevice(device.put());
 
@@ -92,18 +92,17 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 		//
 
 		// Create PS.
-		[[unlikely]] if (!g_ps[hash_name("tonemap_0x87C347A4")]) {
+		[[unlikely]] if (!g_managed_resources.pixel_shaders["tonemap_0x87C347A4"_h]) {
 			const std::string bloom_intensity_str = std::to_string(g_bloom_intensity);
 			const D3D_SHADER_MACRO defines[] = {
 				{ "BLOOM_INTENSITY", bloom_intensity_str.c_str() },
 				{ nullptr, nullptr }
 			};
-			create_pixel_shader(device.get(), g_ps[hash_name("tonemap_0x87C347A4")].put(), L"Tonemap_0x87C347A4_ps.hlsl", "main", defines);
+			create_pixel_shader(device.get(), g_managed_resources.pixel_shaders["tonemap_0x87C347A4"_h].put(), L"Tonemap_0x87C347A4_ps.hlsl", "main", defines);
 		}
 
 		// Create RT and views.
-		[[unlikely]] if (!g_rtv[hash_name("tonemap_0x87C347A4")]) {
-			// Create texture.
+		[[unlikely]] if (!g_managed_resources.render_target_views["tonemap_0x87C347A4"_h]) {
 			D3D11_TEXTURE2D_DESC tex_desc = {};
 			tex_desc.Width = g_swapchain_width;
 			tex_desc.Height = g_swapchain_height;
@@ -114,14 +113,13 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 			tex_desc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
 			Com_ptr<ID3D11Texture2D> tex;
 			ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
-
-			ensure(device->CreateRenderTargetView(tex.get(), nullptr, g_rtv[hash_name("tonemap_0x87C347A4")].put()), >= 0);
-			ensure(device->CreateShaderResourceView(tex.get(), nullptr, g_srv[hash_name("tonemap_0x87C347A4")].put()), >= 0);
+			ensure(device->CreateRenderTargetView(tex.get(), nullptr, g_managed_resources.render_target_views["tonemap_0x87C347A4"_h].put()), >= 0);
+			ensure(device->CreateShaderResourceView(tex.get(), nullptr, g_managed_resources.shader_resource_views["tonemap_0x87C347A4"_h].put()), >= 0);
 		}
 
 		// Bindings.
-		ctx->OMSetRenderTargets(1, &g_rtv[hash_name("tonemap_0x87C347A4")], nullptr);
-		ctx->PSSetShader(g_ps[hash_name("tonemap_0x87C347A4")].get(), nullptr, 0);
+		ctx->OMSetRenderTargets(1, &g_managed_resources.render_target_views["tonemap_0x87C347A4"_h], nullptr);
+		ctx->PSSetShader(g_managed_resources.pixel_shaders["tonemap_0x87C347A4"_h].get(), nullptr, 0);
 
 		cmd_list->draw_indexed(index_count, instance_count, first_index, vertex_offset, first_instance);
 
@@ -131,23 +129,22 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 		//
 
 		// Create VS.
-		[[unlikely]] if (!g_vs[hash_name("fullscreen_triangle")]) {
-			create_vertex_shader(device.get(), g_vs[hash_name("fullscreen_triangle")].put(), L"FullscreenTriangle_vs.hlsl");
+		[[unlikely]] if (!g_managed_resources.vertex_shaders["fullscreen_triangle"_h]) {
+			create_vertex_shader(device.get(), g_managed_resources.vertex_shaders["fullscreen_triangle"_h].put(), L"FullscreenTriangle_vs.hlsl");
 		}
 
 		// Create PS.
-		[[unlikely]] if (!g_ps[hash_name("amd_ffx_cas")]) {
+		[[unlikely]] if (!g_managed_resources.pixel_shaders["amd_ffx_cas"_h]) {
 			const std::string amd_ffx_cas_sharpness_str = std::to_string(g_amd_ffx_cas_sharpness);
-			const D3D10_SHADER_MACRO defines[] = {
+			const D3D_SHADER_MACRO defines[] = {
 				{ "SHARPNESS", amd_ffx_cas_sharpness_str.c_str() },
 				{ nullptr, nullptr }
 			};
-			create_pixel_shader(device.get(), g_ps[hash_name("amd_ffx_cas")].put(), L"AMD_FFX_CAS_ps.hlsl", "main", defines);
+			create_pixel_shader(device.get(), g_managed_resources.pixel_shaders["amd_ffx_cas"_h].put(), L"AMD_FFX_CAS_ps.hlsl", "main", defines);
 		}
 
 		// Create RT and views.
-		[[unlikely]] if (!g_rtv[hash_name("amd_ffx_cas")]) {
-			// Create texture.
+		[[unlikely]] if (!g_managed_resources.render_target_views["amd_ffx_cas"_h]) {
 			D3D11_TEXTURE2D_DESC tex_desc = {};
 			tex_desc.Width = g_swapchain_width;
 			tex_desc.Height = g_swapchain_height;
@@ -158,16 +155,15 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 			tex_desc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
 			Com_ptr<ID3D11Texture2D> tex;
 			ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
-
-			ensure(device->CreateRenderTargetView(tex.get(), nullptr, g_rtv[hash_name("amd_ffx_cas")].put()), >= 0);
-			ensure(device->CreateShaderResourceView(tex.get(), nullptr, g_srv[hash_name("amd_ffx_cas")].put()), >= 0);
+			ensure(device->CreateRenderTargetView(tex.get(), nullptr, g_managed_resources.render_target_views["amd_ffx_cas"_h].put()), >= 0);
+			ensure(device->CreateShaderResourceView(tex.get(), nullptr, g_managed_resources.shader_resource_views["amd_ffx_cas"_h].put()), >= 0);
 		}
 
 		// Bindings.
-		ctx->OMSetRenderTargets(1, &g_rtv[hash_name("amd_ffx_cas")], nullptr);
-		ctx->VSSetShader(g_vs[hash_name("fullscreen_triangle")].get(), nullptr, 0);
-		ctx->PSSetShader(g_ps[hash_name("amd_ffx_cas")].get(), nullptr, 0);
-		ctx->PSSetShaderResources(0, 1, &g_srv[hash_name("tonemap_0x87C347A4")]);
+		ctx->OMSetRenderTargets(1, &g_managed_resources.render_target_views["amd_ffx_cas"_h], nullptr);
+		ctx->VSSetShader(g_managed_resources.vertex_shaders["fullscreen_triangle"_h].get(), nullptr, 0);
+		ctx->PSSetShader(g_managed_resources.pixel_shaders["amd_ffx_cas"_h].get(), nullptr, 0);
+		ctx->PSSetShaderResources(0, 1, &g_managed_resources.shader_resource_views["tonemap_0x87C347A4"_h]);
 
 		ctx->Draw(3, 0);
 
@@ -176,65 +172,41 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 		// AMD FFX LFGA pass
 		//
 
-		[[unlikely]] if (!g_cb[hash_name("cb")]) {
-			create_constant_buffer(device.get(), sizeof(g_cb_data), g_cb[hash_name("cb")].put());
+		[[unlikely]] if (!g_cb) {
+			create_constant_buffer(g_device, sizeof(g_cb_data), g_cb.put());
 		}
 
 		// Create PS.
-		[[unlikely]] if (!g_ps[hash_name("amd_ffx_lfga")]) {
+		[[unlikely]] if (!g_managed_resources.pixel_shaders["amd_ffx_lfga"_h]) {
 			const std::string amd_ffx_lfga_amount_str = std::to_string(g_amd_ffx_lfga_amount);
-			const std::string srgb_str = g_trc == TRC_SRGB ? "SRGB" : "";
-			const std::string gamma_str = std::to_string(g_gamma);
-			const D3D10_SHADER_MACRO defines[] = {
+			const D3D_SHADER_MACRO defines[] = {
 				{ "AMOUNT", amd_ffx_lfga_amount_str.c_str() },
-				{ srgb_str.c_str(), nullptr },
-				{ "GAMMA", gamma_str.c_str() },
 				{ nullptr, nullptr }
 			};
-			create_pixel_shader(device.get(), g_ps[hash_name("amd_ffx_lfga")].put(), L"AMD_FFX_LFGA_ps.hlsl", "main", defines);
-		}
-
-		// Create blue noise texture.
-		[[unlikely]] if (!g_srv[hash_name("blue_noise_tex")]) {
-			D3D11_TEXTURE2D_DESC tex_desc = {};
-			tex_desc.Width = BLUE_NOISE_TEX_WIDTH;
-			tex_desc.Height = BLUE_NOISE_TEX_HEIGHT;
-			tex_desc.MipLevels = 1;
-			tex_desc.ArraySize = BLUE_NOISE_TEX_ARRAY_SIZE;
-			tex_desc.Format = DXGI_FORMAT_R8_UNORM;
-			tex_desc.SampleDesc.Count = 1;
-			tex_desc.Usage = D3D11_USAGE_IMMUTABLE;
-			tex_desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-			std::array<D3D11_SUBRESOURCE_DATA, BLUE_NOISE_TEX_ARRAY_SIZE> subresource_data;
-			for (size_t i = 0; i < subresource_data.size(); ++i) {
-				subresource_data[i].pSysMem = BLUE_NOISE_TEX + i * BLUE_NOISE_TEX_PITCH * BLUE_NOISE_TEX_HEIGHT;
-				subresource_data[i].SysMemPitch = BLUE_NOISE_TEX_PITCH;
-			}
-			Com_ptr<ID3D11Texture2D> tex;
-			ensure(device->CreateTexture2D(&tex_desc, subresource_data.data(), tex.put()), >= 0);
-			ensure(device->CreateShaderResourceView(tex.get(), nullptr, g_srv[hash_name("blue_noise_tex")].put()), >= 0);
+			create_pixel_shader(g_device, g_managed_resources.pixel_shaders["amd_ffx_lfga"_h].put(), L"AMD_FFX_LFGA_ps.hlsl", "main", defines);
 		}
 
 		// Update the constant buffer.
 		// We need to limit the temporal grain update rate, otherwise grain will flicker.
-		constexpr auto interval = std::chrono::duration_cast<std::chrono::high_resolution_clock::duration>(std::chrono::duration<double>(1.0 / (double)BLUE_NOISE_TEX_ARRAY_SIZE));
+		constexpr double update_rate = 64.0;
+		constexpr int pattern_lenght = 1024;
+		constexpr auto interval = std::chrono::duration_cast<std::chrono::high_resolution_clock::duration>(std::chrono::duration<double>(1.0 / update_rate));
 		static auto last_update = std::chrono::high_resolution_clock::now();
 		const auto now = std::chrono::high_resolution_clock::now();
 		if (now - last_update >= interval) {
-			g_cb_data.tex_noise_index += 1.0f;
-			if (g_cb_data.tex_noise_index >= (float)BLUE_NOISE_TEX_ARRAY_SIZE) {
-				g_cb_data.tex_noise_index = 0.0f;
+			g_cb_data.noise_index += 1;
+			if (g_cb_data.noise_index >= pattern_lenght) {
+				g_cb_data.noise_index = 0;
 			}
-			update_constant_buffer(ctx, g_cb[hash_name("cb")].get(), &g_cb_data, sizeof(g_cb_data));
+			update_constant_buffer(ctx, g_cb.get(), &g_cb_data, sizeof(g_cb_data));
 			last_update += interval;
 		}
 
 		// Bindings.
 		ctx->OMSetRenderTargets(1, &rtv_original, nullptr);
-		ctx->PSSetShader(g_ps[hash_name("amd_ffx_lfga")].get(), nullptr, 0);
-		ctx->PSSetConstantBuffers(13, 1, &g_cb[hash_name("cb")]);
-		const std::array ps_srvs_amd_ffx_lfga = { g_srv[hash_name("amd_ffx_cas")].get(), g_srv[hash_name("blue_noise_tex")].get() };
-		ctx->PSSetShaderResources(0, ps_srvs_amd_ffx_lfga.size(), ps_srvs_amd_ffx_lfga.data());
+		ctx->PSSetShader(g_managed_resources.pixel_shaders["amd_ffx_lfga"_h].get(), nullptr, 0);
+		ctx->PSSetConstantBuffers(GRAPHICAL_UPGRADE_CB_SLOT, 1, &g_cb);
+		ctx->PSSetShaderResources(0, 1, &g_managed_resources.shader_resource_views["amd_ffx_cas"_h]);
 
 		ctx->Draw(3, 0);
 
@@ -253,9 +225,9 @@ static void on_init_pipeline(reshade::api::device* device, reshade::api::pipelin
 			auto desc = (reshade::api::shader_desc*)subobjects[i].data;
 			const auto hash = compute_crc32((const uint8_t*)desc->code, desc->code_size);
 			switch (hash) {
-				case g_ps_tonemap_0x87C347A4_hash:
-					ensure(((ID3D11PixelShader*)pipeline.handle)->SetPrivateData(g_ps_tonemap_0x87C347A4_guid, sizeof(g_ps_tonemap_0x87C347A4_hash), &g_ps_tonemap_0x87C347A4_hash), >= 0);
-					break;
+				case g_ps_tonemap_0x87C347A4.hash:
+					ensure(((ID3D11PixelShader*)pipeline.handle)->SetPrivateData(g_ps_tonemap_0x87C347A4.guid, sizeof(g_ps_tonemap_0x87C347A4.hash), &g_ps_tonemap_0x87C347A4.hash), >= 0);
+					return;
 			}
 		}
 	}
@@ -297,10 +269,22 @@ static bool on_create_resource(reshade::api::device* device, reshade::api::resou
 	return false;
 }
 
+static bool on_create_sampler(reshade::api::device* device, reshade::api::sampler_desc& desc)
+{
+	if (desc.filter == reshade::api::filter_mode::anisotropic) {
+		// The game is not always using 16x.
+		desc.max_anisotropy = 16.0f;
+
+		return true;
+	}
+
+	return false;
+}
+
 // Prevent entering fullscreen mode.
 static bool on_set_fullscreen_state(reshade::api::swapchain* swapchain, bool fullscreen, void* hmonitor)
 {
-	if (fullscreen) {
+	if (g_force_modern_windowed && fullscreen) {
 		return true;
 	}
 	return false;
@@ -312,8 +296,17 @@ static bool on_create_swapchain(reshade::api::device_api api, reshade::api::swap
 	return false;
 	#endif
 
+	if (g_force_modern_windowed) {
+		desc.back_buffer_count = std::max(2u, desc.back_buffer_count);
+		desc.present_mode = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+		desc.fullscreen_state = false;
+	}
+
 	if (g_force_vsync_off) {
-		desc.present_flags |= DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
+		if (g_force_modern_windowed) {
+			desc.present_flags |= DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
+		}
+		desc.fullscreen_refresh_rate = 0.0f;
 		desc.sync_interval = 0;
 	}
 
@@ -326,63 +319,64 @@ static void on_init_swapchain(reshade::api::swapchain* swapchain, bool resize)
 	DXGI_SWAP_CHAIN_DESC desc;
 	native_swapchain->GetDesc(&desc);
 
+	// Save device.
+	g_device = (ID3D11Device*)swapchain->get_device()->get_native();
+
 	// Save swapchain size.
 	g_swapchain_width = desc.BufferDesc.Width;
 	g_swapchain_height = desc.BufferDesc.Height;
 
-	// Reset resolution dependent resources.
-	g_rtv[hash_name("tonemap_0x87C347A4")].reset();
-	g_srv[hash_name("tonemap_0x87C347A4")].reset();
-	g_rtv[hash_name("amd_ffx_cas")].reset();
-	g_srv[hash_name("amd_ffx_cas")].reset();
 }
 
 static void on_init_device(reshade::api::device* device)
 {
-	// Set maximum frame latency to 1, the game is not setting this already to 1.
-	auto native_device = (IUnknown*)device->get_native();
-	Com_ptr<IDXGIDevice1> device1;
-	auto hr = native_device->QueryInterface(device1.put());
+	#if 0
+	return;
+	#endif
+
+	// Set maximum frame latency to 1.
+	auto native_device = (ID3D11Device*)device->get_native();
+	Com_ptr<IDXGIDevice1> dxgi_device;
+	auto hr = native_device->QueryInterface(dxgi_device.put());
 	if (SUCCEEDED(hr)) {
-		ensure(device1->SetMaximumFrameLatency(1), >= 0);
+		ensure(dxgi_device->SetMaximumFrameLatency(1), >= 0);
 	}
 }
 
-static void on_destroy_device(reshade::api::device *device)
+static void on_destroy_device(reshade::api::device* device)
 {
-	g_rtv.clear();
-	g_srv.clear();
-	g_vs.clear();
-	g_ps.clear();
-	g_cb.clear();
+	if (device->get_native() != (uintptr_t)g_device) {
+		return;
+	}
+	g_cb.reset();
+	g_managed_resources.clear();
 }
 
 static void read_config()
 {
-	if (!reshade::get_config_value(nullptr, "AfterimageGraphicalUpgrade", "BloomIntensity", g_bloom_intensity)) {
-		reshade::set_config_value(nullptr, "AfterimageGraphicalUpgrade", "BloomIntensity", g_bloom_intensity);
+	if (!reshade::get_config_value(nullptr, NAME, "BloomIntensity", g_bloom_intensity)) {
+		reshade::set_config_value(nullptr, NAME, "BloomIntensity", g_bloom_intensity);
 	}
-	if (!reshade::get_config_value(nullptr, "AfterimageGraphicalUpgrade", "Sharpness", g_amd_ffx_cas_sharpness)) {
-		reshade::set_config_value(nullptr, "AfterimageGraphicalUpgrade", "Sharpness", g_amd_ffx_cas_sharpness);
+	if (!reshade::get_config_value(nullptr, NAME, "Sharpness", g_amd_ffx_cas_sharpness)) {
+		reshade::set_config_value(nullptr, NAME, "Sharpness", g_amd_ffx_cas_sharpness);
 	}
-	if (!reshade::get_config_value(nullptr, "AfterimageGraphicalUpgrade", "GrainAmount", g_amd_ffx_lfga_amount)) {
-		reshade::set_config_value(nullptr, "AfterimageGraphicalUpgrade", "GrainAmount", g_amd_ffx_lfga_amount);
+	if (!reshade::get_config_value(nullptr, NAME, "GrainAmount", g_amd_ffx_lfga_amount)) {
+		reshade::set_config_value(nullptr, NAME, "GrainAmount", g_amd_ffx_lfga_amount);
 	}
-	if (!reshade::get_config_value(nullptr, "AfterimageGraphicalUpgrade", "TRC", g_trc)) {
-		reshade::set_config_value(nullptr, "AfterimageGraphicalUpgrade", "TRC", g_trc);
+	if (!reshade::get_config_value(nullptr, NAME, "ForceModernWindowed", g_force_modern_windowed)) {
+		reshade::set_config_value(nullptr, NAME, "ForceModernWindowed", g_force_modern_windowed);
 	}
-	if (!reshade::get_config_value(nullptr, "AfterimageGraphicalUpgrade", "Gamma", g_gamma)) {
-		reshade::set_config_value(nullptr, "AfterimageGraphicalUpgrade", "Gamma", g_gamma);
+	if (!reshade::get_config_value(nullptr, NAME, "ForceVsyncOff", g_force_vsync_off)) {
+		reshade::set_config_value(nullptr, NAME, "ForceVsyncOff", g_force_vsync_off);
 	}
-	if (!reshade::get_config_value(nullptr, "AfterimageGraphicalUpgrade", "ForceVsyncOff", g_force_vsync_off)) {
-		reshade::set_config_value(nullptr, "AfterimageGraphicalUpgrade", "ForceVsyncOff", g_force_vsync_off);
-	}
-	if (!reshade::get_config_value(nullptr, "AfterimageGraphicalUpgrade", "FPSLimit", g_user_set_fps_limit)) {
-		reshade::set_config_value(nullptr, "AfterimageGraphicalUpgrade", "FPSLimit", g_user_set_fps_limit);
+
+	if (!reshade::get_config_value(nullptr, NAME, "FPSLimit", g_user_set_fps_limit)) {
+		reshade::set_config_value(nullptr, NAME, "FPSLimit", g_user_set_fps_limit);
 	}
 	g_frame_interval = std::chrono::duration<double>(1.0 / (double)g_user_set_fps_limit);
-	if (!reshade::get_config_value(nullptr, "AfterimageGraphicalUpgrade", "AccountedError", g_user_set_accounted_error)) {
-		reshade::set_config_value(nullptr, "AfterimageGraphicalUpgrade", "AccountedError", g_user_set_accounted_error);
+
+	if (!reshade::get_config_value(nullptr, NAME, "AccountedError", g_user_set_accounted_error)) {
+		reshade::set_config_value(nullptr, NAME, "AccountedError", g_user_set_accounted_error);
 	}
 	g_accounted_error = std::chrono::duration<double>((double)g_user_set_accounted_error / 1000.0);
 }
@@ -393,41 +387,46 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 	if (ImGui::Button("Dev button")) {
 	}
 	ImGui::Spacing();
+
+	// The game may set this a bit later.
+	if (ImGui::Button("Check MaximumFrameLatency")) {
+		Com_ptr<IDXGIDevice1> dxgi_device;
+		ensure(g_device->QueryInterface(dxgi_device.put()), >= 0);
+		UINT max_latency;
+		ensure(dxgi_device->GetMaximumFrameLatency(&max_latency), >= 0);
+		log_debug("MaximumFrameLatency: {}", max_latency);
+	}
+	ImGui::NewLine();
 	#endif
 
-	if (ImGui::SliderFloat("Bloom intensity", &g_bloom_intensity, 0.0f, 2.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp)) {
-		reshade::set_config_value(nullptr, "AfterimageGraphicalUpgrade", "BloomIntensity", g_bloom_intensity);
-		g_ps[hash_name("tonemap_0x87C347A4")].reset();;
+	if (ImGui::SliderFloat("Bloom intensity", &g_bloom_intensity, 0.0f, 3.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp)) {
+		reshade::set_config_value(nullptr, NAME, "BloomIntensity", g_bloom_intensity);
+		g_managed_resources.pixel_shaders["tonemap_0x87C347A4"_h].reset();
 	}
 	ImGui::Spacing();
 
 	if (ImGui::SliderFloat("Sharpness", &g_amd_ffx_cas_sharpness, 0.0f, 1.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp)) {
-		reshade::set_config_value(nullptr, "AfterimageGraphicalUpgrade", "Sharpness", g_amd_ffx_cas_sharpness);
-		g_ps[hash_name("amd_ffx_cas")].reset();
+		reshade::set_config_value(nullptr, NAME, "Sharpness", g_amd_ffx_cas_sharpness);
+		g_managed_resources.pixel_shaders["amd_ffx_cas"_h].reset();
 	}
 	ImGui::Spacing();
 
 	if (ImGui::SliderFloat("Grain amount", &g_amd_ffx_lfga_amount, 0.0f, 1.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp)) {
-		reshade::set_config_value(nullptr, "AfterimageGraphicalUpgrade", "GrainAmount", g_amd_ffx_lfga_amount);
-		g_ps[hash_name("amd_ffx_lfga")].reset();
+		reshade::set_config_value(nullptr, NAME, "GrainAmount", g_amd_ffx_lfga_amount);
+		g_managed_resources.pixel_shaders["amd_ffx_lfga"_h].reset();
 	}
 	ImGui::Spacing();
 
-	static constexpr std::array trc_items = { "sRGB", "Gamma" };
-	if (ImGui::Combo("TRC", &g_trc, trc_items.data(), trc_items.size())) {
-		reshade::set_config_value(nullptr, "AfterimageGraphicalUpgrade", "TRC", g_trc);
-		g_ps[hash_name("amd_ffx_lfga")].reset();
+	if (ImGui::Checkbox("Force modern windowed", &g_force_modern_windowed)) {
+		reshade::set_config_value(nullptr, NAME, "ForceModernWindowed", g_force_modern_windowed);
 	}
-	ImGui::BeginDisabled(g_trc == TRC_SRGB);
-	if (ImGui::SliderFloat("Gamma", &g_gamma, 1.0f, 3.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp)) {
-		reshade::set_config_value(nullptr, "AfterimageGraphicalUpgrade", "Gamma", g_gamma);
-		g_ps[hash_name("amd_ffx_lfga")].reset();
+	if (ImGui::IsItemHovered()) {
+		ImGui::SetItemTooltip("Forces modern borderless or non borderless windowed mod.\nRequires restart.");
 	}
-	ImGui::EndDisabled();
 	ImGui::Spacing();
 
 	if (ImGui::Checkbox("Force vsync off", &g_force_vsync_off)) {
-		reshade::set_config_value(nullptr, "AfterimageGraphicalUpgrade", "ForceVsyncOff", g_force_vsync_off);
+		reshade::set_config_value(nullptr, NAME, "ForceVsyncOff", g_force_vsync_off);
 	}
 	if (ImGui::IsItemHovered()) {
 		ImGui::SetItemTooltip("Requires restart.");
@@ -437,21 +436,17 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 	ImGui::InputFloat("FPS limit", &g_user_set_fps_limit);
 	if (ImGui::IsItemDeactivatedAfterEdit()) {
 		g_user_set_fps_limit = std::clamp(g_user_set_fps_limit, 20.0f, FLT_MAX);
-		reshade::set_config_value(nullptr, "AfterimageGraphicalUpgrade", "FPSLimit", g_user_set_fps_limit);
+		reshade::set_config_value(nullptr, NAME, "FPSLimit", g_user_set_fps_limit);
 		g_frame_interval = std::chrono::duration<double>(1.0 / (double)g_user_set_fps_limit);
 	}
 
 	ImGui::InputInt("Accounted thread sleep error in ms", &g_user_set_accounted_error, 0, 0);
 	if (ImGui::IsItemDeactivatedAfterEdit()) {
 		g_user_set_accounted_error = std::clamp(g_user_set_accounted_error, 0, 1000);
-		reshade::set_config_value(nullptr, "AfterimageGraphicalUpgrade", "AccountedError", g_user_set_accounted_error);
+		reshade::set_config_value(nullptr, NAME, "AccountedError", g_user_set_accounted_error);
 		g_accounted_error = std::chrono::duration<double>((double)g_user_set_accounted_error / 1000.0);
 	}
 }
-
-extern "C" __declspec(dllexport) const char* NAME = "AfterimageGraphicalUpgrade";
-extern "C" __declspec(dllexport) const char* DESCRIPTION = "AfterimageGraphicalUpgrade v1.0.0";
-extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/AfterimageGraphicalUpgrade";
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)
 {
@@ -463,13 +458,14 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)
 
 			//MessageBoxW(0, L"Debug", L"Attach debugger.", MB_OK);
 
-			g_graphical_upgrade_path = get_graphical_upgrade_path();
+			init_graphical_upgrade_path();
 			read_config();
-			reshade::register_event<reshade::addon_event::present>(on_present);
+			reshade::register_event<reshade::addon_event::finish_present>(on_finish_present);
 			reshade::register_event<reshade::addon_event::draw_indexed>(on_draw_indexed);
 			reshade::register_event<reshade::addon_event::init_pipeline>(on_init_pipeline);
 			reshade::register_event<reshade::addon_event::create_resource_view>(on_create_resource_view);
 			reshade::register_event<reshade::addon_event::create_resource>(on_create_resource);
+			reshade::register_event<reshade::addon_event::create_sampler>(on_create_sampler);
 			reshade::register_event<reshade::addon_event::set_fullscreen_state>(on_set_fullscreen_state);
 			reshade::register_event<reshade::addon_event::create_swapchain>(on_create_swapchain);
 			reshade::register_event<reshade::addon_event::init_swapchain>(on_init_swapchain);

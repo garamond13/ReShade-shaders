@@ -1,4 +1,4 @@
-#include "Color.hlsli"
+#include "Include/Common.hlsli"
 
 Texture3D<float4> t2 : register(t2); // LUT 32x32x32
 Texture2D<float4> t1 : register(t1); // bloom
@@ -62,7 +62,7 @@ void main(
   //r0.yzw = t2.Sample(s2_s, r0.yzw).xyz;
 
   // Tetrahedral LUT sampling.
-  r0.yzw = sample_tetrahedral(r0.yzw, t2, 32);
+  r0.yzw = sample_tetrahedral(t2, r0.yzw, 32);
 
   #if 0 // Original dithering.
   r0.x = r0.x * 0.00390625 + -0.001953125; // 8bit
