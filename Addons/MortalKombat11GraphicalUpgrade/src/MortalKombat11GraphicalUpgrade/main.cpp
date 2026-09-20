@@ -2,7 +2,11 @@
 #define OUTPUT_ASSEMBLY 0
 #include "Include/GraphicalUpgrade.h"
 #include "Include/GraphicalUpgradeCB.hlsli.h"
-#include "DLSS.h"
+#include "DLSS/DLSS.h"
+
+extern "C" __declspec(dllexport) const char* NAME = "MortalKombat11GraphicalUpgrade";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "v2.0.0";
+extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/MortalKombat11GraphicalUpgrade";
 
 struct alignas(16) ViewConstants
 {
@@ -31,8 +35,8 @@ struct alignas(16) ViewConstants
 	
 	struct
 	{
-	  float4 Color;
-	  float4 DistanceDensity;
+		float4 Color;
+		float4 DistanceDensity;
 	} _PRIVATE_FogBandData[8];
 	
 	float3 _PRIVATE_ViewDirection;
@@ -76,17 +80,26 @@ constexpr Shader_hash g_cs_tonemap_0x70DD8EDC = { 0x70DD8EDC, { 0xbcd8fd0d, 0xcc
 
 //
 
+static ID3D11Device* g_device;
+static IDXGISwapChain* g_swapchain;
+static Managed_resources g_managed_resources;
 static int g_swapchain_width;
 static int g_swapchain_height;
 static bool g_force_vsync_off = true;
-static bool g_force_borderless = true;
+static bool g_force_modern_windowed = true;
 static bool g_hdr_fix;
-static IDXGISwapChain* g_swapchain;
 
-// DLSS.
+// DLSS
+constexpr int g_dlss_flags{
+	NVSDK_NGX_DLSS_Feature_Flags_IsHDR |
+	NVSDK_NGX_DLSS_Feature_Flags_MVLowRes |
+	NVSDK_NGX_DLSS_Feature_Flags_DepthInverted |
+	NVSDK_NGX_DLSS_Feature_Flags_AutoExposure
+};
+static NVSDK_NGX_DLSS_Hint_Render_Preset g_dlss_preset = NVSDK_NGX_DLSS_Hint_Render_Preset_Default;
+static int g_user_set_dlss_preset;
 static bool g_enable_dlss;
-static DLSS_PRESET g_dlss_preset = DLSS_PRESET_F;
-static uintptr_t g_dlss_device;
+static bool g_dlss_status;
 static float g_jitter_x;
 static float g_jitter_y;
 
@@ -94,28 +107,25 @@ static void draw_dlss(ID3D11DeviceContext* ctx)
 {
 	assert(ctx->GetType() == D3D11_DEVICE_CONTEXT_IMMEDIATE);
 
+	std::array<ID3D11ShaderResourceView*, 4> srvs;
+	ctx->CSGetShaderResources(0, srvs.size(), srvs.data());
+
 	// Get depth resource.
-	Com_ptr<ID3D11ShaderResourceView> srv_stencil;
-	ctx->CSGetShaderResources(0, 1, srv_stencil.put());
 	Com_ptr<ID3D11Resource> resource_depth;
-	srv_stencil->GetResource(resource_depth.put());
+	srvs[0]->GetResource(resource_depth.put());
 
 	// Get scene resource.
-	Com_ptr<ID3D11ShaderResourceView> srv_scene;
-	ctx->CSGetShaderResources(1, 1, srv_scene.put());
 	Com_ptr<ID3D11Resource> resource_scene;
-	srv_scene->GetResource(resource_scene.put());
+	srvs[1]->GetResource(resource_scene.put());
 
 	// Get MVs resource.
-	Com_ptr<ID3D11ShaderResourceView> srv_mvs;
-	ctx->CSGetShaderResources(3, 1, srv_mvs.put());
 	Com_ptr<ID3D11Resource> resource_mvs;
-	srv_mvs->GetResource(resource_mvs.put());
+	srvs[3]->GetResource(resource_mvs.put());
 
 	// Get TAA resource.
-	Com_ptr<ID3D11Resource> resource_taa;
 	Com_ptr<ID3D11UnorderedAccessView> uav_taa;
 	ctx->CSGetUnorderedAccessViews(1, 1, uav_taa.put());
+	Com_ptr<ID3D11Resource> resource_taa;
 	uav_taa->GetResource(resource_taa.put());
 
 	// These need to be valid.
@@ -138,11 +148,13 @@ static void draw_dlss(ID3D11DeviceContext* ctx)
 	eval_params.InRenderSubrectDimensions.Width = g_swapchain_width;
 	eval_params.InRenderSubrectDimensions.Height = g_swapchain_height;
 
-	// Jitters are in NDC offsets so we need to scale them to pixel offsets for DLSS.
-	eval_params.InJitterOffsetX = g_jitter_x * (float)g_swapchain_width * -1.0;
-	eval_params.InJitterOffsetY = g_jitter_y * (float)g_swapchain_height * 1.0;
+	// Jitters are in projection offsets so we need to rescale them to pixel offsets for DLSS.
+	eval_params.InJitterOffsetX = g_jitter_x * (float)g_swapchain_width * -0.5;
+	eval_params.InJitterOffsetY = g_jitter_y * (float)g_swapchain_height * 0.5;
 
-	DLSS::instance().draw(ctx, eval_params);
+	g_dlss_status = DLSS::get_instance().draw(ctx, eval_params);
+
+	release_com_array(srvs);
 }
 
 static bool on_dispatch(reshade::api::command_list* cmd_list, uint32_t group_count_x, uint32_t group_count_y, uint32_t group_count_z)
@@ -155,9 +167,18 @@ static bool on_dispatch(reshade::api::command_list* cmd_list, uint32_t group_cou
 	Com_ptr<ID3D11ComputeShader> cs;
 	ctx->CSGetShader(cs.put(), nullptr, nullptr);
 
+	#if DEV
+	Com_ptr<ID3D11Device> device;
+	ctx->GetDevice(device.put());
+	assert(device == g_device);
+	#endif
+
 	uint32_t hash;
-	UINT size = sizeof(hash);
-	auto hr = cs->GetPrivateData(g_cs_taa_0xA5BFCBC9.guid, &size, &hash);
+	UINT size;
+	HRESULT hr;
+
+	size = sizeof(hash);
+	hr = cs->GetPrivateData(g_cs_taa_0xA5BFCBC9.guid, &size, &hash);
 	if (SUCCEEDED(hr) && hash == g_cs_taa_0xA5BFCBC9.hash) {
 		if (g_enable_dlss) {
 			draw_dlss(ctx);
@@ -180,6 +201,9 @@ static bool on_dispatch(reshade::api::command_list* cmd_list, uint32_t group_cou
 	hr = cs->GetPrivateData(g_cs_post_taa_sharpen_0xABAF5929.guid, &size, &hash);
 	if (SUCCEEDED(hr) && hash == g_cs_post_taa_sharpen_0xABAF5929.hash) {
 		if (g_enable_dlss) {
+			// We can't just skip this draw.
+			// SRV0 is the TAA out, and the UAV is empty and later read.
+
 			// Get SRV resource.
 			Com_ptr<ID3D11ShaderResourceView> srv;
 			ctx->CSGetShaderResources(0, 1, srv.put());
@@ -192,7 +216,6 @@ static bool on_dispatch(reshade::api::command_list* cmd_list, uint32_t group_cou
 			Com_ptr<ID3D11Resource> resource_uav;
 			uav->GetResource(resource_uav.put());
 
-			// Just copy the scene and skip the original draw.
 			ctx->CopyResource(resource_uav.get(), resource_srv.get());
 			return true;
 		}
@@ -202,13 +225,14 @@ static bool on_dispatch(reshade::api::command_list* cmd_list, uint32_t group_cou
 	size = sizeof(hash);
 	hr = cs->GetPrivateData(g_cs_tonemap_0x70DD8EDC.guid, &size, &hash);
 	if (SUCCEEDED(hr) && hash == g_cs_tonemap_0x70DD8EDC.hash) {
-		// Create PS.
-		[[unlikely]] if (!g_cs["tonemap_0x70DD8EDC"_h]) {
-			Com_ptr<ID3D11Device> device;
-			ctx->GetDevice(device.put());
-			create_compute_shader(device.get(), g_cs["tonemap_0x70DD8EDC"_h].put(), L"Tonemap_0x70DD8EDC_cs.hlsl");
+		// Create CS.
+		[[unlikely]] if (!g_managed_resources.compute_shaders["tonemap_0x70DD8EDC"_h]) {
+			create_compute_shader(g_device, g_managed_resources.compute_shaders["tonemap_0x70DD8EDC"_h].put(), L"Tonemap_0x70DD8EDC_cs.hlsl");
 		}
-		ctx->CSSetShader(g_cs["tonemap_0x70DD8EDC"_h].get(), nullptr, 0);
+
+		// Bindings.
+		ctx->CSSetShader(g_managed_resources.compute_shaders["tonemap_0x70DD8EDC"_h].get(), nullptr, 0);
+
 		return false;
 	}
 
@@ -223,16 +247,16 @@ static void on_init_pipeline(reshade::api::device* device, reshade::api::pipelin
 			const auto hash = compute_crc32((const uint8_t*)desc->code, desc->code_size);
 			switch (hash) {
 				case g_cs_taa_0xA5BFCBC9.hash:
-					ensure(((ID3D11PixelShader*)pipeline.handle)->SetPrivateData(g_cs_taa_0xA5BFCBC9.guid, sizeof(g_cs_taa_0xA5BFCBC9.hash), &g_cs_taa_0xA5BFCBC9.hash), >= 0);
+					ensure(((ID3D11ComputeShader*)pipeline.handle)->SetPrivateData(g_cs_taa_0xA5BFCBC9.guid, sizeof(g_cs_taa_0xA5BFCBC9.hash), &g_cs_taa_0xA5BFCBC9.hash), >= 0);
 					return;
 				case g_cs_taa_0xF529F5BE.hash:
-					ensure(((ID3D11PixelShader*)pipeline.handle)->SetPrivateData(g_cs_taa_0xF529F5BE.guid, sizeof(g_cs_taa_0xF529F5BE.hash), &g_cs_taa_0xF529F5BE.hash), >= 0);
+					ensure(((ID3D11ComputeShader*)pipeline.handle)->SetPrivateData(g_cs_taa_0xF529F5BE.guid, sizeof(g_cs_taa_0xF529F5BE.hash), &g_cs_taa_0xF529F5BE.hash), >= 0);
 					return;
 				case g_cs_post_taa_sharpen_0xABAF5929.hash:
-					ensure(((ID3D11PixelShader*)pipeline.handle)->SetPrivateData(g_cs_post_taa_sharpen_0xABAF5929.guid, sizeof(g_cs_post_taa_sharpen_0xABAF5929.hash), &g_cs_post_taa_sharpen_0xABAF5929.hash), >= 0);
+					ensure(((ID3D11ComputeShader*)pipeline.handle)->SetPrivateData(g_cs_post_taa_sharpen_0xABAF5929.guid, sizeof(g_cs_post_taa_sharpen_0xABAF5929.hash), &g_cs_post_taa_sharpen_0xABAF5929.hash), >= 0);
 					return;
 				case g_cs_tonemap_0x70DD8EDC.hash:
-					ensure(((ID3D11PixelShader*)pipeline.handle)->SetPrivateData(g_cs_tonemap_0x70DD8EDC.guid, sizeof(g_cs_tonemap_0x70DD8EDC.hash), &g_cs_tonemap_0x70DD8EDC.hash), >= 0);
+					ensure(((ID3D11ComputeShader*)pipeline.handle)->SetPrivateData(g_cs_tonemap_0x70DD8EDC.guid, sizeof(g_cs_tonemap_0x70DD8EDC.hash), &g_cs_tonemap_0x70DD8EDC.hash), >= 0);
 					return;
 			}
 		}
@@ -249,20 +273,12 @@ static bool on_create_resource_view(reshade::api::device* device, reshade::api::
 			desc.format = reshade::api::format::r16g16b16a16_float;
 			return true;
 		}
-		if (resource_desc.texture.format == reshade::api::format::r16g16b16a16_unorm) {
-			desc.format = reshade::api::format::r16g16b16a16_unorm;
-			return true;
-		}
 		if (resource_desc.texture.format == reshade::api::format::r32g32_float) {
 			desc.format = reshade::api::format::r32g32_float;
 			return true;
 		}
 		if (resource_desc.texture.format == reshade::api::format::r32_float) {
 			desc.format = reshade::api::format::r32_float;
-			return true;
-		}
-		if (resource_desc.texture.format == reshade::api::format::r16_unorm) {
-			desc.format = reshade::api::format::r16_unorm;
 			return true;
 		}
 	}
@@ -287,27 +303,21 @@ static bool on_create_resource(reshade::api::device* device, reshade::api::resou
 	}
 
 	// Filter RTs and UAVs.
-	// Upgrading r10g10b10a2_unorm breaks HDR.
-	// Upgrading r8g8b8a8_unorm is creasing the game on save customized character.
 	if ((desc.usage & reshade::api::resource_usage::render_target) != 0 || (desc.usage & reshade::api::resource_usage::unordered_access) != 0) {
 		if (desc.texture.format == reshade::api::format::r11g11b10_float) {
 			desc.texture.format = reshade::api::format::r16g16b16a16_float;
 			return true;
 		}
-		if (desc.texture.format == reshade::api::format::r8g8b8a8_unorm_srgb) {
-			desc.texture.format = reshade::api::format::r16g16b16a16_unorm;
-			return true;
-		}
+
+		// Motion vecotrs.
 		if (desc.texture.format == reshade::api::format::r16g16_float) {
 			desc.texture.format = reshade::api::format::r32g32_float;
 			return true;
 		}
+
+		// Depth.
 		if (desc.texture.format == reshade::api::format::r16_float) {
 			desc.texture.format = reshade::api::format::r32_float;
-			return true;
-		}
-		if (desc.texture.format == reshade::api::format::r8_unorm) {
-			desc.texture.format = reshade::api::format::r16_unorm;
 			return true;
 		}
 	}
@@ -320,15 +330,17 @@ static bool on_create_sampler(reshade::api::device* device, reshade::api::sample
 	if (desc.filter == reshade::api::filter_mode::anisotropic) {
 		// As recommended for DLAA.
 		desc.mip_lod_bias += -1.0f;
+
 		return true;
 	}
+
 	return false;
 }
 
 // Prevent entering fullscreen mode.
 static bool on_set_fullscreen_state(reshade::api::swapchain* swapchain, bool fullscreen, void* hmonitor)
 {
-	if (g_force_borderless && fullscreen) {
+	if (g_force_modern_windowed && fullscreen) {
 		return true;
 	}
 	return false;
@@ -340,14 +352,16 @@ static bool on_create_swapchain(reshade::api::device_api api, reshade::api::swap
 	return false;
 	#endif
 
-	if (g_force_borderless) {
+	if (g_force_modern_windowed) {
 		desc.back_buffer_count = std::max(2u, desc.back_buffer_count);
 		desc.present_mode = DXGI_SWAP_EFFECT_FLIP_DISCARD;
 		desc.fullscreen_state = false;
 	}
 
 	if (g_force_vsync_off) {
-		desc.present_flags |= g_force_borderless ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0;
+		if (g_force_modern_windowed) {
+			desc.present_flags |= DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
+		}
 		desc.fullscreen_refresh_rate = 0.0f;
 		desc.sync_interval = 0;
 	}
@@ -361,6 +375,9 @@ static void on_init_swapchain(reshade::api::swapchain* swapchain, bool resize)
 	DXGI_SWAP_CHAIN_DESC desc;
 	g_swapchain->GetDesc(&desc);
 
+	// Save device.
+	g_device = (ID3D11Device*)swapchain->get_device()->get_native();
+
 	// Save swapchain size.
 	g_swapchain_width = desc.BufferDesc.Width;
 	g_swapchain_height = desc.BufferDesc.Height;
@@ -372,13 +389,12 @@ static void on_init_swapchain(reshade::api::swapchain* swapchain, bool resize)
 	}
 
 	if (g_enable_dlss) {
-		Com_ptr<ID3D11Device> device;
-		ensure(g_swapchain->GetDevice(IID_PPV_ARGS(device.put())), >= 0);
 		Com_ptr<ID3D11DeviceContext> ctx;
-		device->GetImmediateContext(ctx.put());
-		DLSS::instance().init(device.get());
-		DLSS::instance().create_feature(ctx.get(), g_swapchain_width, g_swapchain_height, g_dlss_preset);
-		g_dlss_device = (uintptr_t)device.get();
+		g_device->GetImmediateContext(ctx.put());
+		if (!resize) {
+			DLSS::get_instance().init(g_device);
+		}
+		DLSS::get_instance().create_feature(ctx.get(), g_swapchain_width, g_swapchain_height, g_dlss_preset, g_dlss_flags);
 	}
 }
 
@@ -397,48 +413,56 @@ static void on_init_device(reshade::api::device* device)
 
 	// Set maximum frame latency to 1.
 	auto native_device = (ID3D11Device*)device->get_native();
-	Com_ptr<IDXGIDevice1> device1;
-	auto hr = native_device->QueryInterface(device1.put());
+	Com_ptr<IDXGIDevice1> dxgi_device;
+	auto hr = native_device->QueryInterface(dxgi_device.put());
 	if (SUCCEEDED(hr)) {
-		ensure(device1->SetMaximumFrameLatency(1), >= 0);
+		ensure(dxgi_device->SetMaximumFrameLatency(1), >= 0);
 	}
 }
 
 static void on_destroy_device(reshade::api::device* device)
 {
-	if (g_enable_dlss && device->get_native() == g_dlss_device) {
-		DLSS::instance().shutdown();
-		g_dlss_device = 0;
+	if (device->get_native() != (uintptr_t)g_device) {
+		return;
 	}
-
-	clear_device_resources();
+	if (g_enable_dlss) {
+		DLSS::get_instance().shutdown();
+	}
+	g_managed_resources.clear();
 }
 
 static void read_config()
 {
-	if (!reshade::get_config_value(nullptr, "MortalKombat11GraphicalUpgrade", "EnableDLSS", g_enable_dlss)) {
-		reshade::set_config_value(nullptr, "MortalKombat11GraphicalUpgrade", "EnableDLSS", g_enable_dlss);
+	if (!reshade::get_config_value(nullptr, NAME, "EnableDLSS", g_enable_dlss)) {
+		reshade::set_config_value(nullptr, NAME, "EnableDLSS", g_enable_dlss);
 	}
-	if (!reshade::get_config_value(nullptr, "MortalKombat11GraphicalUpgrade", "DLSSPreset", g_dlss_preset)) {
-		reshade::set_config_value(nullptr, "MortalKombat11GraphicalUpgrade", "DLSSPreset", g_dlss_preset);
+
+	if (!reshade::get_config_value(nullptr, NAME, "DLSSPreset", g_user_set_dlss_preset)) {
+		reshade::set_config_value(nullptr, NAME, "DLSSPreset", g_user_set_dlss_preset);
 	}
-	if (!reshade::get_config_value(nullptr, "MortalKombat11GraphicalUpgrade", "ForceVsyncOff", g_force_vsync_off)) {
-		reshade::set_config_value(nullptr, "MortalKombat11GraphicalUpgrade", "ForceVsyncOff", g_force_vsync_off);
+	switch (g_user_set_dlss_preset) {
+			case 0: g_dlss_preset = NVSDK_NGX_DLSS_Hint_Render_Preset_Default; break;
+			case 1: g_dlss_preset = NVSDK_NGX_DLSS_Hint_Render_Preset_E; break;
+			case 2: g_dlss_preset = NVSDK_NGX_DLSS_Hint_Render_Preset_F; break;
+			case 3: g_dlss_preset = NVSDK_NGX_DLSS_Hint_Render_Preset_K; break;
+			case 4: g_dlss_preset = NVSDK_NGX_DLSS_Hint_Render_Preset_L; break;
+			case 5: g_dlss_preset = NVSDK_NGX_DLSS_Hint_Render_Preset_M; break;
+			default: assert(false);
 	}
-	if (!reshade::get_config_value(nullptr, "MortalKombat11GraphicalUpgrade", "ForceBorderless", g_force_borderless)) {
-		reshade::set_config_value(nullptr, "MortalKombat11GraphicalUpgrade", "ForceBorderless", g_force_borderless);
+
+	if (!reshade::get_config_value(nullptr, NAME, "ForceModernWindowed", g_force_modern_windowed)) {
+		reshade::set_config_value(nullptr, NAME, "ForceModernWindowed", g_force_modern_windowed);
 	}
-	if (!reshade::get_config_value(nullptr, "MortalKombat11GraphicalUpgrade", "HDRFix", g_hdr_fix)) {
-		reshade::set_config_value(nullptr, "MortalKombat11GraphicalUpgrade", "HDRFix", g_hdr_fix);
+	if (!reshade::get_config_value(nullptr, NAME, "ForceVsyncOff", g_force_vsync_off)) {
+		reshade::set_config_value(nullptr, NAME, "ForceVsyncOff", g_force_vsync_off);
+	}
+	if (!reshade::get_config_value(nullptr, NAME, "HDRFix", g_hdr_fix)) {
+		reshade::set_config_value(nullptr, NAME, "HDRFix", g_hdr_fix);
 	}
 }
 
 static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 {
-	auto device = (ID3D11Device*)runtime->get_device()->get_native();
-	Com_ptr<ID3D11DeviceContext> ctx;
-	device->GetImmediateContext(ctx.put());
-
 	#if DEV
 	if (ImGui::Button("Dev button")) {
 	}
@@ -446,10 +470,10 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 
 	// The game may set this a bit later.
 	if (ImGui::Button("Check MaximumFrameLatency")) {
-		Com_ptr<IDXGIDevice1> device1;
-		ensure(device->QueryInterface(device1.put()), >= 0);
+		Com_ptr<IDXGIDevice1> dxgi_device;
+		ensure(g_device->QueryInterface(dxgi_device.put()), >= 0);
 		UINT max_latency;
-		ensure(device1->GetMaximumFrameLatency(&max_latency), >= 0);
+		ensure(dxgi_device->GetMaximumFrameLatency(&max_latency), >= 0);
 		log_debug("MaximumFrameLatency: {}", max_latency);
 	}
 	ImGui::NewLine();
@@ -457,35 +481,55 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 
 	if (ImGui::Checkbox("Enable DLSS (DLAA)", &g_enable_dlss)) {
 		if (g_enable_dlss) {
-			DLSS::instance().init(device);
-			DLSS::instance().create_feature(ctx.get(), g_swapchain_width, g_swapchain_height, g_dlss_preset);
-			g_dlss_device = (uintptr_t)device;
+			Com_ptr<ID3D11DeviceContext> ctx;
+			g_device->GetImmediateContext(ctx.put());
+			DLSS::get_instance().init(g_device);
+			DLSS::get_instance().create_feature(ctx.get(), g_swapchain_width, g_swapchain_height, g_dlss_preset, g_dlss_flags);
 		}
 		else {
-			DLSS::instance().shutdown();
-			g_dlss_device = 0;
+			DLSS::get_instance().shutdown();
 		}
-		reshade::set_config_value(nullptr, "MortalKombat11GraphicalUpgrade", "EnableDLSS", g_enable_dlss);
+		reshade::set_config_value(nullptr, NAME, "EnableDLSS", g_enable_dlss);
 	}
 	ImGui::BeginDisabled(!g_enable_dlss);
-	static constexpr std::array dlss_preset_items = { "E", "F", "K", "L", "M" };
-	if (ImGui::Combo("DLSS preset", &g_dlss_preset, dlss_preset_items.data(), dlss_preset_items.size())) {
-		reshade::set_config_value(nullptr, "MortalKombat11GraphicalUpgrade", "DLSSPreset", g_dlss_preset);
-		DLSS::instance().create_feature(ctx.get(), g_swapchain_width, g_swapchain_height, g_dlss_preset);
+	static constexpr std::array dlss_preset_items = { "Default", "E", "F", "K", "L", "M" };
+	if (ImGui::Combo("DLSS preset", &g_user_set_dlss_preset, dlss_preset_items.data(), dlss_preset_items.size())) {
+		switch (g_user_set_dlss_preset) {
+			case 0: g_dlss_preset = NVSDK_NGX_DLSS_Hint_Render_Preset_Default; break;
+			case 1: g_dlss_preset = NVSDK_NGX_DLSS_Hint_Render_Preset_E; break;
+			case 2: g_dlss_preset = NVSDK_NGX_DLSS_Hint_Render_Preset_F; break;
+			case 3: g_dlss_preset = NVSDK_NGX_DLSS_Hint_Render_Preset_K; break;
+			case 4: g_dlss_preset = NVSDK_NGX_DLSS_Hint_Render_Preset_L; break;
+			case 5: g_dlss_preset = NVSDK_NGX_DLSS_Hint_Render_Preset_M; break;
+			default: assert(false);
+		}
+		Com_ptr<ID3D11DeviceContext> ctx;
+		g_device->GetImmediateContext(ctx.put());
+		DLSS::get_instance().create_feature(ctx.get(), g_swapchain_width, g_swapchain_height, g_dlss_preset, g_dlss_flags);
+		reshade::set_config_value(nullptr, NAME, "DLSSPreset", g_user_set_dlss_preset);
+	}
+	if (g_enable_dlss) {
+		if (g_dlss_status) {
+			ImGui::Text("DLSS status: OK.");
+		}
+		else {
+			ImGui::Text("DLSS status: Faild or not running!");
+		}
+		g_dlss_status = false;
 	}
 	ImGui::EndDisabled();
 	ImGui::Spacing();
 
-	if (ImGui::Checkbox("Force vsync off", &g_force_vsync_off)) {
-		reshade::set_config_value(nullptr, "MortalKombat11GraphicalUpgrade", "ForceVsyncOff", g_force_vsync_off);
+	if (ImGui::Checkbox("Force modern windowed", &g_force_modern_windowed)) {
+		reshade::set_config_value(nullptr, NAME, "ForceModernWindowed", g_force_modern_windowed);
 	}
 	if (ImGui::IsItemHovered()) {
-		ImGui::SetItemTooltip("Requires restart.");
+		ImGui::SetItemTooltip("Forces modern borderless or non borderless windowed mod.\nRequires restart.");
 	}
 	ImGui::Spacing();
-	
-	if (ImGui::Checkbox("Force borderless", &g_force_borderless)) {
-		reshade::set_config_value(nullptr, "MortalKombat11GraphicalUpgrade", "ForceBorderless", g_force_borderless);
+
+	if (ImGui::Checkbox("Force vsync off", &g_force_vsync_off)) {
+		reshade::set_config_value(nullptr, NAME, "ForceVsyncOff", g_force_vsync_off);
 	}
 	if (ImGui::IsItemHovered()) {
 		ImGui::SetItemTooltip("Requires restart.");
@@ -503,14 +547,10 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 			swapchain3->SetColorSpace1(DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709);
 			runtime->set_color_space(reshade::api::color_space::srgb);
 		}
-		reshade::set_config_value(nullptr, "MortalKombat11GraphicalUpgrade", "HDRFix", g_hdr_fix);
+		reshade::set_config_value(nullptr, NAME, "HDRFix", g_hdr_fix);
 	}
 	ImGui::Spacing();
 }
-
-extern "C" __declspec(dllexport) const char* NAME = "MortalKombat11GraphicalUpgrade";
-extern "C" __declspec(dllexport) const char* DESCRIPTION = "MortalKombat11GraphicalUpgrade v1.1.1";
-extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/MortalKombat11GraphicalUpgrade";
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)
 {

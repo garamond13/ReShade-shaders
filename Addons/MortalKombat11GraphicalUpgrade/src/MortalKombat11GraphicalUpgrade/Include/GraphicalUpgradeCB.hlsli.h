@@ -7,7 +7,7 @@
 
 #ifdef __cplusplus
 #include "GraphicalUpgrade/HLSLTypes.h"
-#define GRAPHICAL_UPGRADE_CB_BEGIN struct alignas(16) Graphical_upgrade_cb {
+#define GRAPHICAL_UPGRADE_CB_BEGIN struct alignas(16) Graphical_upgrade_cb_data {
 #define GRAPHICAL_UPGRADE_CB_END };
 #define row_major
 #define column_major

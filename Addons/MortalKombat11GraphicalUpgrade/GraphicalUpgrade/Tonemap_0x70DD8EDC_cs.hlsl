@@ -1,3 +1,5 @@
+#include "Include/Common.hlsli"
+
 cbuffer _Globals : register(b0)
 {
   bool bUseBlurSkinning : packoffset(c0);
@@ -95,65 +97,23 @@ SamplerState BilinearClampedSamplerState_s : register(s0);
 SamplerState Bilinear3DClampedSamplerState_s : register(s1);
 Texture2D<float4> UIInputTexture : register(t0);
 Texture2D<float3> ColorInputTexture : register(t1);
-Texture3D<float4> TonemappingLUT : register(t2); // 32x32x32
+Texture3D<float4> TonemappingLUT : register(t2);
 RWTexture2D<unorm float4> OutputSurface : register(u0);
 
 // 3Dmigoto declarations
 #define cmp -
 
-float3 sample_tetrahedral(float3 color, Texture3D lut, int lut_size)
-{
-  const float3 coord = saturate(color) * (float)(lut_size - 1);
-
-  // See https://doi.org/10.2312/egp.20211031
-  //
-
-  const float3 r = frac(coord);
-  bool cond;
-  float3 s = 0.0;
-  int3 vert2 = 0;
-  int3 vert3 = 1;
-  const bool3 c = r.xyz >= r.yzx;
-  const bool c_xy = c.x;
-  const bool c_yz = c.y;
-  const bool c_zx = c.z;
-  const bool c_yx = !c.x;
-  const bool c_zy = !c.y;
-  const bool c_xz = !c.z;
-
-  #define order(x,y,z) \
-  cond = c_ ## x ## y && c_ ## y ## z; \
-  s = cond ? r.x ## y ## z : s; \
-  vert2.x = cond ? 1 : vert2.x; \
-  vert3.z = cond ? 0 : vert3.z;
-
-  order(x, y, z)
-  order(x, z, y)
-  order(z, x, y)
-  order(z, y, x)
-  order(y, z, x)
-  order(y, x, z)
-
-  const float4 bary = float4(1.0 - s.x, s.z, s.x - s.y, s.y - s.z);
-
-  //
-
-  // Interpolate between 4 vertices using barycentric weights.
-  const int3 base = floor(coord);
-  const float3 v0 = lut.Load(int4(base, 0)).rgb * bary.x;
-  const float3 v1 = lut.Load(int4(base + 1, 0)).rgb * bary.y;
-  const float3 v2 = lut.Load(int4(base + vert2, 0)).rgb * bary.z;
-  const float3 v3 = lut.Load(int4(base + vert3, 0)).rgb * bary.w;
-  return v0 + v1 + v2 + v3;
-}
-
 [numthreads(8, 8, 1)]
 void main(uint3 vThreadID : SV_DispatchThreadID)
 {
+// Needs manual fix for instruction:
+// unknown dcl_: dcl_uav_typed_texture2d (unorm,unorm,unorm,unorm) u0
   float4 r0,r1,r2,r3,r4,r5;
   uint4 bitmask, uiDest;
   float4 fDest;
 
+// Needs manual fix for instruction:
+// unknown dcl_: dcl_thread_group 8, 8, 1
   r0.xyzw = min((uint4)iFramebufferDimensions.xyyy, (uint4)vThreadID.xyyy);
   r1.xy = (uint2)vThreadID.xy;
   r1.zw = cmp(r1.xy >= UIViewport.xy);
@@ -167,7 +127,9 @@ void main(uint3 vThreadID : SV_DispatchThreadID)
     r1.xy = UIBufferSize.zw * r1.xy;
     r1.xyzw = UIInputTexture.SampleLevel(BilinearClampedSamplerState_s, r1.xy, 0).xyzw;
   } else {
-    OutputSurface[r0.xw] = float4(0,0,0,0);
+  // No code for instruction (needs manual fix):
+    //store_uav_typed u0.xyzw, r0.xwww, l(0,0,0,0)
+    OutputSurface[r0.xw] = 0.0;
     return;
   }
   r2.xy = (uint2)r0.xw;
@@ -212,7 +174,7 @@ void main(uint3 vThreadID : SV_DispatchThreadID)
     //r3.xyz = TonemappingLUT.SampleLevel(Bilinear3DClampedSamplerState_s, r3.xyz, 0).xyz;
 
     // Tetrahedral LUT sampling.
-    r3.xyz = sample_tetrahedral(r3.xyz, TonemappingLUT, 32);
+    r3.xyz = sample_tetrahedral(TonemappingLUT, r3.xyz, 32);
 
     r4.xyz = float3(12.9200001,12.9200001,12.9200001) * r1.xyz;
     r5.xyz = log2(abs(r1.xyz));
@@ -223,7 +185,9 @@ void main(uint3 vThreadID : SV_DispatchThreadID)
     r1.xyz = r1.xyz ? r4.xyz : r5.xyz;
     r1.xyz = r3.xyz * float3(1.04999995,1.04999995,1.04999995) + r1.xyz;
     r1.w = 1;
-    OutputSurface[r0.xw] = r1.xyzw;
+  // No code for instruction (needs manual fix):
+    //store_uav_typed u0.xyzw, r0.xwww, r1.xyzw
+    OutputSurface[r0.xw] = r1;
   } else {
     r1.xyz = float3(0.00266771927,0.00266771927,0.00266771927) + r2.xyz;
     r1.xyz = log2(r1.xyz);
@@ -235,11 +199,13 @@ void main(uint3 vThreadID : SV_DispatchThreadID)
     //r1.xyz = TonemappingLUT.SampleLevel(Bilinear3DClampedSamplerState_s, r1.xyz, 0).xyz;
 
     // Tetrahedral LUT sampling.
-    r1.xyz = sample_tetrahedral(r1.xyz, TonemappingLUT, 32);
+    r1.xyz = sample_tetrahedral(TonemappingLUT, r1.xyz, 32);
 
     r1.xyz = float3(1.04999995,1.04999995,1.04999995) * r1.xyz;
     r1.w = 1;
-    OutputSurface[r0.xy] = r1.xyzw;
+  // No code for instruction (needs manual fix):
+    //store_uav_typed u0.xyzw, r0.xyzw, r1.xyzw
+    OutputSurface[r0.xy] = r1;
   }
   return;
 }

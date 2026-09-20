@@ -8,12 +8,13 @@
 
 ## Usage
 
-- Install ReShade 6.7.3 or newer with full add-on support.
+- Install ReShade 6.8.0 or newer with full add-on support.
 - Copy **MortalKombat11GraphicalUpgrade.addon64**, **nvngx_dlss.dll** and **GraphicalUpgrade** folder into the game folder where **MK11.exe** is (ReShade should be installed in the same folder).
 
 ## Notes
 
- - HDR may not work properly with borderless window. Turn off "Force borderless" in MortalKombat11GraphicalUpgrade options.
+ - HDR may not work properly with borderless window.
+ - It works (should be used) with DirectX 11 only.
 
 ## Compilation
 
