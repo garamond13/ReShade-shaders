@@ -97,7 +97,7 @@ void main(
   r3.xyz = bloomdustmappbr_samp.SampleLevel(bloomdustmappbr_samp_state_s, r0.xy, 0).xyz;
   r2.xyz = r3.xyz * r2.xyz + r2.xyz;
   #endif
-  
+
   r3.xyz = float3(1,1,1) / cgbloomgamma.xyz;
   r2.xyz = log2(r2.xyz);
   r2.xyz = r3.xyz * r2.xyz;

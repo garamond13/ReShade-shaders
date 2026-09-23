@@ -5,7 +5,7 @@
 #include "DLSS/DLSS.h"
 
 extern "C" __declspec(dllexport) const char* NAME = "TheEvilWithin2GraphicalUpgrade";
-extern "C" __declspec(dllexport) const char* DESCRIPTION = "v1.0.0";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "v2.0.0";
 extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/TheEvilWithin2GraphicalUpgrade";
 
 struct alignas(16) fblock
@@ -33,8 +33,6 @@ constexpr Shader_hash g_ps_tonemap_0xB13F7764 = { 0xB13F7764, { 0xa03d5123, 0xb9
 
 static ID3D11Device* g_device;
 static Managed_resources g_managed_resources;
-static Graphical_upgrade_cb_data g_cb_data;
-static Com_ptr<ID3D11Buffer> g_cb;
 static int g_swapchain_width;
 static int g_swapchain_height;
 uintptr_t g_mapped_cb_handle;
@@ -68,7 +66,7 @@ static std::chrono::duration<double> g_accounted_error; // in seconds
 
 //
 
-static void on_present(reshade::api::command_queue* queue, reshade::api::swapchain* swapchain, const reshade::api::rect* source_rect, const reshade::api::rect* dest_rect, uint32_t dirty_rect_count, const reshade::api::rect* dirty_rects)
+static void on_finish_present(reshade::api::command_queue* queue, reshade::api::swapchain* swapchain)
 {
 	static std::chrono::high_resolution_clock::time_point start;
 
@@ -115,26 +113,22 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 			assert(ctx->GetType() == D3D11_DEVICE_CONTEXT_IMMEDIATE);
 
 			// Get SRVs.
-			std::array<ID3D11ShaderResourceView*, 3> srvs;
-			ctx->PSGetShaderResources(0, srvs.size(), srvs.data());
+			Com_ptr<ID3D11ShaderResourceView> srv_depth;
+			ctx->PSGetShaderResources(0, 1, srv_depth.put());
 
 			// Get SRV0 resource, depth.
 			Com_ptr<ID3D11Resource> resource_depth;
-			srvs[0]->GetResource(resource_depth.put());
-
-			// Get SRV2 resource, scene.
-			Com_ptr<ID3D11Resource> resource_scene;
-			srvs[2]->GetResource(resource_scene.put());
+			srv_depth->GetResource(resource_depth.put());
 
 			// Get RTVs.
 			std::array<ID3D11RenderTargetView*, 3> rtvs;
 			ctx->OMGetRenderTargets(rtvs.size(), rtvs.data(), nullptr);
 
 			// Get RTV1 resource, TAA out.
-			Com_ptr<ID3D11Resource> resource_rt;
-			rtvs[1]->GetResource(resource_rt.put());
+			Com_ptr<ID3D11Resource> resource_scene;
+			rtvs[1]->GetResource(resource_scene.put());
 
-			// MVs pass
+			// PreDLSS pass
 			//
 
 			// Create PS.
@@ -157,24 +151,27 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 			}
 
 			// Bindings.
-			const std::array mvs_pass_rtvs = { g_managed_resources.render_target_views["mvs"_h].get(), rtvs[2] };
-			ctx->OMSetRenderTargets(mvs_pass_rtvs.size(), mvs_pass_rtvs.data(), nullptr);
+			const std::array pre_dlss_pass_rtvs = { g_managed_resources.render_target_views["mvs"_h].get(), rtvs[1], rtvs[2] };
+			ctx->OMSetRenderTargets(pre_dlss_pass_rtvs.size(), pre_dlss_pass_rtvs.data(), nullptr);
 			ctx->PSSetShader(g_managed_resources.pixel_shaders["TAA_0xB57DD4D6"_h].get(), nullptr, 0);
 
 			cmd_list->draw_indexed(index_count, instance_count, first_index, vertex_offset, first_instance);
 
 			//
 
+			// DLSS pass
+			//
+
 			// Create texture.
 			// The original RT resource doesn't have D3D11_BIND_UNORDERED_ACCESS bind flag, needed for DLSS.
 			[[unlikely]] if (!g_managed_resources.textures_2d["dlss_output"_h]) {
 				// Get original RT texture description.
-				ensure(resource_rt->QueryInterface(g_managed_resources.textures_2d["dlss_output"_h].put()), >= 0);
+				ensure(resource_scene->QueryInterface(g_managed_resources.textures_2d["dlss_output"_h].put()), >= 0);
 				D3D11_TEXTURE2D_DESC tex_desc;
 				g_managed_resources.textures_2d["dlss_output"_h]->GetDesc(&tex_desc);
 
 				// Create DLSS output.
-				tex_desc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS;
+				tex_desc.BindFlags = D3D11_BIND_UNORDERED_ACCESS | D3D11_BIND_SHADER_RESOURCE;
 				ensure(g_device->CreateTexture2D(&tex_desc, nullptr, g_managed_resources.textures_2d["dlss_output"_h].put()), >= 0);
 			}
 
@@ -197,11 +194,12 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 
 			g_dlss_status = DLSS::get_instance().draw(ctx, eval_params);
 
+			//
+
 			// Copy DLSS output to the original output.
-			ctx->CopyResource(resource_rt.get(), g_managed_resources.textures_2d["dlss_output"_h].get());
+			ctx->CopyResource(resource_scene.get(), g_managed_resources.textures_2d["dlss_output"_h].get());
 
 			release_com_array(rtvs);
-			release_com_array(srvs);
 			return true;
 		}
 		return false;
@@ -285,6 +283,8 @@ static bool on_create_resource(reshade::api::device* device, reshade::api::resou
 			desc.texture.format = reshade::api::format::r16g16b16a16_float;
 			return true;
 		}
+
+		// Motion vectors.
 		if (desc.texture.format == reshade::api::format::r16g16_float) {
 			desc.texture.format = reshade::api::format::r32g32_float;
 			return true;
@@ -392,7 +392,6 @@ static void on_destroy_device(reshade::api::device* device)
 	if (g_enable_dlss) {
 		DLSS::get_instance().shutdown();
 	}
-	g_cb.reset();
 	g_managed_resources.clear();
 }
 
@@ -544,7 +543,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)
 
 			init_graphical_upgrade_path();
 			read_config();
-			reshade::register_event<reshade::addon_event::present>(on_present);
+			reshade::register_event<reshade::addon_event::finish_present>(on_finish_present);
 			reshade::register_event<reshade::addon_event::draw_indexed>(on_draw_indexed);
 			reshade::register_event<reshade::addon_event::init_pipeline>(on_init_pipeline);
 			reshade::register_event<reshade::addon_event::update_buffer_region>(on_update_buffer_region);
