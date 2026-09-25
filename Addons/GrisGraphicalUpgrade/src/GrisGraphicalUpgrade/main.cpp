@@ -1,13 +1,20 @@
-#include "Common.h"
-#include "Helpers.h"
-
 #define DEV 0
+#define OUTPUT_ASSEMBLY 0
+#include "Include/GraphicalUpgrade.h"
+#include "Include/GraphicalUpgradeCB.hlsli.h"
+
+extern "C" __declspec(dllexport) const char* NAME = "GrisGraphicalUpgrade";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "v2.0.0";
+extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/GrisGraphicalUpgrade";
+
+static bool g_force_vsync_off = true;
+static bool g_force_modern_windowed = true;
 
 // FPS limiter.
 //
 
 // Exposed to user.
-static float g_user_set_fps_limit = 240.0f; // in FPS
+static float g_user_set_fps_limit = 60.0f; // in FPS. Default to 60, the game may have animation issues on high FPS.
 static int g_user_set_accounted_error = 2; // in ms
 
 static std::chrono::duration<double> g_frame_interval; // in seconds
@@ -15,7 +22,7 @@ static std::chrono::duration<double> g_accounted_error; // in seconds
 
 //
 
-static void on_present(reshade::api::command_queue* queue, reshade::api::swapchain* swapchain, const reshade::api::rect* source_rect, const reshade::api::rect* dest_rect, uint32_t dirty_rect_count, const reshade::api::rect* dirty_rects)
+static void on_finish_present(reshade::api::command_queue* queue, reshade::api::swapchain* swapchain)
 {
 	static std::chrono::high_resolution_clock::time_point start;
 
@@ -34,45 +41,35 @@ static void on_present(reshade::api::command_queue* queue, reshade::api::swapcha
 
 static bool on_resolve_texture_region(reshade::api::command_list* cmd_list, reshade::api::resource source, uint32_t source_subresource, const reshade::api::subresource_box* source_box, reshade::api::resource dest, uint32_t dest_subresource, uint32_t dest_x, uint32_t dest_y, uint32_t dest_z, reshade::api::format format)
 {
-	// If we let the game do the resolve it will use a wrong format after we made RT format upgrades.
-	auto ctx = (ID3D11DeviceContext*)cmd_list->get_native();
-	ctx->ResolveSubresource((ID3D11Resource*)dest.handle, dest_subresource, (ID3D11Resource*)source.handle, source_subresource, DXGI_FORMAT_R16G16B16A16_UNORM);
-	return true;
-}
-
-static bool on_create_resource(reshade::api::device* device, reshade::api::resource_desc& desc, reshade::api::subresource_data* initial_data, reshade::api::resource_usage initial_state)
-{
-	// Upgrade render targets.
-	if (((desc.usage & reshade::api::resource_usage::render_target) != 0)) {
-
-		#if DEV
-		log_debug("RT: {}", to_string(desc.texture.format));
-		#endif
-
-		if (desc.texture.format == reshade::api::format::r8g8b8a8_typeless) {	
-			desc.texture.format = reshade::api::format::r16g16b16a16_typeless;
-			return true;
-		}
+	#if DEV
+	// We only expect rgba8_unorm.
+	if (format != reshade::api::format::r8g8b8a8_unorm) {
+		log_debug("on_resolve_texture_region: Format was {}!", to_string(format));
 	}
+	#endif
 
-	return false;
+	// If we let the game do the resolve it will use a wrong format after we made RT upgrades of the format rgba8_typeless.
+	cmd_list->resolve_texture_region(source, source_subresource, source_box, dest, dest_subresource, dest_x, dest_y, dest_z, reshade::api::format::r16g16b16a16_unorm);
+	return true;
 }
 
 static bool on_create_resource_view(reshade::api::device* device, reshade::api::resource resource, reshade::api::resource_usage usage_type, reshade::api::resource_view_desc& desc)
 {
-	// Try to filter only render targets that we have upgraded.
 	auto resource_desc = device->get_resource_desc(resource);
-	if ((resource_desc.usage & reshade::api::resource_usage::render_target) != 0) {
-		// Back buffer.
+
+	// Try to filter only render targets that we have upgraded.
+	if ((resource_desc.usage & reshade::api::resource_usage::render_target) != 0 || (resource_desc.usage & reshade::api::resource_usage::unordered_access) != 0) {
+		// Backbuffer.
 		if (resource_desc.texture.format == reshade::api::format::r10g10b10a2_unorm) {
 			desc.format = reshade::api::format::r10g10b10a2_unorm;
 			return true;
 		}
 
-		if (resource_desc.texture.format == reshade::api::format::r16g16b16a16_typeless) {
-
+		if (resource_desc.texture.format == reshade::api::format::r16g16b16a16_unorm) {
 			#if DEV
-			log_debug("Original view into r8g8b8a8_typeless: {}", to_string(desc.format));
+			if (desc.format != reshade::api::format::r8g8b8a8_unorm) {
+				log_debug("on_create_resource_view: Format was {}!", to_string(desc.format));
+			}
 			#endif
 
 			desc.format = reshade::api::format::r16g16b16a16_unorm;
@@ -83,58 +80,149 @@ static bool on_create_resource_view(reshade::api::device* device, reshade::api::
 	return false;
 }
 
+static bool on_create_resource(reshade::api::device* device, reshade::api::resource_desc& desc, reshade::api::subresource_data* initial_data, reshade::api::resource_usage initial_state)
+{
+	// Filter RTs and UAVs.
+	if ((desc.usage & reshade::api::resource_usage::render_target) != 0 || (desc.usage & reshade::api::resource_usage::unordered_access) != 0) {
+		// Only _unorm view is ever used?
+		if (desc.texture.format == reshade::api::format::r8g8b8a8_typeless) {
+			desc.texture.format = reshade::api::format::r16g16b16a16_unorm;
+			return true;
+		}
+	}
+
+	return false;
+}
+
+static bool on_create_sampler(reshade::api::device* device, reshade::api::sampler_desc& desc)
+{
+	if (desc.filter == reshade::api::filter_mode::anisotropic) {
+		// The game sets 2x, but the sampler is never used?
+		desc.max_anisotropy = 16.0f;
+
+		return true;
+	}
+
+	return false;
+}
+
+// Prevent entering fullscreen mode.
+static bool on_set_fullscreen_state(reshade::api::swapchain* swapchain, bool fullscreen, void* hmonitor)
+{
+	if (g_force_modern_windowed && fullscreen) {
+		return true;
+	}
+	return false;
+}
+
 static bool on_create_swapchain(reshade::api::device_api api, reshade::api::swapchain_desc& desc, void* hwnd)
 {
-	desc.back_buffer_count = 2;
-	desc.back_buffer.texture.format = reshade::api::format::r10g10b10a2_unorm;
-	desc.present_mode = DXGI_SWAP_EFFECT_FLIP_DISCARD;
-	desc.present_flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
-	desc.sync_interval = 0;
+	#if 0
+	return false;
+	#endif
+
+	if (g_force_modern_windowed) {
+		desc.back_buffer.texture.format = reshade::api::format::r10g10b10a2_unorm;
+		desc.back_buffer_count = std::max(2u, desc.back_buffer_count);
+		desc.present_mode = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+		desc.fullscreen_state = false;
+	}
+
+	if (g_force_vsync_off) {
+		if (g_force_modern_windowed) {
+			desc.present_flags |= DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
+		}
+		desc.fullscreen_refresh_rate = 0.0f;
+		desc.sync_interval = 0;
+	}
+
 	return true;
 }
 
 static void on_init_device(reshade::api::device* device)
 {
-	// Set maximum frame latency to 1, the game is not setting this already to 1.
-	auto native_device = (IUnknown*)device->get_native();
-	Com_ptr<IDXGIDevice1> device1;
-	auto hr = native_device->QueryInterface(IID_PPV_ARGS(&device1));
+	#if 0
+	return;
+	#endif
+
+	// Set maximum frame latency to 1.
+	auto native_device = (ID3D11Device*)device->get_native();
+	Com_ptr<IDXGIDevice1> dxgi_device;
+	auto hr = native_device->QueryInterface(dxgi_device.put());
 	if (SUCCEEDED(hr)) {
-		ensure(device1->SetMaximumFrameLatency(1), >= 0);
+		ensure(dxgi_device->SetMaximumFrameLatency(1), >= 0);
 	}
 }
 
 static void read_config()
 {
-	if (!reshade::get_config_value(nullptr, "GrisGraphicalUpgrade", "FPSLimit", g_user_set_fps_limit)) {
-		reshade::set_config_value(nullptr, "GrisGraphicalUpgrade", "FPSLimit", g_user_set_fps_limit);
+	if (!reshade::get_config_value(nullptr, NAME, "ForceModernWindowed", g_force_modern_windowed)) {
+		reshade::set_config_value(nullptr, NAME, "ForceModernWindowed", g_force_modern_windowed);
 	}
-	g_frame_interval = std::chrono::duration<double>(1.0 / static_cast<double>(g_user_set_fps_limit));
-	if (!reshade::get_config_value(nullptr, "GrisGraphicalUpgrade", "AccountedError", g_user_set_accounted_error)) {
-		reshade::set_config_value(nullptr, "GrisGraphicalUpgrade", "AccountedError", g_user_set_accounted_error);
+	if (!reshade::get_config_value(nullptr, NAME, "ForceVsyncOff", g_force_vsync_off)) {
+		reshade::set_config_value(nullptr, NAME, "ForceVsyncOff", g_force_vsync_off);
 	}
-	g_accounted_error = std::chrono::duration<double>(static_cast<double>(g_user_set_accounted_error) / 1000.0);
+
+	if (!reshade::get_config_value(nullptr, NAME, "FPSLimit", g_user_set_fps_limit)) {
+		reshade::set_config_value(nullptr, NAME, "FPSLimit", g_user_set_fps_limit);
+	}
+	g_frame_interval = std::chrono::duration<double>(1.0 / (double)g_user_set_fps_limit);
+
+	if (!reshade::get_config_value(nullptr, NAME, "AccountedError", g_user_set_accounted_error)) {
+		reshade::set_config_value(nullptr, NAME, "AccountedError", g_user_set_accounted_error);
+	}
+	g_accounted_error = std::chrono::duration<double>((double)g_user_set_accounted_error / 1000.0);
 }
 
 static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 {
+	#if DEV
+	if (ImGui::Button("Dev button")) {
+	}
+	ImGui::Spacing();
+
+	// The game may set this a bit later.
+	if (ImGui::Button("Check MaximumFrameLatency")) {
+		auto device = (ID3D11Device*)runtime->get_device()->get_native();
+		Com_ptr<IDXGIDevice1> dxgi_device;
+		ensure(device->QueryInterface(dxgi_device.put()), >= 0);
+		UINT max_latency;
+		ensure(dxgi_device->GetMaximumFrameLatency(&max_latency), >= 0);
+		log_debug("MaximumFrameLatency: {}", max_latency);
+	}
+	ImGui::NewLine();
+	#endif
+
+	if (ImGui::Checkbox("Force modern windowed", &g_force_modern_windowed)) {
+		reshade::set_config_value(nullptr, NAME, "ForceModernWindowed", g_force_modern_windowed);
+	}
+	if (ImGui::IsItemHovered()) {
+		ImGui::SetItemTooltip("Forces modern borderless or non borderless windowed mod.\nRequires restart.");
+	}
+	ImGui::Spacing();
+
+	if (ImGui::Checkbox("Force vsync off", &g_force_vsync_off)) {
+		reshade::set_config_value(nullptr, NAME, "ForceVsyncOff", g_force_vsync_off);
+	}
+	if (ImGui::IsItemHovered()) {
+		ImGui::SetItemTooltip("Requires restart.");
+	}
+	ImGui::Spacing();
+
 	ImGui::InputFloat("FPS limit", &g_user_set_fps_limit);
 	if (ImGui::IsItemDeactivatedAfterEdit()) {
-		g_user_set_fps_limit = std::clamp(g_user_set_fps_limit, 1.0f, 1000.0f);
-		reshade::set_config_value(nullptr, "GrisGraphicalUpgrade", "FPSLimit", g_user_set_fps_limit);
-		g_frame_interval = std::chrono::duration<double>(1.0 / static_cast<double>(g_user_set_fps_limit));
+		g_user_set_fps_limit = std::clamp(g_user_set_fps_limit, 20.0f, FLT_MAX);
+		reshade::set_config_value(nullptr, NAME, "FPSLimit", g_user_set_fps_limit);
+		g_frame_interval = std::chrono::duration<double>(1.0 / (double)g_user_set_fps_limit);
 	}
+
 	ImGui::InputInt("Accounted thread sleep error in ms", &g_user_set_accounted_error, 0, 0);
 	if (ImGui::IsItemDeactivatedAfterEdit()) {
 		g_user_set_accounted_error = std::clamp(g_user_set_accounted_error, 0, 1000);
-		reshade::set_config_value(nullptr, "GrisGraphicalUpgrade", "AccountedError", g_user_set_accounted_error);
-		g_accounted_error = std::chrono::duration<double>(static_cast<double>(g_user_set_accounted_error) / 1000.0);
+		reshade::set_config_value(nullptr, NAME, "AccountedError", g_user_set_accounted_error);
+		g_accounted_error = std::chrono::duration<double>((double)g_user_set_accounted_error / 1000.0);
 	}
 }
-
-extern "C" __declspec(dllexport) const char* NAME = "GrisGraphicalUpgrade";
-extern "C" __declspec(dllexport) const char* DESCRIPTION = "GrisGraphicalUpgrade v1.0.0";
-extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/GrisGraphicalUpgrade";
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)
 {
@@ -143,11 +231,17 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)
 			if (!reshade::register_addon(hModule)) {
 				return FALSE;
 			}
+
+			//MessageBoxW(0, L"Debug", L"Attach debugger.", MB_OK);
+
+			init_graphical_upgrade_path();
 			read_config();
-			reshade::register_event<reshade::addon_event::present>(on_present);
+			reshade::register_event<reshade::addon_event::finish_present>(on_finish_present);
 			reshade::register_event<reshade::addon_event::resolve_texture_region>(on_resolve_texture_region);
-			reshade::register_event<reshade::addon_event::create_resource>(on_create_resource);
 			reshade::register_event<reshade::addon_event::create_resource_view>(on_create_resource_view);
+			reshade::register_event<reshade::addon_event::create_resource>(on_create_resource);
+			reshade::register_event<reshade::addon_event::create_sampler>(on_create_sampler);
+			reshade::register_event<reshade::addon_event::set_fullscreen_state>(on_set_fullscreen_state);
 			reshade::register_event<reshade::addon_event::create_swapchain>(on_create_swapchain);
 			reshade::register_event<reshade::addon_event::init_device>(on_init_device);
 			reshade::register_overlay(nullptr, draw_settings_overlay);

@@ -101,7 +101,7 @@ Graphical upgrade for Hollow Knight. See Addons/HollowKnightGraphicalUpgrade for
 **INSIDEGraphicalUpgrade**  
 Graphical upgrade for INSIDE. See Addons/INSIDEGraphicalUpgrade for details.
 
-**INSIDEGraphicalUpgrade**  
+**KingdomComeDeliveranceGraphicalUpgrade**  
 Graphical upgrade for Kingdom Come: Deliverance. See Addons/KingdomComeDeliveranceGraphicalUpgrade for details.
 
 **MiddleEarthShadowOfWarGraphicalUpgrade**  
