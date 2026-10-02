@@ -65,6 +65,9 @@ Graphical upgrade for Bioshock 2. See Addons/Bioshock2GraphicalUpgrade for detai
 **BioShockInfiniteGraphicalUpgrade**  
 Graphical upgrade for BioShock Infinite. See Addons/BioShockInfiniteGraphicalUpgrade for details.
 
+**CrysisGraphicalUpgrade**  
+Graphical upgrade for Crysis. See Addons/CrysisGraphicalUpgrade for details.
+
 **DeusExHRGraphicalUpgrade**  
 Graphical upgrade for Deus Ex: Human Revolution. See Addons/DeusExHRGraphicalUpgrade for details.
 
