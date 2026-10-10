@@ -8,4 +8,3 @@
 #include "GraphicalUpgrade/Helpers.h"
 #include "GraphicalUpgrade/HLSLTypes.h"
 #include "GraphicalUpgrade/ShaderHash.h"
-#include "GraphicalUpgrade/TRC.h"

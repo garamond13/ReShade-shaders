@@ -48,7 +48,7 @@ float2 smaa_edge_detection_ps(float4 pos : SV_Position, float2 texcoord : TEXCOO
 {
 	// tex0 = colorTexGamma
 	// tex1 = predicationTex
-	return SMAAColorEdgeDetectionPS(texcoord, offset, tex0, tex1);
+	return SMAALumaEdgeDetectionPS(texcoord, offset, tex0, tex1);
 }
 
 //

@@ -22,11 +22,7 @@ float4 main(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 	color.rgb += noise * AMOUNT * min(1.0 - color.rgb, color.rgb);
 
 	// Delinearize.
-	#ifdef SRGB
 	color.rgb = linear_to_srgb(color.rgb);
-	#else
-	color.rgb = linear_to_gamma(color.rgb, GAMMA);
-	#endif
 
 	return color;
 }

@@ -4,9 +4,10 @@
 #include "Include/GraphicalUpgrade.h"
 #include "Include/GraphicalUpgradeCB.hlsli.h"
 #include "SMAA/SMAA.h"
+#include <Shlobj.h>
 
 extern "C" __declspec(dllexport) const char* NAME = "BioshockGraphicalUpgrade";
-extern "C" __declspec(dllexport) const char* DESCRIPTION = "v9.0.0";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "v10.0.0";
 extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/BioshockGraphicalUpgrade";
 
 // Shader hooks.
@@ -21,9 +22,11 @@ constexpr Shader_hash g_ps_fog_0xEB7BE1D6 = { 0xEB7BE1D6, { 0x9eaab4f0, 0x8224, 
 constexpr Shader_hash g_ps_fog_0xF5E21918 = { 0xF5E21918, { 0x973eae08, 0x71f3, 0x492a, { 0x94, 0xe7, 0x94, 0xb, 0x15, 0xe8, 0x7b, 0xbc }}};
 
 constexpr Shader_hash g_ps_ceiling_debris_0xDC232D31 = { 0xDC232D31, { 0xa7cc6654, 0xa644, 0x4908, { 0xb1, 0xf4, 0x6a, 0x9e, 0x59, 0x84, 0xf8, 0xb5 }}};
-constexpr Shader_hash g_ps_r_glass_door_0x59018C97 = { 0x59018C97, { 0x83c202f5, 0x2883, 0x4f24, { 0x83, 0xdb, 0x1c, 0x6e, 0xb3, 0x72, 0x6, 0x7 }}};
 constexpr Shader_hash g_ps_godrays_0xE689FDF8 = { 0xE689FDF8, { 0xeda804e9, 0xb9ab, 0x487e, { 0xa9, 0x45, 0x6a, 0xf2, 0x6e, 0xd5, 0x81, 0xef }}};
 constexpr Shader_hash g_ps_flashing_images_0x7862AA89 = { 0x7862AA89, { 0xb012ee87, 0x13a1, 0x4c5f, { 0x8a, 0xc4, 0x5b, 0x14, 0x70, 0xc4, 0x66, 0x65 }}};
+constexpr Shader_hash g_ps_decal_0x15AC163B = { 0x15AC163B, { 0x7dfb8aac, 0xc88e, 0x40e7, { 0xae, 0x14, 0x32, 0x25, 0xe8, 0x23, 0xca, 0x2 }}};
+constexpr Shader_hash g_ps_decal_0xF2575782 = { 0xF2575782, { 0x4ede9c90, 0xe6d4, 0x44fb, { 0xbf, 0xc3, 0x79, 0xaf, 0xd4, 0x67, 0xa0, 0xd6 }}};
+constexpr Shader_hash g_ps_lights_0x4293C5EF = { 0x4293C5EF, { 0x67906e89, 0xcc25, 0x45b6, { 0x85, 0xf8, 0x85, 0x56, 0x10, 0xbc, 0xe2, 0xe4 }}};
 
 constexpr Shader_hash g_ps_bloom_downsample_0xB51C436B = { 0xB51C436B, { 0xf6b85c15, 0x7efe, 0x4504, { 0x9a, 0xa5, 0xd7, 0xa9, 0x31, 0x7, 0xc, 0xb3 }}};
 constexpr Shader_hash g_ps_bloom_0xB1DCCAE7 = { 0xB1DCCAE7, { 0x83883084, 0x9396, 0x4368, { 0xac, 0x72, 0x12, 0x74, 0xe9, 0x65, 0x25, 0x2a }}};
@@ -40,12 +43,15 @@ static Graphical_upgrade_cb_data g_cb_data;
 static Com_ptr<ID3D10Buffer> g_cb;
 static int g_swapchain_width;
 static int g_swapchain_height;
+static uintptr_t g_mapped_cb_handle;
+static void* g_mapped_cb_data;
 static bool g_force_vsync_off = true;
+static bool g_force_modern_windowed = true;
+static bool g_is_valid_screenDataToCamera_and_wToZScaleAndBias = true; // We want to invalidate this right before tonemap.
 
 // GTAO
 constexpr int GTAO_DEPTH_MIP_LEVELS = 5;
 static bool g_gtao_enable = true;
-static float g_gtao_fov_y = 47.0f; // in degrees
 static int g_gtao_quality = 2; // 0 - Low, 1 - Medium, 2 - High, 3 - Very High, 4 - Ultra
 static bool g_has_drawn_gtao;
 
@@ -62,10 +68,6 @@ static float g_amd_ffx_cas_sharpness = 0.0f;
 
 // AMD FFX LFGA
 static float g_amd_ffx_lfga_amount = 0.3f;
-
-// Tone responce curve.
-static TRC g_trc = TRC_SRGB;
-static float g_gamma = 2.2f;
 
 // FPS limiter.
 //
@@ -100,15 +102,15 @@ static void draw_gtao(ID3D10Device* device, ID3D10RenderTargetView*const* rtv)
 	Com_ptr<ID3D10VertexShader> vs_original;
 	device->VSGetShader(vs_original.put());
 
+	// Rasterizer.
+	Com_ptr<ID3D10RasterizerState> rasterizer_original;
+	device->RSGetState(rasterizer_original.put());
+
 	// Viewports.
 	UINT nviewports;
 	device->RSGetViewports(&nviewports, nullptr);
 	std::vector<D3D10_VIEWPORT> viewports_original(nviewports);
 	device->RSGetViewports(&nviewports, viewports_original.data());
-
-	// Rasterizer.
-	Com_ptr<ID3D10RasterizerState> rasterizer_original;
-	device->RSGetState(rasterizer_original.put());
 
 	// PS.
 	Com_ptr<ID3D10PixelShader> ps_original;
@@ -143,6 +145,11 @@ static void draw_gtao(ID3D10Device* device, ID3D10RenderTargetView*const* rtv)
 	// Create prefilter depths PS, for mip0.
 	[[unlikely]] if (!g_managed_resources.pixel_shaders["gtao_prefilter_depths_mip0"_h]) {
 		create_pixel_shader(device, g_managed_resources.pixel_shaders["gtao_prefilter_depths_mip0"_h].put(), L"GTAO_impl.hlsl", "prefilter_depths_mip0_ps");
+	}
+
+	// Create constant buffer.
+	[[unlikely]] if (!g_cb) {
+		create_constant_buffer(device, sizeof(g_cb_data), g_cb.put());
 	}
 
 	// Create prefilter depths PS, for mips 1 to 4.
@@ -187,6 +194,8 @@ static void draw_gtao(ID3D10Device* device, ID3D10RenderTargetView*const* rtv)
 		ensure(device->CreateShaderResourceView(tex.get(), nullptr, g_managed_resources.shader_resource_views["gtao_working_depth"_h].put()), >= 0);
 	}
 
+	update_constant_buffer(g_cb.get(), &g_cb_data, sizeof(g_cb_data));
+
 	// Prefilter depths viewport, for mip0.
 	D3D10_VIEWPORT viewport = {};
 	viewport.Width = g_swapchain_width;
@@ -197,6 +206,7 @@ static void draw_gtao(ID3D10Device* device, ID3D10RenderTargetView*const* rtv)
 	device->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 	device->VSSetShader(g_managed_resources.vertex_shaders["fullscreen_triangle"_h].get());
 	device->PSSetShader(g_managed_resources.pixel_shaders["gtao_prefilter_depths_mip0"_h].get());
+	device->PSSetConstantBuffers(GRAPHICAL_UPGRADE_CB_SLOT, 1, &g_cb);
 	device->PSSetSamplers(0, 1, &g_managed_resources.samplers["point_clamp"_h]);
 	device->PSSetShaderResources(0, 1, &g_managed_resources.shader_resource_views["depth"_h]);
 	device->RSSetState(nullptr);
@@ -229,16 +239,10 @@ static void draw_gtao(ID3D10Device* device, ID3D10RenderTargetView*const* rtv)
 
 	// Create PS.
 	[[unlikely]] if (!g_managed_resources.pixel_shaders["gtao_main_pass"_h]) {
-		const float tan_half_fov_y = std::tan(g_gtao_fov_y * std::numbers::pi_v<float> / 180.0f * 0.5f); // radians = degrees * pi / 180.
-		const float tan_half_fov_x = tan_half_fov_y * (float)g_swapchain_width / (float)g_swapchain_height;
 		const std::string viewport_pixel_size_str = std::format("float2({},{})", 1.0f / (float)g_swapchain_width, 1.0f / (float)g_swapchain_height);
-		const std::string ndc_to_view_mul_str = std::format("float2({},{})", tan_half_fov_x * 2.0f, tan_half_fov_y * -2.0f);
-		const std::string ndc_to_view_add_str = std::format("float2({},{})", -tan_half_fov_x, tan_half_fov_y);
 		const std::string quality_str = std::to_string(g_gtao_quality);
 		D3D_SHADER_MACRO defines[] = {
 			{ "VIEWPORT_PIXEL_SIZE", viewport_pixel_size_str.c_str() },
-			{ "NDC_TO_VIEW_MUL", ndc_to_view_mul_str.c_str() },
-			{ "NDC_TO_VIEW_ADD", ndc_to_view_add_str.c_str() },
 			{ "GTAO_QUALITY", quality_str.c_str() },
 			{ nullptr, nullptr }
 		};
@@ -366,6 +370,14 @@ static void on_present(reshade::api::command_queue* queue, reshade::api::swapcha
 
 	// We have to rebind RTV and DSV after present for `DXGI_SWAP_EFFECT_FLIP_DISCARD` to work properly in this game.
 	g_device->OMGetRenderTargets(1, g_managed_resources.render_target_views["on_present"_h].put(), g_managed_resources.depth_stencil_views["on_present"_h].put());
+}
+
+static void on_finish_present(reshade::api::command_queue* queue, reshade::api::swapchain* swapchain)
+{
+	g_device->OMSetRenderTargets(1, &g_managed_resources.render_target_views["on_present"_h], g_managed_resources.depth_stencil_views["on_present"_h].get());
+
+	// FPS limiter.
+	//
 
 	static std::chrono::high_resolution_clock::time_point start;
 
@@ -380,11 +392,8 @@ static void on_present(reshade::api::command_queue* queue, reshade::api::swapcha
 	}
 
 	start = std::chrono::high_resolution_clock::now();
-}
 
-static void on_finish_present(reshade::api::command_queue* queue, reshade::api::swapchain* swapchain)
-{
-	g_device->OMSetRenderTargets(1, &g_managed_resources.render_target_views["on_present"_h], g_managed_resources.depth_stencil_views["on_present"_h].get());
+	//
 }
 
 static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count, uint32_t instance_count, uint32_t first_vertex, uint32_t first_instance)
@@ -467,12 +476,15 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 	size = sizeof(hash);
 	hr = ps->GetPrivateData(g_ps_bloom_0xBD24CC87.guid, &size, &hash);
 	if (SUCCEEDED(hr) && hash == g_ps_bloom_0xBD24CC87.hash) {
+		g_is_valid_screenDataToCamera_and_wToZScaleAndBias = false;
 		return true;
 	}
 
 	size = sizeof(hash);
 	hr = ps->GetPrivateData(g_ps_tonemap_0x87A0B43D.guid, &size, &hash);
 	if (SUCCEEDED(hr) && hash == g_ps_tonemap_0x87A0B43D.hash) {
+		g_is_valid_screenDataToCamera_and_wToZScaleAndBias = true;
+
 		// We expect RTV to be the back buffer.
 		Com_ptr<ID3D10RenderTargetView> rtv_original;
 		device->OMGetRenderTargets(1, rtv_original.put(), nullptr);
@@ -1063,12 +1075,8 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		// Create PS.
 		[[unlikely]] if (!g_managed_resources.pixel_shaders["amd_ffx_lfga"_h]) {
 			const std::string amd_ffx_lfga_amount_str = std::to_string(g_amd_ffx_lfga_amount);
-			const std::string srgb_str = g_trc == TRC_SRGB ? "SRGB" : "";
-			const std::string gamma_str = std::to_string(g_gamma);
 			const D3D_SHADER_MACRO defines[] = {
 				{ "AMOUNT", amd_ffx_lfga_amount_str.c_str() },
-				{ srgb_str.c_str(), nullptr },
-				{ "GAMMA", gamma_str.c_str() },
 				{ nullptr, nullptr }
 			};
 			create_pixel_shader(device, g_managed_resources.pixel_shaders["amd_ffx_lfga"_h].put(), L"AMD_FFX_LFGA_ps.hlsl", "main", defines);
@@ -1112,7 +1120,7 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 	return false;
 	#endif
 
-	// Here, for now we only have GTAO, so optimize with early exit.
+	// Here for now we only have GTAO, so optimize with early exit.
 	if (!g_gtao_enable || g_has_drawn_gtao) {
 		return false;
 	}
@@ -1304,56 +1312,6 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 	}
 
 	size = sizeof(hash);
-	hr = ps->GetPrivateData(g_ps_ceiling_debris_0xDC232D31.guid, &size, &hash);
-	if (SUCCEEDED(hr) && hash == g_ps_ceiling_debris_0xDC232D31.hash) {
-		// We expect RTV to be the main scene.
-		Com_ptr<ID3D10RenderTargetView> rtv_original;
-		device->OMGetRenderTargets(1, rtv_original.put(), nullptr);
-
-		// Get RT resource (texture) and texture description.
-		// We may not have the main scene, check via resorce dimensions do we have it.
-		Com_ptr<ID3D10Resource> resource;
-		rtv_original->GetResource(resource.put());
-		Com_ptr<ID3D10Texture2D> tex;
-		ensure(resource->QueryInterface(tex.put()), >= 0);
-		D3D10_TEXTURE2D_DESC tex_desc;
-		tex->GetDesc(&tex_desc);
-		if (tex_desc.Width != g_swapchain_width) {
-			return false;
-		}
-
-		draw_gtao(device, rtv_original.put());
-		g_has_drawn_gtao = true;
-
-		return false;
-	}
-
-	size = sizeof(hash);
-	hr = ps->GetPrivateData(g_ps_r_glass_door_0x59018C97.guid, &size, &hash);
-	if (SUCCEEDED(hr) && hash == g_ps_r_glass_door_0x59018C97.hash) {
-		// We expect RTV to be the main scene.
-		Com_ptr<ID3D10RenderTargetView> rtv_original;
-		device->OMGetRenderTargets(1, rtv_original.put(), nullptr);
-
-		// Get RT resource (texture) and texture description.
-		// We may not have the main scene, check via resorce dimensions do we have it.
-		Com_ptr<ID3D10Resource> resource;
-		rtv_original->GetResource(resource.put());
-		Com_ptr<ID3D10Texture2D> tex;
-		ensure(resource->QueryInterface(tex.put()), >= 0);
-		D3D10_TEXTURE2D_DESC tex_desc;
-		tex->GetDesc(&tex_desc);
-		if (tex_desc.Width != g_swapchain_width) {
-			return false;
-		}
-
-		draw_gtao(device, &rtv_original);
-		g_has_drawn_gtao = true;
-
-		return false;
-	}
-
-	size = sizeof(hash);
 	hr = ps->GetPrivateData(g_ps_godrays_0xE689FDF8.guid, &size, &hash);
 	if (SUCCEEDED(hr) && hash == g_ps_godrays_0xE689FDF8.hash) {
 		// We expect RTV to be the main scene.
@@ -1379,6 +1337,81 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 	}
 
 	size = sizeof(hash);
+	hr = ps->GetPrivateData(g_ps_decal_0x15AC163B.guid, &size, &hash);
+	if (SUCCEEDED(hr) && hash == g_ps_decal_0x15AC163B.hash) {
+		// We expect RTV to be the main scene.
+		Com_ptr<ID3D10RenderTargetView> rtv_original;
+		device->OMGetRenderTargets(1, rtv_original.put(), nullptr);
+
+		// Get RT resource (texture) and texture description.
+		// We may not have the main scene, check via resorce dimensions do we have it (not tested for thsi one, but keep this). 
+		Com_ptr<ID3D10Resource> resource;
+		rtv_original->GetResource(resource.put());
+		Com_ptr<ID3D10Texture2D> tex;
+		ensure(resource->QueryInterface(tex.put()), >= 0);
+		D3D10_TEXTURE2D_DESC tex_desc;
+		tex->GetDesc(&tex_desc);
+		if (tex_desc.Width != g_swapchain_width) {
+			return false;
+		}
+
+		draw_gtao(device, &rtv_original);
+		g_has_drawn_gtao = true;
+
+		return false;
+	}
+
+	size = sizeof(hash);
+	hr = ps->GetPrivateData(g_ps_decal_0xF2575782.guid, &size, &hash);
+	if (SUCCEEDED(hr) && hash == g_ps_decal_0xF2575782.hash) {
+		// We expect RTV to be the main scene.
+		Com_ptr<ID3D10RenderTargetView> rtv_original;
+		device->OMGetRenderTargets(1, rtv_original.put(), nullptr);
+
+		// Get RT resource (texture) and texture description.
+		// We may not have the main scene, check via resorce dimensions do we have it (not tested for thsi one, but keep this). 
+		Com_ptr<ID3D10Resource> resource;
+		rtv_original->GetResource(resource.put());
+		Com_ptr<ID3D10Texture2D> tex;
+		ensure(resource->QueryInterface(tex.put()), >= 0);
+		D3D10_TEXTURE2D_DESC tex_desc;
+		tex->GetDesc(&tex_desc);
+		if (tex_desc.Width != g_swapchain_width) {
+			return false;
+		}
+
+		draw_gtao(device, &rtv_original);
+		g_has_drawn_gtao = true;
+
+		return false;
+	}
+
+	size = sizeof(hash);
+	hr = ps->GetPrivateData(g_ps_ceiling_debris_0xDC232D31.guid, &size, &hash);
+	if (SUCCEEDED(hr) && hash == g_ps_ceiling_debris_0xDC232D31.hash) {
+		// We expect RTV to be the main scene.
+		Com_ptr<ID3D10RenderTargetView> rtv_original;
+		device->OMGetRenderTargets(1, rtv_original.put(), nullptr);
+
+		// Get RT resource (texture) and texture description.
+		// We may not have the main scene, check via resorce dimensions do we have it.
+		Com_ptr<ID3D10Resource> resource;
+		rtv_original->GetResource(resource.put());
+		Com_ptr<ID3D10Texture2D> tex;
+		ensure(resource->QueryInterface(tex.put()), >= 0);
+		D3D10_TEXTURE2D_DESC tex_desc;
+		tex->GetDesc(&tex_desc);
+		if (tex_desc.Width != g_swapchain_width) {
+			return false;
+		}
+
+		draw_gtao(device, &rtv_original);
+		g_has_drawn_gtao = true;
+
+		return false;
+	}
+
+	size = sizeof(hash);
 	hr = ps->GetPrivateData(g_ps_flashing_images_0x7862AA89.guid, &size, &hash);
 	if (SUCCEEDED(hr) && hash == g_ps_flashing_images_0x7862AA89.hash) {
 		// We expect RTV to be the main scene.
@@ -1387,6 +1420,31 @@ static bool on_draw_indexed(reshade::api::command_list* cmd_list, uint32_t index
 
 		// Get RT resource (texture) and texture description.
 		// We may not have the main scene, check via resorce dimensions do we have it. 
+		Com_ptr<ID3D10Resource> resource;
+		rtv_original->GetResource(resource.put());
+		Com_ptr<ID3D10Texture2D> tex;
+		ensure(resource->QueryInterface(tex.put()), >= 0);
+		D3D10_TEXTURE2D_DESC tex_desc;
+		tex->GetDesc(&tex_desc);
+		if (tex_desc.Width != g_swapchain_width) {
+			return false;
+		}
+
+		draw_gtao(device, &rtv_original);
+		g_has_drawn_gtao = true;
+
+		return false;
+	}
+
+	size = sizeof(hash);
+	hr = ps->GetPrivateData(g_ps_lights_0x4293C5EF.guid, &size, &hash);
+	if (SUCCEEDED(hr) && hash == g_ps_lights_0x4293C5EF.hash) {
+		// We expect RTV to be the main scene.
+		Com_ptr<ID3D10RenderTargetView> rtv_original;
+		device->OMGetRenderTargets(1, rtv_original.put(), nullptr);
+
+		// Get RT resource (texture) and texture description.
+		// We may not have the main scene, check via resorce dimensions do we have it (not tested for thsi one, but keep this). 
 		Com_ptr<ID3D10Resource> resource;
 		rtv_original->GetResource(resource.put());
 		Com_ptr<ID3D10Texture2D> tex;
@@ -1434,9 +1492,6 @@ static void on_init_pipeline(reshade::api::device* device, reshade::api::pipelin
 				case g_ps_fog_0xEB7BE1D6.hash:
 					ensure(((ID3D10PixelShader*)pipeline.handle)->SetPrivateData(g_ps_fog_0xEB7BE1D6.guid, sizeof(g_ps_fog_0xEB7BE1D6.hash), &g_ps_fog_0xEB7BE1D6.hash), >= 0);
 					return;
-				case g_ps_r_glass_door_0x59018C97.hash:
-					ensure(((ID3D10PixelShader*)pipeline.handle)->SetPrivateData(g_ps_r_glass_door_0x59018C97.guid, sizeof(g_ps_r_glass_door_0x59018C97.hash), &g_ps_r_glass_door_0x59018C97.hash), >= 0);
-					return;
 				case g_ps_fog_0xF5E21918.hash:
 					ensure(((ID3D10PixelShader*)pipeline.handle)->SetPrivateData(g_ps_fog_0xF5E21918.guid, sizeof(g_ps_fog_0xF5E21918.hash), &g_ps_fog_0xF5E21918.hash), >= 0);
 					return;
@@ -1461,6 +1516,15 @@ static void on_init_pipeline(reshade::api::device* device, reshade::api::pipelin
 				case g_ps_bloom_0xBD24CC87.hash:
 					ensure(((ID3D10PixelShader*)pipeline.handle)->SetPrivateData(g_ps_bloom_0xBD24CC87.guid, sizeof(g_ps_bloom_0xBD24CC87.hash), &g_ps_bloom_0xBD24CC87.hash), >= 0);
 					return;
+				case g_ps_decal_0x15AC163B.hash:
+					ensure(((ID3D10PixelShader*)pipeline.handle)->SetPrivateData(g_ps_decal_0x15AC163B.guid, sizeof(g_ps_decal_0x15AC163B.hash), &g_ps_decal_0x15AC163B.hash), >= 0);
+					return;
+				case g_ps_decal_0xF2575782.hash:
+					ensure(((ID3D10PixelShader*)pipeline.handle)->SetPrivateData(g_ps_decal_0xF2575782.guid, sizeof(g_ps_decal_0xF2575782.hash), &g_ps_decal_0xF2575782.hash), >= 0);
+					return;
+				case g_ps_lights_0x4293C5EF.hash:
+					ensure(((ID3D10PixelShader*)pipeline.handle)->SetPrivateData(g_ps_lights_0x4293C5EF.guid, sizeof(g_ps_lights_0x4293C5EF.hash), &g_ps_lights_0x4293C5EF.hash), >= 0);
+					return;
 			}
 		}
 	}
@@ -1472,14 +1536,68 @@ static bool on_copy_resource(reshade::api::command_list *cmd_list, reshade::api:
 	Com_ptr<ID3D10Texture2D> tex;
 	auto hr = resource->QueryInterface(tex.put());
 	if (SUCCEEDED(hr)) {
-		D3D10_TEXTURE2D_DESC desc;
-		tex->GetDesc(&desc);
-		if (desc.Format == DXGI_FORMAT_R24_UNORM_X8_TYPELESS) {
+		D3D10_TEXTURE2D_DESC tex_desc;
+		tex->GetDesc(&tex_desc);
+		if (tex_desc.Format == DXGI_FORMAT_R24_UNORM_X8_TYPELESS) {
 			auto device = (ID3D10Device*)cmd_list->get_native();
-			ensure(device->CreateShaderResourceView(tex.get(), nullptr, g_managed_resources.shader_resource_views["depth"_h].put()), >= 0);
+			ensure(device->CreateShaderResourceView(resource, nullptr, g_managed_resources.shader_resource_views["depth"_h].put()), >= 0);
 		}
 	}
 	return false;
+}
+
+static bool on_copy_texture_region(reshade::api::command_list* cmd_list, reshade::api::resource source, uint32_t source_subresource, const reshade::api::subresource_box* source_box, reshade::api::resource dest, uint32_t dest_subresource, const reshade::api::subresource_box* dest_box, reshade::api::filter_mode filter)
+{
+	// The game does scene copy before some transparency effects. Like water and "R" glass door.
+	if (g_gtao_enable && !g_has_drawn_gtao) {
+		Com_ptr<ID3D10Texture2D> tex;
+		auto resource = (ID3D10Resource*)source.handle;
+		auto hr = resource->QueryInterface(tex.put());
+		if (SUCCEEDED(hr)) {
+			D3D10_TEXTURE2D_DESC tex_desc;
+			tex->GetDesc(&tex_desc);
+			if (tex_desc.Format == DXGI_FORMAT_R16G16B16A16_FLOAT && tex_desc.Width == g_swapchain_width) {
+				auto device = (ID3D10Device*)cmd_list->get_native();
+				Com_ptr<ID3D10RenderTargetView> rtv;
+				ensure(device->CreateRenderTargetView(resource, nullptr, rtv.put()), >= 0);
+				draw_gtao(device, &rtv);
+				g_has_drawn_gtao = true;
+			}
+		}
+	}
+	
+	return false;
+}
+
+static void on_map_buffer_region(reshade::api::device* device, reshade::api::resource resource, uint64_t offset, uint64_t size, reshade::api::map_access access, void** data)
+{
+	if (g_is_valid_screenDataToCamera_and_wToZScaleAndBias) {
+		return;
+	}
+	auto buffer = (ID3D10Buffer*)resource.handle;
+	D3D10_BUFFER_DESC desc;
+	buffer->GetDesc(&desc);
+	if (desc.BindFlags == D3D10_BIND_CONSTANT_BUFFER && desc.ByteWidth == 320) {
+		g_mapped_cb_handle = resource.handle;
+		g_mapped_cb_data = *data;
+	}
+}
+
+static void on_unmap_buffer_region(reshade::api::device* device, reshade::api::resource resource)
+{
+	if (g_mapped_cb_handle == resource.handle) {
+		auto data = (float*)g_mapped_cb_data;
+
+		// The game will rearange values in the screenDataToCamera matrix for few frames sometimes, cause why not.
+		// This should be reliable.
+		if (data[8] && !data[9] && data[10] && !data[11] && !data[12] && data[13] && data[14] && !data[15] && !data[16] && !data[17] && std::abs(data[18] - 1.0f) < 1e-6f && !data[19]) {
+			std::memcpy(&g_cb_data.screenDataToCamera_copy, &data[8], sizeof(g_cb_data.screenDataToCamera_copy));
+			g_cb_data.wToZScaleAndBias_copy.x = data[24];
+			g_cb_data.wToZScaleAndBias_copy.y = data[25];
+		}
+
+		g_mapped_cb_handle = 0;
+	}
 }
 
 static bool on_create_resource_view(reshade::api::device* device, reshade::api::resource resource, reshade::api::resource_usage usage_type, reshade::api::resource_view_desc& desc)
@@ -1525,7 +1643,7 @@ static bool on_create_sampler(reshade::api::device* device, reshade::api::sample
 // Prevent entering fullscreen mode.
 static bool on_set_fullscreen_state(reshade::api::swapchain* swapchain, bool fullscreen, void* hmonitor)
 {
-	if (fullscreen) {
+	if (g_force_modern_windowed && fullscreen) {
 		return true;
 	}
 	return false;
@@ -1540,20 +1658,24 @@ static bool on_create_swapchain(reshade::api::device_api api, reshade::api::swap
 	// Should be backbuffer.
 	g_managed_resources.render_target_views["on_present"_h].reset();
 
-	// Set the window to borderless fullscreen, the main intention.
-	// Non fullscreen window with or without border can be still set from the game if first set as windowed mode.
-	// Fixes UI (menus and loading screen) being pushed below lower screen border.
-	// Fixes ReShade overlay being smudged/blured.
-	SetWindowLongPtrW((HWND)hwnd, GWL_STYLE, WS_POPUP);
-	SetWindowPos((HWND)hwnd, HWND_TOP, 0, 0, desc.back_buffer.texture.width, desc.back_buffer.texture.height, SWP_NOZORDER | SWP_FRAMECHANGED | SWP_SHOWWINDOW);
+	if (g_force_modern_windowed) {
+		// Set the window to borderless fullscreen, the main intention.
+		// Non fullscreen window with or without border can be still set from the game if first set as windowed mode.
+		// Fixes UI (menus and loading screen) being pushed below lower screen border.
+		// Fixes ReShade overlay being smudged/blured.
+		SetWindowLongPtr((HWND)hwnd, GWL_STYLE, WS_POPUP);
+		SetWindowPos((HWND)hwnd, HWND_TOP, 0, 0, desc.back_buffer.texture.width, desc.back_buffer.texture.height, SWP_FRAMECHANGED);
 
-	desc.back_buffer.texture.format = reshade::api::format::r10g10b10a2_unorm;
-	desc.back_buffer_count = std::max(2u, desc.back_buffer_count);
-	desc.present_mode = DXGI_SWAP_EFFECT_FLIP_DISCARD;
-	desc.fullscreen_state = false;
+		desc.back_buffer.texture.format = reshade::api::format::r10g10b10a2_unorm;
+		desc.back_buffer_count = std::max(2u, desc.back_buffer_count);
+		desc.present_mode = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+		desc.fullscreen_state = false;
+	}
 
 	if (g_force_vsync_off) {
-		desc.present_flags |= DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
+		if (g_force_modern_windowed) {
+			desc.present_flags |= DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
+		}
 		desc.fullscreen_refresh_rate = 0.0f;
 		desc.sync_interval = 0;
 	}
@@ -1647,9 +1769,6 @@ static void read_config()
 	if (!reshade::get_config_value(nullptr, NAME, "GTAOEnable", g_gtao_enable)) {
 		reshade::set_config_value(nullptr, NAME, "GTAOEnable", g_gtao_enable);
 	}
-	if (!reshade::get_config_value(nullptr, NAME, "GTAOFOVY", g_gtao_fov_y)) {
-		reshade::set_config_value(nullptr, NAME, "GTAOFOVY", g_gtao_fov_y);
-	}
 	if (!reshade::get_config_value(nullptr, NAME, "GTAOQuality", g_gtao_quality)) {
 		reshade::set_config_value(nullptr, NAME, "GTAOQuality", g_gtao_quality);
 	}
@@ -1662,11 +1781,8 @@ static void read_config()
 	if (!reshade::get_config_value(nullptr, NAME, "GrainAmount", g_amd_ffx_lfga_amount)) {
 		reshade::set_config_value(nullptr, NAME, "GrainAmount", g_amd_ffx_lfga_amount);
 	}
-	if (!reshade::get_config_value(nullptr, NAME, "TRC", g_trc)) {
-		reshade::set_config_value(nullptr, NAME, "TRC", g_trc);
-	}
-	if (!reshade::get_config_value(nullptr, NAME, "Gamma", g_gamma)) {
-		reshade::set_config_value(nullptr, NAME, "Gamma", g_gamma);
+	if (!reshade::get_config_value(nullptr, NAME, "ForceModernWindowed", g_force_modern_windowed)) {
+		reshade::set_config_value(nullptr, NAME, "ForceModernWindowed", g_force_modern_windowed);
 	}
 	if (!reshade::get_config_value(nullptr, NAME, "ForceVsyncOff", g_force_vsync_off)) {
 		reshade::set_config_value(nullptr, NAME, "ForceVsyncOff", g_force_vsync_off);
@@ -1719,6 +1835,25 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 	ImGui::NewLine();
 	#endif
 
+	if (ImGui::Button("Exit game!")) {
+		log_info("Exiting game.");
+
+		// We need to delete %APPDATA%\Bioshock\Running.ini, otherwise game resets user settings on the next run.
+		PWSTR roaming_app_data;
+		auto hr = SHGetKnownFolderPath(FOLDERID_RoamingAppData, KF_FLAG_DEFAULT, nullptr, &roaming_app_data);
+		if (SUCCEEDED(hr)) {
+			std::filesystem::path path = roaming_app_data;
+			path /= L"Bioshock\\Running.ini";
+			if (std::filesystem::remove(path)) {
+				log_info("Removed {}", path.string());
+			}
+		}
+		CoTaskMemFree(roaming_app_data);
+
+		ExitProcess(0);
+	}
+	ImGui::Spacing();
+
 	if (ImGui::Checkbox("GTAO enable", &g_gtao_enable)) {
 		if (!g_gtao_enable) {
 			g_managed_resources.pixel_shaders["gtao_prefilter_depths_mip0"_h].reset();
@@ -1738,12 +1873,6 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 		reshade::set_config_value(nullptr, NAME, "GTAOEnable", g_gtao_enable);
 	}
 	ImGui::BeginDisabled(!g_gtao_enable);
-	ImGui::InputFloat("GTAO FOV Y", &g_gtao_fov_y);
-	if (ImGui::IsItemDeactivatedAfterEdit()) {
-		g_gtao_fov_y = std::clamp(g_gtao_fov_y, 0.0f, 360.0f);
-		g_managed_resources.pixel_shaders["gtao_main_pass"_h].reset();
-		reshade::set_config_value(nullptr, NAME, "GTAOFOVY", g_gtao_fov_y);
-	}
 	static constexpr std::array gtao_quality_items = { "Low", "Medium", "High", "Very High", "Ultra" };
 	if (ImGui::Combo("GTAO Quality", &g_gtao_quality, gtao_quality_items.data(), gtao_quality_items.size())) {
 		g_managed_resources.pixel_shaders["gtao_main_pass"_h].reset();
@@ -1770,17 +1899,12 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 	}
 	ImGui::Spacing();
 
-	static constexpr std::array trc_items = { "sRGB", "Gamma" };
-	if (ImGui::Combo("TRC", &g_trc, trc_items.data(), trc_items.size())) {
-		g_managed_resources.pixel_shaders["amd_ffx_lfga"_h].reset();
-		reshade::set_config_value(nullptr, NAME, "TRC", g_trc);
+	if (ImGui::Checkbox("Force modern windowed", &g_force_modern_windowed)) {
+		reshade::set_config_value(nullptr, NAME, "ForceModernWindowed", g_force_modern_windowed);
 	}
-	ImGui::BeginDisabled(g_trc == TRC_SRGB);
-	if (ImGui::SliderFloat("Gamma", &g_gamma, 1.0f, 3.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp)) {
-		g_managed_resources.pixel_shaders["amd_ffx_lfga"_h].reset();
-		reshade::set_config_value(nullptr, NAME, "Gamma", g_gamma);
+	if (ImGui::IsItemHovered()) {
+		ImGui::SetItemTooltip("Forces modern borderless or non borderless windowed mod.\nRequires restart.");
 	}
-	ImGui::EndDisabled();
 	ImGui::Spacing();
 
 	if (ImGui::Checkbox("Force vsync off", &g_force_vsync_off)) {
@@ -1839,6 +1963,9 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)
 			reshade::register_event<reshade::addon_event::draw_indexed>(on_draw_indexed);
 			reshade::register_event<reshade::addon_event::init_pipeline>(on_init_pipeline);
 			reshade::register_event<reshade::addon_event::copy_resource>(on_copy_resource);
+			reshade::register_event<reshade::addon_event::copy_texture_region>(on_copy_texture_region);
+			reshade::register_event<reshade::addon_event::map_buffer_region>(on_map_buffer_region);
+			reshade::register_event<reshade::addon_event::unmap_buffer_region>(on_unmap_buffer_region);
 			reshade::register_event<reshade::addon_event::create_resource_view>(on_create_resource_view);
 			reshade::register_event<reshade::addon_event::create_resource>(on_create_resource);
 			reshade::register_event<reshade::addon_event::create_sampler>(on_create_sampler);

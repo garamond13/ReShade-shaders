@@ -4,6 +4,8 @@
 //
 // Source: https://github.com/GameTechDev/XeGTAO
 
+#include "Include/GraphicalUpgradeCB.hlsli.h"
+
 // THESE MUST BE DEFINED!
 //
 
@@ -11,41 +13,21 @@
 #define VIEWPORT_PIXEL_SIZE float2(0.0, 0.0)
 #endif
 
-#ifndef NDC_TO_VIEW_MUL
-#define NDC_TO_VIEW_MUL float2(0.0, 0.0)
-#endif
+//
 
-#ifndef NDC_TO_VIEW_ADD
-#define NDC_TO_VIEW_ADD float2(0.0, 0.0)
-#endif
-
+// User configurable
 //
 
 #ifndef GTAO_QUALITY
 #define GTAO_QUALITY 2
 #endif
 
-#if GTAO_QUALITY == 0 // Low
-	#define SLICE_COUNT 4.0
-#elif GTAO_QUALITY == 1 // Medium
-	#define SLICE_COUNT 7.0
-#elif GTAO_QUALITY == 2 // High
-	#define SLICE_COUNT 10.0
-	#elif GTAO_QUALITY == 3 // Very High
-	#define SLICE_COUNT 13.0
-#elif GTAO_QUALITY == 4 // Ultra
-	#define SLICE_COUNT 16.0
-#endif
-
-// User configurable
-//
-
 #ifndef EFFECT_RADIUS
-#define EFFECT_RADIUS 0.6
+#define EFFECT_RADIUS 1.0
 #endif
 
 #ifndef EFFECT_FALLOFF_RANGE
-#define EFFECT_FALLOFF_RANGE 0.005
+#define EFFECT_FALLOFF_RANGE 0.615
 #endif
 
 #ifndef SAMPLE_DISTRIBUTION_POWER
@@ -68,18 +50,18 @@
 #define DENOISE_BLUR_BETA 1.2
 #endif
 
-#ifndef CAMERA_CLIP_NEAR
-#define CAMERA_CLIP_NEAR 0.1
-#endif
-
-#ifndef CAMERA_CLIP_FAR
-#define CAMERA_CLIP_FAR 1000.0
-#endif
-
 //
 
-#ifndef NDC_TO_VIEW_MUL_X_PIXEL_SIZE
-#define NDC_TO_VIEW_MUL_X_PIXEL_SIZE (NDC_TO_VIEW_MUL * VIEWPORT_PIXEL_SIZE)
+#if GTAO_QUALITY == 0 // Low
+	#define SLICE_COUNT 4.0
+#elif GTAO_QUALITY == 1 // Medium
+	#define SLICE_COUNT 7.0
+#elif GTAO_QUALITY == 2 // High
+	#define SLICE_COUNT 10.0
+	#elif GTAO_QUALITY == 3 // Very High
+	#define SLICE_COUNT 13.0
+#elif GTAO_QUALITY == 4 // Ultra
+	#define SLICE_COUNT 16.0
 #endif
 
 #define XE_GTAO_DEPTH_MIP_LEVELS 5.0
@@ -90,16 +72,7 @@
 
 float XeGTAO_ScreenSpaceToViewSpaceDepth(float screenDepth)
 {
-	float depthLinearizeMul = CAMERA_CLIP_FAR * CAMERA_CLIP_NEAR / (CAMERA_CLIP_FAR - CAMERA_CLIP_NEAR);
-	float depthLinearizeAdd = CAMERA_CLIP_FAR / (CAMERA_CLIP_FAR - CAMERA_CLIP_NEAR);
-
-	// correct the handedness issue. need to make sure this below is correct, but I think it is.
-	if (depthLinearizeMul * depthLinearizeAdd < 0.0) {
-		depthLinearizeAdd = -depthLinearizeAdd;
-	}
-
-	// Optimised version of "-cameraClipNear / (cameraClipFar - projDepth * (cameraClipFar - cameraClipNear)) * cameraClipFar"
-	return depthLinearizeMul / (depthLinearizeAdd - screenDepth);
+	return wToZScaleAndBias_copy.y / (screenDepth - wToZScaleAndBias_copy.x) / 100.0;
 }
 
 // This is also a good place to do non-linear depth conversion for cases where one wants the 'radius' (effectively the threshold between near-field and far-field GI),
@@ -175,23 +148,31 @@ float XeGTAO_PackEdges(float4 edgesLRTB)
 // Inputs are screen XY and viewspace depth, output is viewspace position
 float3 XeGTAO_ComputeViewspacePosition(float2 screenPos, float viewspaceDepth)
 {
-	float3 ret;
-	ret.xy = (NDC_TO_VIEW_MUL * screenPos.xy + NDC_TO_VIEW_ADD) * viewspaceDepth;
-	ret.z = viewspaceDepth;
-	return ret;
+	float4 r1;
+	float3 r0;
+	r1.z = viewspaceDepth;
+	r1.xy = r1.z * screenPos;
+	r1.w = 1.0;
+	r0.x = dot(r1.xyzw, screenDataToCamera_copy._m00_m10_m20_m30);
+	r0.y = dot(r1.xyzw, screenDataToCamera_copy._m01_m11_m21_m31);
+	r0.z = dot(r1.xyzw, screenDataToCamera_copy._m02_m12_m22_m32);
+	return r0;
 }
 
-float3 ComputeViewspaceNormal(float2 uv, float z, float lZ, float rZ, float tZ, float bZ, float4 edgesLRTB)
+float3 XeGTAO_CalculateNormal(const float4 edgesLRTB, const float3 pixCenterPos, float3 pixLPos, float3 pixRPos, float3 pixTPos, float3 pixBPos)
 {
-	const float3 centerPos = XeGTAO_ComputeViewspacePosition(uv, z);
-	const float3 deltaL = XeGTAO_ComputeViewspacePosition(uv + float2(-1.0, 0.0) * VIEWPORT_PIXEL_SIZE, lZ) - centerPos;
-	const float3 deltaR = XeGTAO_ComputeViewspacePosition(uv + float2(1.0, 0.0) * VIEWPORT_PIXEL_SIZE, rZ) - centerPos;
-	const float3 deltaT = XeGTAO_ComputeViewspacePosition(uv + float2(0.0, -1.0) * VIEWPORT_PIXEL_SIZE, tZ) - centerPos;
-	const float3 deltaB = XeGTAO_ComputeViewspacePosition(uv + float2(0.0, 1.0) * VIEWPORT_PIXEL_SIZE, bZ) - centerPos;
+	// Get this pixel's viewspace normal
+	float4 acceptedNormals = saturate(float4(edgesLRTB.x * edgesLRTB.z, edgesLRTB.z * edgesLRTB.y, edgesLRTB.y * edgesLRTB.w, edgesLRTB.w * edgesLRTB.x) + 0.01);
 
-	const float4 w = max(float4(edgesLRTB.x * edgesLRTB.z, edgesLRTB.z * edgesLRTB.y, edgesLRTB.y * edgesLRTB.w, edgesLRTB.w * edgesLRTB.x), 1e-6);
+	pixLPos = normalize(pixLPos - pixCenterPos);
+	pixRPos = normalize(pixRPos - pixCenterPos);
+	pixTPos = normalize(pixTPos - pixCenterPos);
+	pixBPos = normalize(pixBPos - pixCenterPos);
 
-	return normalize(w.x * cross(deltaL, deltaT) + w.y * cross(deltaT, deltaR) + w.z * cross(deltaR, deltaB) + w.w * cross(deltaB, deltaL));
+	float3 pixelNormal = acceptedNormals.x * cross(pixLPos, pixTPos) + acceptedNormals.y * cross(pixTPos, pixRPos) + acceptedNormals.z * cross(pixRPos, pixBPos) + acceptedNormals.w * cross(pixBPos, pixLPos);
+	pixelNormal = normalize(pixelNormal);
+
+	return pixelNormal;
 }
 
 // http://h14s.p5r.org/2012/09/0x5f3759df.html, [Drobot2014a] Low Level Optimizations for GCN, https://blog.selfshadow.com/publications/s2016-shading-course/activision/s2016_pbs_activision_occlusion.pdf slide 63
@@ -228,8 +209,19 @@ void XeGTAO_MainPass(uint2 pixCoord, float2 localNoise, Texture2D<float> sourceV
 	const float pixBZ = valuesBR.x;
 
 	float4 edgesLRTB = XeGTAO_CalculateEdges(viewspaceZ, pixLZ, pixRZ, pixTZ, pixBZ);
+	outWorkingAOTermAndEdges.y = XeGTAO_PackEdges(edgesLRTB);
 
-	float3 viewspaceNormal = ComputeViewspaceNormal(normalizedScreenPos, viewspaceZ, pixLZ, pixRZ, pixTZ, pixBZ, edgesLRTB);
+	// Generating screen space normals in-place is faster than generating normals in a separate pass but requires
+	// use of 32bit depth buffer (16bit works but visibly degrades quality) which in turn slows everything down. So to
+	// reduce complexity and allow for screen space normal reuse by other effects, we've pulled it out into a separate
+	// pass.
+	// However, we leave this code in, in case anyone has a use-case where it fits better.
+	float3 CENTER = XeGTAO_ComputeViewspacePosition(normalizedScreenPos, viewspaceZ);
+	float3 LEFT = XeGTAO_ComputeViewspacePosition(normalizedScreenPos + float2(-1.0, 0.0) * VIEWPORT_PIXEL_SIZE, pixLZ);
+	float3 RIGHT = XeGTAO_ComputeViewspacePosition(normalizedScreenPos + float2(1.0, 0.0) * VIEWPORT_PIXEL_SIZE, pixRZ);
+	float3 TOP = XeGTAO_ComputeViewspacePosition(normalizedScreenPos + float2(0.0, -1.0) * VIEWPORT_PIXEL_SIZE, pixTZ);
+	float3 BOTTOM = XeGTAO_ComputeViewspacePosition(normalizedScreenPos + float2(0.0, 1.0) * VIEWPORT_PIXEL_SIZE, pixBZ);
+	float3 viewspaceNormal = XeGTAO_CalculateNormal(edgesLRTB, CENTER, LEFT, RIGHT, TOP, BOTTOM);
 
 	// Move center pixel slightly towards camera to avoid imprecision artifacts due to depth buffer imprecision; offset depends on depth texture format used
 	viewspaceZ *= 0.99999; // this is good for FP32 depth buffer
@@ -258,7 +250,8 @@ void XeGTAO_MainPass(uint2 pixCoord, float2 localNoise, Texture2D<float> sourceV
 		const float pixelTooCloseThreshold = 1.3; // if the offset is under approx pixel size (pixelTooCloseThreshold), push it out to the minimum distance
 
 		// approx viewspace pixel size at pixCoord; approximation of NDCToViewspace( normalizedScreenPos.xy + consts.ViewportPixelSize.xy, pixCenterPos.z ).xy - pixCenterPos.xy;
-		const float2 pixelDirRBViewspaceSizeAtCenterZ = viewspaceZ.xx * NDC_TO_VIEW_MUL_X_PIXEL_SIZE;
+		//const float2 pixelDirRBViewspaceSizeAtCenterZ = viewspaceZ.xx * NDC_TO_VIEW_MUL_X_PIXEL_SIZE;
+		const float2 pixelDirRBViewspaceSizeAtCenterZ = XeGTAO_ComputeViewspacePosition(normalizedScreenPos + VIEWPORT_PIXEL_SIZE, viewspaceZ).xy - CENTER.xy;
 
 		float screenspaceRadius = EFFECT_RADIUS / pixelDirRBViewspaceSizeAtCenterZ.x;
 
@@ -391,7 +384,6 @@ void XeGTAO_MainPass(uint2 pixCoord, float2 localNoise, Texture2D<float> sourceV
 	}
 
 	outWorkingAOTermAndEdges.x = saturate(visibility / XE_GTAO_OCCLUSION_TERM_SCALE);
-	outWorkingAOTermAndEdges.y = XeGTAO_PackEdges(edgesLRTB);
 }
 
 float4 XeGTAO_UnpackEdges(float _packedVal)
@@ -490,7 +482,11 @@ out float2 o
 	float aoTerm = sum / sumWeight;
 
 	#ifdef FINAL_APPLY
-	o = float4(aoTerm.xxx * XE_GTAO_OCCLUSION_TERM_SCALE, 1.0);
+		#if 0
+		o = float4(1.0, 0.0, 1.0, 1.0);
+		#else
+		o = float4(aoTerm.xxx * XE_GTAO_OCCLUSION_TERM_SCALE, 1.0);
+		#endif
 	#else
 	o = float2(aoTerm, C.y);
 	#endif

@@ -23,6 +23,8 @@ float2 inv_src_size;
 float2 axis;
 float sigma;
 float noise_index;
+float4x3 screenDataToCamera_copy;
+float2 wToZScaleAndBias_copy;
 GRAPHICAL_UPGRADE_CB_END
 
 #endif // __GRAPHICAL_UPGRADE_CB_HLSL_H__

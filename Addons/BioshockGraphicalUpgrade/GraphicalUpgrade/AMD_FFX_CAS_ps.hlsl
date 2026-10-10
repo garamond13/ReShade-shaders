@@ -24,15 +24,15 @@ float4 main(float4 pos : SV_Position) : SV_Target
 	// a b c
 	// d e f
 	// g h i
-	float3 sampleA = tex.Load(int3(pos.xy + int2(-1, -1), 0)).rgb;
-	float3 sampleB = tex.Load(int3(pos.xy + int2(0, -1), 0)).rgb;
-	float3 sampleC = tex.Load(int3(pos.xy + int2(1, -1), 0)).rgb;
-	float3 sampleD = tex.Load(int3(pos.xy + int2(-1, 0), 0)).rgb;
+	float3 sampleA = tex.Load(int3(pos.xy, 0), int2(-1, -1)).rgb;
+	float3 sampleB = tex.Load(int3(pos.xy, 0), int2(0, -1)).rgb;
+	float3 sampleC = tex.Load(int3(pos.xy, 0), int2(1, -1)).rgb;
+	float3 sampleD = tex.Load(int3(pos.xy, 0), int2(-1, 0)).rgb;
 	float4 sampleE = tex.Load(int3(pos.xy, 0));
-	float3 sampleF = tex.Load(int3(pos.xy + int2(1, 0), 0)).rgb;
-	float3 sampleG = tex.Load(int3(pos.xy + int2(-1, 1), 0)).rgb; 
-	float3 sampleH = tex.Load(int3(pos.xy + int2(0, 1), 0)).rgb;
-	float3 sampleI = tex.Load(int3(pos.xy + int2(1, 1), 0)).rgb;
+	float3 sampleF = tex.Load(int3(pos.xy, 0), int2(1, 0)).rgb;
+	float3 sampleG = tex.Load(int3(pos.xy, 0), int2(-1, 1)).rgb; 
+	float3 sampleH = tex.Load(int3(pos.xy, 0), int2(0, 1)).rgb;
+	float3 sampleI = tex.Load(int3(pos.xy, 0), int2(1, 1)).rgb;
 
 	// Get lumas for samples.
 	float lumaA = get_luma(sampleA);

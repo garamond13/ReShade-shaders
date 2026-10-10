@@ -30,24 +30,17 @@ cbuffer _Globals : register(b12)
 SamplerState smp : register(s1); // Should be linear clamp.
 Texture2D tex : register(t0);
 
-#define BLOOM_THRESHOLD PWLThreshold
-#define BLOOM_SOFT_KNEE (BLOOM_THRESHOLD / 1.0)
-#define BLOOM_TINT float3(1.0, 1.2, 1.0)
-
-float3 quadratic_threshold(float3 color)
+float3 threshold(float3 color)
 {
-	// Pixel brightness.
-	// From the original shader.
-	float br = dot(color, float3(0.270000011,0.670000017,0.0599999987));
-
-	// Under the threshold part, a quadratic curve.
-	// Above the threshold part will be a linear curve.
-	const float3 curve = float3(BLOOM_THRESHOLD - BLOOM_SOFT_KNEE, BLOOM_SOFT_KNEE * 2.0, 0.25 / BLOOM_SOFT_KNEE);
-	float rq = clamp(br - curve.x, 0.0, curve.y);
-	rq = curve.z * rq * rq;
-
-	// Combine and apply the brightness response curve.
-	return color * max(rq, br - BLOOM_THRESHOLD) / max(1e-6, br);
+	float4 r0, r1;
+	r0.xyz = color;
+	r0.w = dot(r0.xyz, float3(0.270000011,0.670000017,0.0599999987));
+	r0.w = max(9.99999975e-006, r0.w);
+	r1.x = r0.w < PWLThreshold;
+	r1.yz = r0.ww * PWLConstants.xz + PWLConstants.yw;
+	r1.x = r1.x ? r1.y : r1.z;
+	r0.w = r1.x / r0.w;
+	return r0.www * r0.xyz;
 }
 
 float get_gaussian_weight(float x)
@@ -79,12 +72,7 @@ float4 bloom_prefilter_ps(float4 pos : SV_Position, float2 texcoord : TEXCOORD) 
 	csum /= wsum;
 
 	// Apply threshold.
-	float3 color = quadratic_threshold(csum);
-
-	// Apply tint.
-	const float luma = get_luma(color);
-	color *= BLOOM_TINT;
-	color *= luma / max(1e-6, get_luma(color));
+	float3 color = threshold(csum);
 
 	return float4(color, 1.0);
 }
