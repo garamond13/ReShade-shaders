@@ -251,7 +251,7 @@ void XeGTAO_MainPass(uint2 pixCoord, float2 localNoise, Texture2D<float> sourceV
 
 		// approx viewspace pixel size at pixCoord; approximation of NDCToViewspace( normalizedScreenPos.xy + consts.ViewportPixelSize.xy, pixCenterPos.z ).xy - pixCenterPos.xy;
 		//const float2 pixelDirRBViewspaceSizeAtCenterZ = viewspaceZ.xx * NDC_TO_VIEW_MUL_X_PIXEL_SIZE;
-		const float2 pixelDirRBViewspaceSizeAtCenterZ = XeGTAO_ComputeViewspacePosition(normalizedScreenPos + VIEWPORT_PIXEL_SIZE, viewspaceZ).xy - CENTER.xy;
+		const float2 pixelDirRBViewspaceSizeAtCenterZ = XeGTAO_ComputeViewspacePosition(normalizedScreenPos + VIEWPORT_PIXEL_SIZE, CENTER.z).xy - CENTER.xy;
 
 		float screenspaceRadius = EFFECT_RADIUS / pixelDirRBViewspaceSizeAtCenterZ.x;
 
