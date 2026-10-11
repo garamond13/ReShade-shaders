@@ -7,7 +7,7 @@
 #include <Shlobj.h>
 
 extern "C" __declspec(dllexport) const char* NAME = "BioshockGraphicalUpgrade";
-extern "C" __declspec(dllexport) const char* DESCRIPTION = "v10.0.1";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "v10.0.2";
 extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/BioshockGraphicalUpgrade";
 
 // Shader hooks.
@@ -441,6 +441,8 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 	size = sizeof(hash);
 	hr = ps->GetPrivateData(g_ps_bloom_downsample_0xB51C436B.guid, &size, &hash);
 	if (SUCCEEDED(hr) && hash == g_ps_bloom_downsample_0xB51C436B.hash) {
+		g_is_valid_screenDataToCamera_and_wToZScaleAndBias = false;
+
 		// Draw GTAO.
 		if (g_gtao_enable && !g_has_drawn_gtao) {
 			// We expect SRV to be the main scene.
@@ -476,7 +478,6 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 	size = sizeof(hash);
 	hr = ps->GetPrivateData(g_ps_bloom_0xBD24CC87.guid, &size, &hash);
 	if (SUCCEEDED(hr) && hash == g_ps_bloom_0xBD24CC87.hash) {
-		g_is_valid_screenDataToCamera_and_wToZScaleAndBias = false;
 		return true;
 	}
 
