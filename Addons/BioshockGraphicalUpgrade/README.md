@@ -1,7 +1,7 @@
 # BioshockGraphicalUpgrade
 
 - Modern borderless window (flip mod, tearing).
-- XeGTAO ambient occlusion.
+- XeGTAO or Visibility Bitmask - GTAO ambient occlusion.
 - SMAA anti aliasing.
 - Replaced bloom.
 - 16x anisotropic filtering.

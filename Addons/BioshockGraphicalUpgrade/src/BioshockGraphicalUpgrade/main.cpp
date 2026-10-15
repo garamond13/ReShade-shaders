@@ -7,7 +7,7 @@
 #include <Shlobj.h>
 
 extern "C" __declspec(dllexport) const char* NAME = "BioshockGraphicalUpgrade";
-extern "C" __declspec(dllexport) const char* DESCRIPTION = "v10.0.2";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "v11.0.0";
 extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/BioshockGraphicalUpgrade";
 
 // Shader hooks.
@@ -54,6 +54,7 @@ constexpr int GTAO_DEPTH_MIP_LEVELS = 5;
 static bool g_gtao_enable = true;
 static int g_gtao_quality = 2; // 0 - Low, 1 - Medium, 2 - High, 3 - Very High, 4 - Ultra
 static bool g_has_drawn_gtao;
+static int g_gtao_type; // 0 - XeGTAO, 1 - Visibility Bitmask - GTAO.
 
 // Bloom
 static int g_bloom_nmips = 6;
@@ -154,7 +155,12 @@ static void draw_gtao(ID3D10Device* device, ID3D10RenderTargetView*const* rtv)
 
 	// Create prefilter depths PS, for mips 1 to 4.
 	[[unlikely]] if (!g_managed_resources.pixel_shaders["gtao_prefilter_depths"_h]) {
-		create_pixel_shader(device, g_managed_resources.pixel_shaders["gtao_prefilter_depths"_h].put(), L"GTAO_impl.hlsl", "prefilter_depths_ps");
+		const std::string gtao_type_str = std::to_string(g_gtao_type);
+		D3D_SHADER_MACRO defines[] = {
+			{ "VISIBILITY_BITMASK", gtao_type_str.c_str() },
+			{ nullptr, nullptr }
+		};
+		create_pixel_shader(device, g_managed_resources.pixel_shaders["gtao_prefilter_depths"_h].put(), L"GTAO_impl.hlsl", "prefilter_depths_ps", defines);
 	}
 
 	// Create point clamp sampler.
@@ -241,9 +247,11 @@ static void draw_gtao(ID3D10Device* device, ID3D10RenderTargetView*const* rtv)
 	[[unlikely]] if (!g_managed_resources.pixel_shaders["gtao_main_pass"_h]) {
 		const std::string viewport_pixel_size_str = std::format("float2({},{})", 1.0f / (float)g_swapchain_width, 1.0f / (float)g_swapchain_height);
 		const std::string quality_str = std::to_string(g_gtao_quality);
+		const std::string gtao_type_str = std::to_string(g_gtao_type);
 		D3D_SHADER_MACRO defines[] = {
 			{ "VIEWPORT_PIXEL_SIZE", viewport_pixel_size_str.c_str() },
 			{ "GTAO_QUALITY", quality_str.c_str() },
+			{ "VISIBILITY_BITMASK", gtao_type_str.c_str() },
 			{ nullptr, nullptr }
 		};
 		create_pixel_shader(device, g_managed_resources.pixel_shaders["gtao_main_pass"_h].put(), L"GTAO_impl.hlsl", "main_pass_ps", defines);
@@ -1770,6 +1778,9 @@ static void read_config()
 	if (!reshade::get_config_value(nullptr, NAME, "GTAOEnable", g_gtao_enable)) {
 		reshade::set_config_value(nullptr, NAME, "GTAOEnable", g_gtao_enable);
 	}
+	if (!reshade::get_config_value(nullptr, NAME, "GTAOType", g_gtao_type)) {
+		reshade::set_config_value(nullptr, NAME, "GTAOType", g_gtao_type);
+	}
 	if (!reshade::get_config_value(nullptr, NAME, "GTAOQuality", g_gtao_quality)) {
 		reshade::set_config_value(nullptr, NAME, "GTAOQuality", g_gtao_quality);
 	}
@@ -1874,15 +1885,21 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 		reshade::set_config_value(nullptr, NAME, "GTAOEnable", g_gtao_enable);
 	}
 	ImGui::BeginDisabled(!g_gtao_enable);
+	static constexpr std::array gtao_type_items = { "XeGTAO", "VB - GTAO" };
+	if (ImGui::Combo("GTAO type", &g_gtao_type, gtao_type_items.data(), gtao_type_items.size())) {
+		g_managed_resources.pixel_shaders["gtao_prefilter_depths"_h].reset();
+		g_managed_resources.pixel_shaders["gtao_main_pass"_h].reset();
+		reshade::set_config_value(nullptr, NAME, "GTAOType", g_gtao_type);
+	}
 	static constexpr std::array gtao_quality_items = { "Low", "Medium", "High", "Very High", "Ultra" };
-	if (ImGui::Combo("GTAO Quality", &g_gtao_quality, gtao_quality_items.data(), gtao_quality_items.size())) {
+	if (ImGui::Combo("GTAO quality", &g_gtao_quality, gtao_quality_items.data(), gtao_quality_items.size())) {
 		g_managed_resources.pixel_shaders["gtao_main_pass"_h].reset();
 		reshade::set_config_value(nullptr, NAME, "GTAOQuality", g_gtao_quality);
 	}
 	ImGui::EndDisabled();
 	ImGui::Spacing();
 
-	if (ImGui::SliderFloat("Bloom Intensity", &g_bloom_intensity, 0.0f, 3.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp)) {
+	if (ImGui::SliderFloat("Bloom intensity", &g_bloom_intensity, 0.0f, 3.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp)) {
 		g_managed_resources.pixel_shaders["tonemap_0x87A0B43D"_h].reset();
 		reshade::set_config_value(nullptr, NAME, "BloomIntensity", g_bloom_intensity);
 	}
