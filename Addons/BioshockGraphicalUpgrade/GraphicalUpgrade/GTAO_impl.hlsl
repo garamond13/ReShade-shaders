@@ -15,7 +15,7 @@
 
 //
 
-// User configurable
+// Quality presets
 //
 
 // Use VB-GTAO or XeGTAO.
@@ -27,8 +27,43 @@
 #define GTAO_QUALITY 2
 #endif
 
+#if VISIBILITY_BITMASK
+	#define EFFECT_RADIUS 0.5
+	#define STEPS_PER_SLICE 6.0
+	#if GTAO_QUALITY == 0 // Low
+		#define SLICE_COUNT 4.0
+	#elif GTAO_QUALITY == 1 // Medium
+		#define SLICE_COUNT 5.0
+	#elif GTAO_QUALITY == 2 // High
+		#define SLICE_COUNT 6.0
+	#elif GTAO_QUALITY == 3 // Very High
+		#define SLICE_COUNT 7.0
+	#elif GTAO_QUALITY == 4 // Ultra
+		#define SLICE_COUNT 8.0
+	#endif
+#else // XeGTAO
+	#define EFFECT_RADIUS 1.0
+	#define STEPS_PER_SLICE 3.0
+	#if GTAO_QUALITY == 0 // Low
+		#define SLICE_COUNT 4.0
+	#elif GTAO_QUALITY == 1 // Medium
+		#define SLICE_COUNT 7.0
+	#elif GTAO_QUALITY == 2 // High
+		#define SLICE_COUNT 10.0
+	#elif GTAO_QUALITY == 3 // Very High
+		#define SLICE_COUNT 13.0
+	#elif GTAO_QUALITY == 4 // Ultra
+		#define SLICE_COUNT 16.0
+	#endif
+#endif
+
+//
+
+// User configurable
+//
+
 #ifndef EFFECT_RADIUS
-#define EFFECT_RADIUS 1.0
+#define EFFECT_RADIUS 0.5
 #endif
 
 // VB-GTAO only.
@@ -39,6 +74,14 @@
 // XeGTAO only.
 #ifndef EFFECT_FALLOFF_RANGE
 #define EFFECT_FALLOFF_RANGE 0.615
+#endif
+
+#ifndef SLICE_COUNT
+#define SLICE_COUNT 3.0
+#endif
+
+#ifndef STEPS_PER_SLICE
+#define STEPS_PER_SLICE 3.0
 #endif
 
 #ifndef SAMPLE_DISTRIBUTION_POWER
@@ -61,31 +104,7 @@
 #define DENOISE_BLUR_BETA 1.2
 #endif
 
-//#ifndef STEPS_PER_SLICE
-//#define STEPS_PER_SLICE 3.0
-//#endif
-
 //
-
-#ifndef STEPS_PER_SLICE
-	#if VISIBILITY_BITMASK
-	#define STEPS_PER_SLICE 6.0
-	#else
-	#define STEPS_PER_SLICE 3.0
-	#endif
-#endif
-
-#if GTAO_QUALITY == 0 // Low
-	#define SLICE_COUNT 4.0
-#elif GTAO_QUALITY == 1 // Medium
-	#define SLICE_COUNT 7.0
-#elif GTAO_QUALITY == 2 // High
-	#define SLICE_COUNT 10.0
-#elif GTAO_QUALITY == 3 // Very High
-	#define SLICE_COUNT 13.0
-#elif GTAO_QUALITY == 4 // Ultra
-	#define SLICE_COUNT 16.0
-#endif
 
 #define XE_GTAO_DEPTH_MIP_LEVELS 5.0
 #define XE_GTAO_OCCLUSION_TERM_SCALE 1.5
