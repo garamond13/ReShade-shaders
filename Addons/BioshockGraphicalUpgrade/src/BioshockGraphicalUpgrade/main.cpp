@@ -7,7 +7,7 @@
 #include <Shlobj.h>
 
 extern "C" __declspec(dllexport) const char* NAME = "BioshockGraphicalUpgrade";
-extern "C" __declspec(dllexport) const char* DESCRIPTION = "v11.1.0";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "v12.0.0";
 extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/BioshockGraphicalUpgrade";
 
 // Shader hooks.
@@ -1019,7 +1019,7 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 			tex_desc.Height = g_swapchain_height;
 			tex_desc.MipLevels = 1;
 			tex_desc.ArraySize = 1;
-			tex_desc.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+			tex_desc.Format = DXGI_FORMAT_R16G16B16A16_UNORM;
 			tex_desc.SampleDesc.Count = 1;
 			tex_desc.BindFlags = D3D10_BIND_SHADER_RESOURCE | D3D10_BIND_RENDER_TARGET;
 			Com_ptr<ID3D10Texture2D> tex;

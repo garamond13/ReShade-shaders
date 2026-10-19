@@ -30,6 +30,27 @@ Texture2D s_bloom : register(t1);
 #define BLOOM_INTENSITY 1.0
 #endif
 
+float3 hable_tonemap_curve(float3 x)
+{
+  const float A = 0.15;
+  const float B = 0.50;
+  const float C = 0.10;
+  const float D = 0.20;
+  const float E = 0.02;
+  const float F = 0.30;
+
+  return ((x * (A * x + C * B) + D * E) / (x * (A * x + B) + D * F)) - E / F;
+}
+
+float3 hable_tonemap(float3 color)
+{
+  const float W = 11.2;
+  const float ExposureBias = 2.7; // Originally 2.0, 2.7 preserves the game's original brightness and contrast.
+
+  color = max(0.0, color);
+  return hable_tonemap_curve(color * ExposureBias) / hable_tonemap_curve(W);
+}
+
 // 3Dmigoto declarations
 #define cmp -
 
@@ -50,10 +71,10 @@ void main(
 
   // Original saturate.
   //r0.xyz = saturate(sceneBias * r0.xyz);
-  
-  // Smooth saturate.
-  r0.xyz = sceneBias * r0.xyz;
-  r0.xyz = smooth_saturate(r0.xyz, 7.0);
+
+  // Hable tonemap.
+  // This can go slighly above 1.
+  r0.xyz = hable_tonemap(sceneBias * r0.xyz);
 
   // Original delinearization, gamma 2.2.
   //r0.xyz = log2(r0.xyz);

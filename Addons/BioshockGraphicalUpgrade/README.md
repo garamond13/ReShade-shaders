@@ -8,7 +8,7 @@
 - Sharpening filter (Modified AMD FFX CAS).
 - Temporal film grain (AMD FFX LFGA).
 - Accurate FPS limiter.
-- Improved tonemapping.
+- Greatly improved tonemapping.
 - Upgraded render targets (greatly reduces color banding).
 - 10bit color output.
 - Greatly reduced input lag.
