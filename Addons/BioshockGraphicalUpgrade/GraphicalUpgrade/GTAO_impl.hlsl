@@ -293,10 +293,10 @@ void XeGTAO_MainPass(uint2 pixCoord, float2 localNoise, Texture2D<float> sourceV
 	const float3 pixCenterPos = XeGTAO_ComputeViewspacePosition(normalizedScreenPos, viewspaceZ);
 	const float3 viewVec = normalize(-pixCenterPos);
 
+	#if !VISIBILITY_BITMASK
 	// prevents normals that are facing away from the view vector - xeGTAO struggles with extreme cases, but in Vanilla it seems rare so it's disabled by default
 	viewspaceNormal = normalize(viewspaceNormal + max(0, -dot(viewspaceNormal, viewVec)) * viewVec);
 
-	#if !VISIBILITY_BITMASK
 	const float falloffRange = EFFECT_FALLOFF_RANGE * EFFECT_RADIUS;
 	const float falloffFrom = EFFECT_RADIUS * (1.0 - EFFECT_FALLOFF_RANGE);
 
@@ -321,8 +321,10 @@ void XeGTAO_MainPass(uint2 pixCoord, float2 localNoise, Texture2D<float> sourceV
 
 		float screenspaceRadius = EFFECT_RADIUS / pixelDirRBViewspaceSizeAtCenterZ.x;
 
+		#if !VISIBILITY_BITMASK
 		// fade out for small screen radii
 		visibility += saturate((10.0 - screenspaceRadius) / 100.0) * 0.5;
+		#endif
 
 		// this is the min distance to start sampling from to avoid sampling from the center pixel (no useful data obtained from sampling center pixel)
 		const float minS = pixelTooCloseThreshold / screenspaceRadius;
