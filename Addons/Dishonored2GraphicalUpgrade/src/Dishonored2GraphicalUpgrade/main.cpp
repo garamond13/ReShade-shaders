@@ -6,7 +6,7 @@
 #include "DLSS/DLSS.h"
 
 extern "C" __declspec(dllexport) const char* NAME = "Dishonored2GraphicalUpgrade";
-extern "C" __declspec(dllexport) const char* DESCRIPTION = "v5.0.0";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "v5.1.0";
 extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/Dishonored2GraphicalUpgrade";
 
 struct alignas(16) PerViewCB
@@ -61,7 +61,6 @@ constexpr Shader_hash g_ps_motion_blur_and_lens_distortion_mvs_0xC97890C8 = { 0x
 // If motion blur is disabled in the game's settings.
 constexpr Shader_hash g_ps_motion_blur_and_lens_distortion_mvs_0xE908E905 = { 0xE908E905, { 0x337d2791, 0xda14, 0x48f1, { 0x85, 0x2d, 0x5b, 0xcc, 0x3, 0x7e, 0xfa, 0x60 }}};
 
-constexpr Shader_hash g_ps_denoise_0x4CD2BE39 = { 0x4CD2BE39, { 0x1cbed7cf, 0xf, 0x4e33, { 0xaf, 0x2c, 0x6a, 0x45, 0x88, 0x7d, 0xd9, 0xd8 }}};
 constexpr Shader_hash g_ps_downsample_0x42873B15 = { 0x42873B15, { 0xa40a0d2e, 0x6ab1, 0x4ff1, { 0x9e, 0x51, 0x6f, 0xbd, 0xf5, 0xaa, 0x6f, 0x5a }}};
 
 //
@@ -78,7 +77,7 @@ static bool g_force_vsync_off = true;
 static bool g_force_modern_windowed = true;
 static std::atomic<uintptr_t> g_taa_tag;
 static void* g_taa_cb1_mapped_data;
-static bool g_disable_lens_dirt = true;
+static bool g_disable_lens_dirt;
 static float g_vignette_strenght = 1.0f;
 static float g_bloom_intensity = 1.0f;
 static bool g_disable_lens_distortion;
@@ -329,7 +328,13 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		ctx->OMGetRenderTargets(1, rtv.put(), nullptr);
 		Com_ptr<ID3D11Resource> resource;
 		rtv->GetResource(resource.put());
-		ensure(g_device->CreateShaderResourceView(resource.get(), nullptr, g_managed_resources.shader_resource_views["ao"_h].put()), >= 0);
+		Com_ptr<ID3D11Texture2D> tex;
+		ensure(resource->QueryInterface(tex.put()), >= 0);
+		D3D11_TEXTURE2D_DESC tex_desc;
+		tex->GetDesc(&tex_desc);
+		ensure(g_device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
+		ensure(g_device->CreateShaderResourceView(tex.get(), nullptr, g_managed_resources.shader_resource_views["ao"_h].put()), >= 0);
+		ctx->CopyResource(tex.get(), resource.get());
 		#endif
 
 		//
@@ -338,20 +343,6 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		ctx->PSSetSamplers(0, 1, &smp_original);
 
 		return true;
-	}
-
-	size = sizeof(hash);
-	hr = ps->GetPrivateData(g_ps_denoise_0x4CD2BE39.guid, &size, &hash);
-	if (SUCCEEDED(hr) && hash == g_ps_denoise_0x4CD2BE39.hash) {
-		// Create PS.
-		[[unlikely]] if (!g_managed_resources.pixel_shaders["denoise_0x4CD2BE39"_h]) {
-			create_pixel_shader(g_device, g_managed_resources.pixel_shaders["denoise_0x4CD2BE39"_h].put(), L"Denoise_0x4CD2BE39_ps.hlsl");
-		}
-
-		// Bindings.
-		ctx->PSSetShader(g_managed_resources.pixel_shaders["denoise_0x4CD2BE39"_h].get(), nullptr, 0);
-
-		return false;
 	}
 
 	size = sizeof(hash);
@@ -677,9 +668,6 @@ static void on_init_pipeline(reshade::api::device* device, reshade::api::pipelin
 					return;
 				case g_ps_motion_blur_and_lens_distortion_mvs_0xE908E905.hash:
 					ensure(((ID3D11PixelShader*)pipeline.handle)->SetPrivateData(g_ps_motion_blur_and_lens_distortion_mvs_0xE908E905.guid, sizeof(g_ps_motion_blur_and_lens_distortion_mvs_0xE908E905.hash), &g_ps_motion_blur_and_lens_distortion_mvs_0xE908E905.hash), >= 0);
-					return;
-				case g_ps_denoise_0x4CD2BE39.hash:
-					ensure(((ID3D11PixelShader*)pipeline.handle)->SetPrivateData(g_ps_denoise_0x4CD2BE39.guid, sizeof(g_ps_denoise_0x4CD2BE39.hash), &g_ps_denoise_0x4CD2BE39.hash), >= 0);
 					return;
 				case g_ps_downsample_0x42873B15.hash:
 					ensure(((ID3D11PixelShader*)pipeline.handle)->SetPrivateData(g_ps_downsample_0x42873B15.guid, sizeof(g_ps_downsample_0x42873B15.hash), &g_ps_downsample_0x42873B15.hash), >= 0);

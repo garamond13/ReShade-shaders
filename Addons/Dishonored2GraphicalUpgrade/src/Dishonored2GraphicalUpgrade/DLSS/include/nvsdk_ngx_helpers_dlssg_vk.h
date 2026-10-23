@@ -203,7 +203,7 @@ static inline NVSDK_NGX_Result NGX_VK_ESTIMATE_VRAM_DLSSG(
 )
 {
     void* Callback = NULL;
-    NVSDK_NGX_Parameter_GetVoidPointer(InParams, NVSDK_NGX_Parameter_DLSSGEstimateVRAMCallback, &Callback);
+    NVSDK_NGX_Parameter_GetVoidPointer(InParams, NVSDK_NGX_DLSSG_Parameter_EstimateVRAMCallback, &Callback);
     if (!Callback)
     {
         // Possible reasons for this:

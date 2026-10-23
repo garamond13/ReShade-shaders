@@ -55,11 +55,11 @@ cbuffer PerViewCB : register(b1)
 #endif
 
 #ifndef RADIUS
-#define RADIUS 0.6
+#define RADIUS 0.5
 #endif
 
 #ifndef THICKNESS
-#define THICKNESS 0.2
+#define THICKNESS 0.09
 #endif
 
 #ifndef SAMPLE_DISTRIBUTION_POWER
@@ -67,7 +67,7 @@ cbuffer PerViewCB : register(b1)
 #endif
 
 #ifndef FINAL_VALUE_POWER
-#define FINAL_VALUE_POWER 4.0
+#define FINAL_VALUE_POWER 3.0
 #endif
 
 #ifndef DEPTH_MIP_SAMPLING_OFFSET
@@ -75,22 +75,22 @@ cbuffer PerViewCB : register(b1)
 #endif
 
 #ifndef STEPS_PER_SLICE
-#define STEPS_PER_SLICE 3.0
+#define STEPS_PER_SLICE 6.0
 #endif
 
 //
 
 // If TAA is used.
 #if GTAO_QUALITY == 0 // Low
-	#define SLICE_COUNT 2.0
+	#define SLICE_COUNT 1.0
 #elif GTAO_QUALITY == 1 // Medium
-	#define SLICE_COUNT 4.0
+	#define SLICE_COUNT 2.0
 #elif GTAO_QUALITY == 2 // High
-	#define SLICE_COUNT 6.0
+	#define SLICE_COUNT 3.0
 #elif GTAO_QUALITY == 3 // Very High
-	#define SLICE_COUNT 7.0
+	#define SLICE_COUNT 4.0
 #elif GTAO_QUALITY == 4 // Ultra
-	#define SLICE_COUNT 9.0
+	#define SLICE_COUNT 5.0
 #endif
 
 // If TAA is not used.
@@ -106,14 +106,14 @@ cbuffer PerViewCB : register(b1)
 //	#define SLICE_COUNT 16.0
 //#endif
 
-#define TAN_HALF_FOV_X rcp(cb_projectionmatrix._m00)
-#define TAN_HALF_FOV_Y rcp(cb_projectionmatrix._m11)
+#define TAN_HALF_FOV_X cb_inverseprojectionmatrix._m00
+#define TAN_HALF_FOV_Y cb_inverseprojectionmatrix._m11
 #define NDC_TO_VIEW_MUL float2(TAN_HALF_FOV_X * 2.0, TAN_HALF_FOV_Y * -2.0)
 #define NDC_TO_VIEW_ADD float2(-TAN_HALF_FOV_X, TAN_HALF_FOV_Y)
 #define NDC_TO_VIEW_MUL_X_PIXEL_SIZE (NDC_TO_VIEW_MUL * VIEWPORT_PIXEL_SIZE)
 
 #define DEPTH_MIP_LEVELS 5.0
-#define SECTOR_COUNT 32
+#define SECTOR_COUNT 32u
 
 #define PI 3.1415926535897932384626433832795
 #define PI_HALF 1.5707963267948966192313216916398
@@ -223,41 +223,36 @@ float3 ComputeViewspacePosition(float2 screenPos, float viewspaceDepth)
 	return ret;
 }
 
-float3 ComputeViewspaceNormal(float2 uv, float z, float lZ, float rZ, float tZ, float bZ, float4 edgesLRTB)
+float3 CalculateNormal(const float4 edgesLRTB, const float3 pixCenterPos, float3 pixLPos, float3 pixRPos, float3 pixTPos, float3 pixBPos)
 {
-	const float3 centerPos = ComputeViewspacePosition(uv, z);
-	const float3 deltaL = ComputeViewspacePosition(uv + float2(-1.0, 0.0) * VIEWPORT_PIXEL_SIZE, lZ) - centerPos;
-	const float3 deltaR = ComputeViewspacePosition(uv + float2(1.0, 0.0) * VIEWPORT_PIXEL_SIZE, rZ) - centerPos;
-	const float3 deltaT = ComputeViewspacePosition(uv + float2(0.0, -1.0) * VIEWPORT_PIXEL_SIZE, tZ) - centerPos;
-	const float3 deltaB = ComputeViewspacePosition(uv + float2(0.0, 1.0) * VIEWPORT_PIXEL_SIZE, bZ) - centerPos;
+	// Get this pixel's viewspace normal
+	float4 acceptedNormals = saturate(float4(edgesLRTB.x * edgesLRTB.z, edgesLRTB.z * edgesLRTB.y, edgesLRTB.y * edgesLRTB.w, edgesLRTB.w * edgesLRTB.x) + 0.01);
 
-	const float4 w = max(float4(edgesLRTB.x * edgesLRTB.z, edgesLRTB.z * edgesLRTB.y, edgesLRTB.y * edgesLRTB.w, edgesLRTB.w * edgesLRTB.x), 1e-6);
+	pixLPos = normalize(pixLPos - pixCenterPos);
+	pixRPos = normalize(pixRPos - pixCenterPos);
+	pixTPos = normalize(pixTPos - pixCenterPos);
+	pixBPos = normalize(pixBPos - pixCenterPos);
 
-	return normalize(w.x * cross(deltaL, deltaT) + w.y * cross(deltaT, deltaR) + w.z * cross(deltaR, deltaB) + w.w * cross(deltaB, deltaL));
-}
+	float3 pixelNormal = acceptedNormals.x * cross(pixLPos, pixTPos) + acceptedNormals.y * cross(pixTPos, pixRPos) + acceptedNormals.z * cross(pixRPos, pixBPos) + acceptedNormals.w * cross(pixBPos, pixLPos);
+	pixelNormal = normalize(pixelNormal);
 
-// http://h14s.p5r.org/2012/09/0x5f3759df.html, [Drobot2014a] Low Level Optimizations for GCN, https://blog.selfshadow.com/publications/s2016-shading-course/activision/s2016_pbs_activision_occlusion.pdf slide 63
-float FastSqrt(float x)
-{
-	return asfloat(0x1fbd1df5 + (asint(x) >> 1));
+	return pixelNormal;
 }
 
 // input [-1, 1] and output [0, PI], from https://seblagarde.wordpress.com/2014/12/01/inverse-trigonometric-functions-gpu-optimization-for-amd-gcn-architecture/
 float FastACos(float inX)
 {
-	const float pi = 3.141593;
-	const float half_pi = 1.570796;
 	float x = abs(inX);
-	float res = -0.156583 * x + half_pi;
-	res *= FastSqrt(1.0 - x);
-	return inX >= 0.0 ? res : pi - res;
+	float res = PI_HALF + (-0.20491203466059038 + 0.04832927023878897 * x) * x; // Source: https://www.shadertoy.com/view/XXGSDd
+	res *= sqrt(1.0 - x);
+	return inX >= 0.0 ? res : PI - res;
 }
 
 uint UpdateSectors(float minHorizon, float maxHorizon, uint globalOccludedBitfield)
 {
-	uint startHorizonInt = minHorizon * SECTOR_COUNT;
-	uint angleHorizonInt = floor((maxHorizon - minHorizon) * SECTOR_COUNT);
-	uint angleHorizonBitfield = angleHorizonInt > 0 ? (0xFFFFFFFFu >> (SECTOR_COUNT - angleHorizonInt)) : 0;
+	uint startHorizonInt = minHorizon * float(SECTOR_COUNT);
+	uint angleHorizonInt = round((maxHorizon - minHorizon) * float(SECTOR_COUNT));
+	uint angleHorizonBitfield = angleHorizonInt > 0u ? (0xFFFFFFFFu >> (SECTOR_COUNT - angleHorizonInt)) : 0u;
 	uint currentOccludedBitfield = angleHorizonBitfield << startHorizonInt;
 	return globalOccludedBitfield | currentOccludedBitfield;
 }
@@ -271,11 +266,11 @@ void ProcessSample(float3 deltaPos, float3 V, float N, float samplingDirection, 
 	frontBackHorizon = float2(dot(normalize(deltaPos), V), dot(normalize(deltaPosBackface), V));
 	frontBackHorizon = float2(FastACos(frontBackHorizon.x), FastACos(frontBackHorizon.y));
 
-	// Shift sample from V to normal, clamp in [0..1]
-	frontBackHorizon = saturate((samplingDirection * -frontBackHorizon - N + PI_HALF) / PI);
+	// Shift sample from V to normal, map to [0..1] with smoothstep
+	frontBackHorizon = smoothstep(0.0, 1.0, (samplingDirection * -frontBackHorizon - N + PI_HALF) / PI);
 
 	// Sampling direction inverts min/max angles
-	frontBackHorizon = samplingDirection >= 0 ? frontBackHorizon.yx : frontBackHorizon.xy;
+	frontBackHorizon = samplingDirection >= 0.0 ? frontBackHorizon.yx : frontBackHorizon.xy;
 
 	globalOccludedBitfield = UpdateSectors(frontBackHorizon.x, frontBackHorizon.y, globalOccludedBitfield);
 }
@@ -289,6 +284,9 @@ void MainPass(uint2 pixCoord, float2 localNoise, Texture2D sourceViewspaceDepth,
 
 	// viewspace Z at the center
 	float viewspaceZ = valuesUL.y; //sourceViewspaceDepth.SampleLevel( depthSampler, normalizedScreenPos, 0 ).x;
+
+	// The original SSAO shader is setting `y` always to 1.
+	outWorkingAOTermAndPackedDepth.y = 1.0;
 
 	// The original SSAO shader depth packing.
 	float2 r0;
@@ -309,7 +307,16 @@ void MainPass(uint2 pixCoord, float2 localNoise, Texture2D sourceViewspaceDepth,
 
 	float4 edgesLRTB = CalculateEdges(viewspaceZ, pixLZ, pixRZ, pixTZ, pixBZ);
 
-	float3 viewspaceNormal = ComputeViewspaceNormal(normalizedScreenPos, viewspaceZ, pixLZ, pixRZ, pixTZ, pixBZ, edgesLRTB);
+	// Generate viewspace normal.
+	float3 CENTER = ComputeViewspacePosition(normalizedScreenPos, viewspaceZ);
+	float3 LEFT = ComputeViewspacePosition(normalizedScreenPos + float2(-1.0, 0.0) * VIEWPORT_PIXEL_SIZE, pixLZ);
+	float3 RIGHT = ComputeViewspacePosition(normalizedScreenPos + float2(1.0, 0.0) * VIEWPORT_PIXEL_SIZE, pixRZ);
+	float3 TOP = ComputeViewspacePosition(normalizedScreenPos + float2(0.0, -1.0) * VIEWPORT_PIXEL_SIZE, pixTZ);
+	float3 BOTTOM = ComputeViewspacePosition(normalizedScreenPos + float2(0.0, 1.0) * VIEWPORT_PIXEL_SIZE, pixBZ);
+	float3 viewspaceNormal = CalculateNormal(edgesLRTB, CENTER, LEFT, RIGHT, TOP, BOTTOM);
+
+	// Move center pixel slightly towards camera to avoid imprecision artifacts due to depth buffer imprecision; offset depends on depth texture format used
+	viewspaceZ *= 0.99999; // this is good for FP32 depth buffer
 
 	const float3 pixCenterPos = ComputeViewspacePosition(normalizedScreenPos, viewspaceZ);
 	const float3 viewVec = normalize(-pixCenterPos);
@@ -330,7 +337,7 @@ void MainPass(uint2 pixCoord, float2 localNoise, Texture2D sourceViewspaceDepth,
 	// this is the min distance to start sampling from to avoid sampling from the center pixel (no useful data obtained from sampling center pixel)
 	const float minS = pixelTooCloseThreshold * rcp(screenspaceRadius);
 
-	[unroll]
+	// Can be too large for unroll, can also be slower if unrolled.
 	for (float slice = 0.0; slice < SLICE_COUNT; slice++) {
 		float sliceK = (slice + noiseSlice) / SLICE_COUNT;
 		// lines 5, 6 from the paper
@@ -365,7 +372,7 @@ void MainPass(uint2 pixCoord, float2 localNoise, Texture2D sourceViewspaceDepth,
 		// line 15 from the paper
 		float n = signNorm * FastACos(cosNorm);
 
-		uint globalOccludedBitfield = 0;
+		uint globalOccludedBitfield = 0u;
 
 		[unroll]
 		for (float step = 0.0; step < STEPS_PER_SLICE; step++) {
@@ -404,9 +411,14 @@ void MainPass(uint2 pixCoord, float2 localNoise, Texture2D sourceViewspaceDepth,
 
 			float3 sampleDelta0 = samplePos0 - pixCenterPos;
 			float3 sampleDelta1 = samplePos1 - pixCenterPos;
-
-			ProcessSample(sampleDelta0, viewVec, n, -1.0, globalOccludedBitfield);
- 			ProcessSample(sampleDelta1, viewVec, n, 1.0, globalOccludedBitfield);
+			
+			// Reject samples outside of the radius.
+			if (dot(sampleDelta0, sampleDelta0) < RADIUS * RADIUS) {
+				ProcessSample(sampleDelta0, viewVec, n, -1.0, globalOccludedBitfield);
+			}
+			if (dot(sampleDelta1, sampleDelta1) < RADIUS * RADIUS) {
+ 				ProcessSample(sampleDelta1, viewVec, n, 1.0, globalOccludedBitfield);
+			}
 		}
 		visibility += 1.0 - float(countbits(globalOccludedBitfield)) / float(SECTOR_COUNT);
 	}
@@ -414,10 +426,11 @@ void MainPass(uint2 pixCoord, float2 localNoise, Texture2D sourceViewspaceDepth,
 	visibility = pow(visibility, FINAL_VALUE_POWER);
 	visibility = clamp(visibility, 0.03, 1.0); // disallow total occlusion (which wouldn't make any sense anyhow since pixel is visible but also helps with packing bent normals)
 
+	#if 0
+	outWorkingAOTermAndPackedDepth = visibility.xxxx;
+	#else
 	outWorkingAOTermAndPackedDepth.x = visibility;
-
-	// The original SSAO shader is setting `y` always to 1.
-	outWorkingAOTermAndPackedDepth.y = 1.0;
+	#endif
 }
 
 // Implementation
