@@ -53,8 +53,8 @@ void main(
 
   // Smooth saturate based tonemapping.
   // This can go slighly above 1, that's normal.
-  const float p = 1.35;
-  const float w = 12.0;
+  const float p = 1.33;
+  const float w = 15.0;
   r0.xyz = max(0.0, sceneBias * r0.xyz);
   r0.xyz = smooth_saturate(r0.xyz, p) / smooth_saturate(w, p);
 
