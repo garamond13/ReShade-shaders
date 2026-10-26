@@ -65,7 +65,7 @@ void main(
   r0.xyzw = ColorRemapData.xyzz * r0.xyzw;
   r0.xyzw = exp2(r0.xyzw);
   #else
-  r0.xyzw = smooth_saturate(r1.xyzw * BloomParams.xxxx + r0.xyzw, 13.0);
+  r0.xyzw = smooth_saturate(r1.xyzw * BloomParams.xxxx + r0.xyzw, 10.0);
   r0.xyzw = pow(r0.xyzw, 1.0 + (ColorRemapData.xyzz - 1.0) * 0.85); // 85% of the original effect.
   #endif
 

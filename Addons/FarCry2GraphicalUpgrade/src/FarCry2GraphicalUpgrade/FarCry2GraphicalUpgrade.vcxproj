@@ -21,7 +21,7 @@
   <PropertyGroup Label="Globals">
     <VCProjectVersion>17.0</VCProjectVersion>
     <Keyword>Win32Proj</Keyword>
-    <ProjectGuid>{A4C54414-AD1E-4954-BCEB-CEAD6188A0E5}</ProjectGuid>
+    <ProjectGuid>{0C9F387D-9825-49D4-8152-5C5CE64528BC}</ProjectGuid>
     <RootNamespace>UpgradeSwapEffect</RootNamespace>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
   </PropertyGroup>

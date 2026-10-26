@@ -40,25 +40,25 @@ float get_luma(float3 color)
 float smooth_saturate(float x, float p)
 {
 	x = max(0.0, x);
-	return x / pow(1.0 + pow(x, p), 1.0 / p);
+	return x * pow(1.0 + pow(x, p), -1.0 / p);
 }
 
 float2 smooth_saturate(float2 x, float p)
 {
 	x = max(0.0, x);
-	return x / pow(1.0 + pow(x, p), 1.0 / p);
+	return x * pow(1.0 + pow(x, p), -1.0 / p);
 }
 
 float3 smooth_saturate(float3 x, float p)
 {
 	x = max(0.0, x);
-	return x / pow(1.0 + pow(x, p), 1.0 / p);
+	return x * pow(1.0 + pow(x, p), -1.0 / p);
 }
 
 float4 smooth_saturate(float4 x, float p)
 {
 	x = max(0.0, x);
-	return x / pow(1.0 + pow(x, p), 1.0 / p);
+	return x * pow(1.0 + pow(x, p), -1.0 / p);
 }
 
 //
