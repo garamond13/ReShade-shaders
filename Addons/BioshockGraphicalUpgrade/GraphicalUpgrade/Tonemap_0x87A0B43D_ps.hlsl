@@ -52,11 +52,10 @@ void main(
   //r0.xyz = saturate(sceneBias * r0.xyz);
 
   // Smooth saturate based tonemapping.
-  // This can go slighly above 1, that's normal.
-  const float p = 1.33;
-  const float w = 15.0;
-  r0.xyz = max(0.0, sceneBias * r0.xyz);
-  r0.xyz = smooth_saturate(r0.xyz, p) / smooth_saturate(w, p);
+  const float p = 1.4;
+  const float w = 14.0;
+  r0.xyz = smooth_saturate(sceneBias * r0.xyz, p) / smooth_saturate(w, p);
+  r0.xyz = min(r0.xyz, 1.0);
 
   // Original delinearization, gamma 2.2.
   //r0.xyz = log2(r0.xyz);
