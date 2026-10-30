@@ -18,6 +18,10 @@
 // Quality presets
 //
 
+#ifndef HALF_RES
+#define HALF_RES 0
+#endif
+
 // Use VB-GTAO or XeGTAO.
 #ifndef VISIBILITY_BITMASK
 #define VISIBILITY_BITMASK 0
@@ -127,6 +131,21 @@ float XeGTAO_ClampDepth(float depth)
 	return clamp(depth, 0.0, 3.402823466e+38);
 }
 
+void XeGTAO_PrefilterDepths_mip0(int2 pos, Texture2D<float> sourceNDCDepth, out float outDepth)
+{
+	#if HALF_RES
+	int3 basePos = int3(pos.xy, 0) * 2;
+	float depth0 = sourceNDCDepth.Load(basePos, int2(0, 0));
+	float depth1 = sourceNDCDepth.Load(basePos, int2(1, 0));
+	float depth2 = sourceNDCDepth.Load(basePos, int2(0, 1));
+	float depth3 = sourceNDCDepth.Load(basePos, int2(1, 1));
+	float maxDepth = max(max(depth0, depth1), max(depth2, depth3));
+	outDepth = XeGTAO_ClampDepth(XeGTAO_ScreenSpaceToViewSpaceDepth(maxDepth));
+	#else
+	outDepth = XeGTAO_ClampDepth(XeGTAO_ScreenSpaceToViewSpaceDepth(sourceNDCDepth.Load(int3(pos, 0))));
+	#endif
+}
+
 // weighted average depth filter
 float XeGTAO_DepthMIPFilter(float depth0, float depth1, float depth2, float depth3)
 {
@@ -154,20 +173,13 @@ float XeGTAO_DepthMIPFilter(float depth0, float depth1, float depth2, float dept
 	#endif
 }
 
-void XeGTAO_PrefilterDepths_mip0(float2 pos, Texture2D<float> sourceNDCDepth, out float outDepth)
+void XeGTAO_PrefilterDepths(int2 pos, Texture2D<float> sourceDepth, out float outDepth)
 {
-	outDepth = sourceNDCDepth.Load(int3(pos.xy, 0));
-	outDepth = XeGTAO_ScreenSpaceToViewSpaceDepth(outDepth);
-	outDepth = XeGTAO_ClampDepth(outDepth);
-}
-
-void XeGTAO_PrefilterDepths(float2 texcoord, Texture2D<float> sourceDepth, SamplerState depthSampler, out float outDepth)
-{
-	float4 depths4 = sourceDepth.Gather(depthSampler, texcoord);
-	float depth0 = depths4.w;
-	float depth1 = depths4.z;
-	float depth2 = depths4.x;
-	float depth3 = depths4.y;
+	int3 basePos = int3(pos.xy, 0) * 2;
+	float depth0 = sourceDepth.Load(basePos, int2(0, 0));
+	float depth1 = sourceDepth.Load(basePos, int2(1, 0));
+	float depth2 = sourceDepth.Load(basePos, int2(0, 1));
+	float depth3 = sourceDepth.Load(basePos, int2(1, 1));
 	outDepth = XeGTAO_DepthMIPFilter(depth0, depth1, depth2, depth3);
 }
 
@@ -519,6 +531,9 @@ out float2 o
 )
 {
 	#ifdef FINAL_APPLY
+		#if HALF_RES
+		pixCoordBase /= 2;
+		#endif
 	const float blurAmount = DENOISE_BLUR_BETA;
 	#else
 	const float blurAmount = DENOISE_BLUR_BETA / 5.0;
@@ -654,10 +669,10 @@ void prefilter_depths_mip0_ps(float4 pos : SV_Position, out float out_working_de
 }
 
 // For mips 1 to 4.
-void prefilter_depths_ps(float4 pos : SV_Position, float2 texcoord : TEXCOORD, out float out_working_depth : SV_Target)
+void prefilter_depths_ps(float4 pos : SV_Position, out float out_working_depth : SV_Target)
 {
 	// tex0 = out_working_depth_mip[N]
-	XeGTAO_PrefilterDepths(texcoord, tex0, smp, out_working_depth);
+	XeGTAO_PrefilterDepths(pos.xy, tex0, out_working_depth);
 }
 
 void main_pass_ps(float4 pos : SV_Position, out float2 out_working_ao_term_and_edges : SV_Target)

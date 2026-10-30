@@ -7,7 +7,7 @@
 #include <Shlobj.h>
 
 extern "C" __declspec(dllexport) const char* NAME = "BioshockGraphicalUpgrade";
-extern "C" __declspec(dllexport) const char* DESCRIPTION = "v12.3.0";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "v13.0.0";
 extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/BioshockGraphicalUpgrade";
 
 // Shader hooks.
@@ -55,6 +55,7 @@ static bool g_gtao_enable = true;
 static int g_gtao_quality = 2; // 0 - Low, 1 - Medium, 2 - High, 3 - Very High, 4 - Ultra
 static bool g_has_drawn_gtao;
 static int g_gtao_type; // 0 - XeGTAO, 1 - Visibility Bitmask - GTAO.
+static bool g_gtao_half_res;
 
 // Bloom
 static int g_bloom_nmips = 6;
@@ -145,7 +146,12 @@ static void draw_gtao(ID3D10Device* device, ID3D10RenderTargetView*const* rtv)
 
 	// Create prefilter depths PS, for mip0.
 	[[unlikely]] if (!g_managed_resources.pixel_shaders["gtao_prefilter_depths_mip0"_h]) {
-		create_pixel_shader(device, g_managed_resources.pixel_shaders["gtao_prefilter_depths_mip0"_h].put(), L"GTAO_impl.hlsl", "prefilter_depths_mip0_ps");
+		const std::string gtao_half_res_str = std::to_string((int)g_gtao_half_res);
+		const D3D_SHADER_MACRO defines[] = {
+			{ "HALF_RES", gtao_half_res_str.c_str() },
+			{ nullptr, nullptr }
+		};
+		create_pixel_shader(device, g_managed_resources.pixel_shaders["gtao_prefilter_depths_mip0"_h].put(), L"GTAO_impl.hlsl", "prefilter_depths_mip0_ps", defines);
 	}
 
 	// Create constant buffer.
@@ -156,8 +162,10 @@ static void draw_gtao(ID3D10Device* device, ID3D10RenderTargetView*const* rtv)
 	// Create prefilter depths PS, for mips 1 to 4.
 	[[unlikely]] if (!g_managed_resources.pixel_shaders["gtao_prefilter_depths"_h]) {
 		const std::string gtao_type_str = std::to_string(g_gtao_type);
+		const std::string gtao_half_res_str = std::to_string((int)g_gtao_half_res);
 		D3D_SHADER_MACRO defines[] = {
 			{ "VISIBILITY_BITMASK", gtao_type_str.c_str() },
+			{ "HALF_RES", gtao_half_res_str.c_str() },
 			{ nullptr, nullptr }
 		};
 		create_pixel_shader(device, g_managed_resources.pixel_shaders["gtao_prefilter_depths"_h].put(), L"GTAO_impl.hlsl", "prefilter_depths_ps", defines);
@@ -168,11 +176,14 @@ static void draw_gtao(ID3D10Device* device, ID3D10RenderTargetView*const* rtv)
 		create_sampler_point_clamp(device, g_managed_resources.samplers["point_clamp"_h].put());
 	}
 
+	const int gtao_width = g_gtao_half_res ? g_swapchain_width / 2 : g_swapchain_width;
+	const int gtao_height = g_gtao_half_res ? g_swapchain_height / 2 : g_swapchain_height;
+
 	[[unlikely]] if (!g_rtv_gtao_working_depth_mips[0]) {
 		// Create texture.
 		D3D10_TEXTURE2D_DESC tex_desc = {};
-		tex_desc.Width = g_swapchain_width;
-		tex_desc.Height = g_swapchain_height;
+		tex_desc.Width = gtao_width;
+		tex_desc.Height = gtao_height;
 		tex_desc.ArraySize = 1;
 		tex_desc.SampleDesc.Count = 1;
 		tex_desc.BindFlags = D3D10_BIND_SHADER_RESOURCE | D3D10_BIND_RENDER_TARGET;
@@ -204,8 +215,8 @@ static void draw_gtao(ID3D10Device* device, ID3D10RenderTargetView*const* rtv)
 
 	// Prefilter depths viewport, for mip0.
 	D3D10_VIEWPORT viewport = {};
-	viewport.Width = g_swapchain_width;
-	viewport.Height = g_swapchain_height;
+	viewport.Width = gtao_width;
+	viewport.Height = gtao_height;
 
 	// Bindings.
 	device->OMSetRenderTargets(1, &g_rtv_gtao_working_depth_mips[0], nullptr);
@@ -227,8 +238,8 @@ static void draw_gtao(ID3D10Device* device, ID3D10RenderTargetView*const* rtv)
 
 	// Prefilter depths, mips 1 to GTAO_DEPTH_MIP_LEVELS.
 	for (int i = 1; i < GTAO_DEPTH_MIP_LEVELS; ++i) {
-		viewport.Width = std::max(1, g_swapchain_width >> i);
-		viewport.Height = std::max(1, g_swapchain_height >> i);
+		viewport.Width = std::max(1, gtao_width >> i);
+		viewport.Height = std::max(1, gtao_height >> i);
 
 		// Bindings.
 		device->OMSetRenderTargets(1, &g_rtv_gtao_working_depth_mips[i], nullptr);
@@ -243,9 +254,12 @@ static void draw_gtao(ID3D10Device* device, ID3D10RenderTargetView*const* rtv)
 	// MainPass pass.
 	//
 
+	viewport.Width = gtao_width;
+	viewport.Height = gtao_height;
+
 	// Create PS.
 	[[unlikely]] if (!g_managed_resources.pixel_shaders["gtao_main_pass"_h]) {
-		const std::string viewport_pixel_size_str = std::format("float2({},{})", 1.0f / (float)g_swapchain_width, 1.0f / (float)g_swapchain_height);
+		const std::string viewport_pixel_size_str = std::format("float2({},{})", 1.0f / (float)gtao_width, 1.0f / (float)gtao_height);
 		const std::string quality_str = std::to_string(g_gtao_quality);
 		const std::string gtao_type_str = std::to_string(g_gtao_type);
 		D3D_SHADER_MACRO defines[] = {
@@ -260,8 +274,8 @@ static void draw_gtao(ID3D10Device* device, ID3D10RenderTargetView*const* rtv)
 	// Create RT views.
 	[[unlikely]] if (!g_managed_resources.render_target_views["gtao_main_pass"_h]) {
 		D3D10_TEXTURE2D_DESC tex_desc = {};
-		tex_desc.Width = g_swapchain_width;
-		tex_desc.Height = g_swapchain_height;
+		tex_desc.Width = gtao_width;
+		tex_desc.Height = gtao_height;
 		tex_desc.ArraySize = 1;
 		tex_desc.SampleDesc.Count = 1;
 		tex_desc.BindFlags = D3D10_BIND_SHADER_RESOURCE | D3D10_BIND_RENDER_TARGET;
@@ -272,9 +286,6 @@ static void draw_gtao(ID3D10Device* device, ID3D10RenderTargetView*const* rtv)
 		ensure(device->CreateRenderTargetView(tex.get(), nullptr, g_managed_resources.render_target_views["gtao_main_pass"_h].put()), >= 0);
 		ensure(device->CreateShaderResourceView(tex.get(), nullptr, g_managed_resources.shader_resource_views["gtao_main_pass"_h].put()), >= 0);
 	}
-
-	viewport.Width = g_swapchain_width;
-	viewport.Height = g_swapchain_height;
 
 	// Bindings.
 	device->OMSetRenderTargets(1, &g_managed_resources.render_target_views["gtao_main_pass"_h], nullptr);
@@ -299,8 +310,8 @@ static void draw_gtao(ID3D10Device* device, ID3D10RenderTargetView*const* rtv)
 	// Create RT views.
 	[[unlikely]] if (!g_managed_resources.render_target_views["gtao_denoise1_pass"_h]) {
 		D3D10_TEXTURE2D_DESC tex_desc = {};
-		tex_desc.Width = g_swapchain_width;
-		tex_desc.Height = g_swapchain_height;
+		tex_desc.Width = gtao_width;
+		tex_desc.Height = gtao_height;
 		tex_desc.ArraySize = 1;
 		tex_desc.SampleDesc.Count = 1;
 		tex_desc.BindFlags = D3D10_BIND_SHADER_RESOURCE | D3D10_BIND_RENDER_TARGET;
@@ -324,10 +335,15 @@ static void draw_gtao(ID3D10Device* device, ID3D10RenderTargetView*const* rtv)
 	// DenoisePass2 pass
 	//
 
+	viewport.Width = g_swapchain_width;
+	viewport.Height = g_swapchain_height;
+
 	// Create PS.
 	[[unlikely]] if (!g_managed_resources.pixel_shaders["gtao_denoise2_pass"_h]) {
+		const std::string gtao_half_res_str = std::to_string((int)g_gtao_half_res);
 		const D3D_SHADER_MACRO defines[] = {
 			{ "FINAL_APPLY", "" },
+			{ "HALF_RES", gtao_half_res_str.c_str() },
 			{ nullptr, nullptr }
 		};
 		create_pixel_shader(device, g_managed_resources.pixel_shaders["gtao_denoise2_pass"_h].put(), L"GTAO_impl.hlsl", "denoise_pass_ps", defines);
@@ -345,6 +361,7 @@ static void draw_gtao(ID3D10Device* device, ID3D10RenderTargetView*const* rtv)
 	////
 
 	device->OMSetRenderTargets(1, rtv, nullptr);
+	device->RSSetViewports(1, &viewport);
 	device->PSSetShader(g_managed_resources.pixel_shaders["gtao_denoise2_pass"_h].get());
 	device->PSSetShaderResources(1, 1, &g_managed_resources.shader_resource_views["gtao_denoise1_pass"_h]);
 
@@ -1784,6 +1801,9 @@ static void read_config()
 	if (!reshade::get_config_value(nullptr, NAME, "GTAOQuality", g_gtao_quality)) {
 		reshade::set_config_value(nullptr, NAME, "GTAOQuality", g_gtao_quality);
 	}
+	if (!reshade::get_config_value(nullptr, NAME, "GTAOHalfRes", g_gtao_half_res)) {
+		reshade::set_config_value(nullptr, NAME, "GTAOHalfRes", g_gtao_half_res);
+	}
 	if (!reshade::get_config_value(nullptr, NAME, "BloomIntensity", g_bloom_intensity)) {
 		reshade::set_config_value(nullptr, NAME, "BloomIntensity", g_bloom_intensity);
 	}
@@ -1895,6 +1915,17 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 	if (ImGui::Combo("GTAO quality", &g_gtao_quality, gtao_quality_items.data(), gtao_quality_items.size())) {
 		g_managed_resources.pixel_shaders["gtao_main_pass"_h].reset();
 		reshade::set_config_value(nullptr, NAME, "GTAOQuality", g_gtao_quality);
+	}
+	if (ImGui::Checkbox("GTAO half resolution", &g_gtao_half_res)) {
+		g_managed_resources.pixel_shaders["gtao_prefilter_depths_mip0"_h].reset();
+		g_managed_resources.pixel_shaders["gtao_prefilter_depths"_h].reset();
+		g_managed_resources.pixel_shaders["gtao_main_pass"_h].reset();
+		g_managed_resources.render_target_views["gtao_main_pass"_h].reset();
+		g_managed_resources.render_target_views["gtao_denoise1_pass"_h].reset();
+		g_managed_resources.pixel_shaders["gtao_denoise2_pass"_h].reset();
+		reset_com_array(g_rtv_gtao_working_depth_mips);
+		reset_com_array(g_srv_gtao_working_depth_mips);
+		reshade::set_config_value(nullptr, NAME, "GTAOHalfRes", g_gtao_half_res);
 	}
 	ImGui::EndDisabled();
 	ImGui::Spacing();
