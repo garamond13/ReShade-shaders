@@ -7,7 +7,7 @@
 #include <Shlobj.h>
 
 extern "C" __declspec(dllexport) const char* NAME = "BioshockGraphicalUpgrade";
-extern "C" __declspec(dllexport) const char* DESCRIPTION = "v13.0.0";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "v13.1.0";
 extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/BioshockGraphicalUpgrade";
 
 // Shader hooks.
@@ -280,7 +280,7 @@ static void draw_gtao(ID3D10Device* device, ID3D10RenderTargetView*const* rtv)
 		tex_desc.SampleDesc.Count = 1;
 		tex_desc.BindFlags = D3D10_BIND_SHADER_RESOURCE | D3D10_BIND_RENDER_TARGET;
 		tex_desc.MipLevels = 1;
-		tex_desc.Format = DXGI_FORMAT_R8G8_UNORM;
+		tex_desc.Format = DXGI_FORMAT_R16G16_FLOAT;
 		Com_ptr<ID3D10Texture2D> tex;
 		ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
 		ensure(device->CreateRenderTargetView(tex.get(), nullptr, g_managed_resources.render_target_views["gtao_main_pass"_h].put()), >= 0);
@@ -316,7 +316,7 @@ static void draw_gtao(ID3D10Device* device, ID3D10RenderTargetView*const* rtv)
 		tex_desc.SampleDesc.Count = 1;
 		tex_desc.BindFlags = D3D10_BIND_SHADER_RESOURCE | D3D10_BIND_RENDER_TARGET;
 		tex_desc.MipLevels = 1;
-		tex_desc.Format = DXGI_FORMAT_R8G8_UNORM;
+		tex_desc.Format = DXGI_FORMAT_R16G16_FLOAT;
 		Com_ptr<ID3D10Texture2D> tex;
 		ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
 		ensure(device->CreateRenderTargetView(tex.get(), nullptr, g_managed_resources.render_target_views["gtao_denoise1_pass"_h].put()), >= 0);
@@ -335,18 +335,31 @@ static void draw_gtao(ID3D10Device* device, ID3D10RenderTargetView*const* rtv)
 	// DenoisePass2 pass
 	//
 
-	viewport.Width = g_swapchain_width;
-	viewport.Height = g_swapchain_height;
-
 	// Create PS.
 	[[unlikely]] if (!g_managed_resources.pixel_shaders["gtao_denoise2_pass"_h]) {
 		const std::string gtao_half_res_str = std::to_string((int)g_gtao_half_res);
 		const D3D_SHADER_MACRO defines[] = {
-			{ "FINAL_APPLY", "" },
+			{ "FINAL_APPLY", "1" },
 			{ "HALF_RES", gtao_half_res_str.c_str() },
 			{ nullptr, nullptr }
 		};
 		create_pixel_shader(device, g_managed_resources.pixel_shaders["gtao_denoise2_pass"_h].put(), L"GTAO_impl.hlsl", "denoise_pass_ps", defines);
+	}
+
+	// Create RT views.
+	[[unlikely]] if (!g_managed_resources.render_target_views["gtao_denoise2_pass"_h]) {
+		D3D10_TEXTURE2D_DESC tex_desc = {};
+		tex_desc.Width = gtao_width;
+		tex_desc.Height = gtao_height;
+		tex_desc.ArraySize = 1;
+		tex_desc.SampleDesc.Count = 1;
+		tex_desc.BindFlags = D3D10_BIND_SHADER_RESOURCE | D3D10_BIND_RENDER_TARGET;
+		tex_desc.MipLevels = 1;
+		tex_desc.Format = DXGI_FORMAT_R16G16_FLOAT;
+		Com_ptr<ID3D10Texture2D> tex;
+		ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
+		ensure(device->CreateRenderTargetView(tex.get(), nullptr, g_managed_resources.render_target_views["gtao_denoise2_pass"_h].put()), >= 0);
+		ensure(device->CreateShaderResourceView(tex.get(), nullptr, g_managed_resources.shader_resource_views["gtao_denoise2_pass"_h].put()), >= 0);
 	}
 
 	// Create blend.
@@ -360,18 +373,64 @@ static void draw_gtao(ID3D10Device* device, ID3D10RenderTargetView*const* rtv)
 	// Bindings.
 	////
 
-	device->OMSetRenderTargets(1, rtv, nullptr);
-	device->RSSetViewports(1, &viewport);
+	ID3D10RenderTargetView*const* denoise_pass2_rtv = g_gtao_half_res ? &g_managed_resources.render_target_views["gtao_denoise2_pass"_h] : rtv;
+	device->OMSetRenderTargets(1, denoise_pass2_rtv, nullptr);
 	device->PSSetShader(g_managed_resources.pixel_shaders["gtao_denoise2_pass"_h].get());
 	device->PSSetShaderResources(1, 1, &g_managed_resources.shader_resource_views["gtao_denoise1_pass"_h]);
 
 	#if !(DEV && SHOW_AO)
-	device->OMSetBlendState(g_managed_resources.blends["gtao"_h].get(), nullptr, UINT_MAX);
+	if (!g_gtao_half_res) {
+		device->OMSetBlendState(g_managed_resources.blends["gtao"_h].get(), nullptr, UINT_MAX);
+	}
 	#endif
 
 	////
 
 	device->Draw(3, 0);
+
+	//
+
+	// Upsample pass
+	//
+
+	if (g_gtao_half_res) {
+		viewport.Width = g_swapchain_width;
+		viewport.Height = g_swapchain_height;
+
+		// Create PS.
+		[[unlikely]] if (!g_managed_resources.pixel_shaders["gtao_upsample_pass"_h]) {
+			const std::string source_size_str = std::format("float2({},{})", (float)gtao_width, (float)gtao_height);
+			const std::string source_pixel_size_str = std::format("float2({},{})", 1.0f / (float)gtao_width, 1.0f / (float)gtao_height);
+			D3D_SHADER_MACRO defines[] = {
+				{ "SOURCE_SIZE", source_size_str.c_str() },
+				{ "SOURCE_PIXEL_SIZE", source_pixel_size_str.c_str() },
+				{ nullptr, nullptr }
+			};
+			create_pixel_shader(device, g_managed_resources.pixel_shaders["gtao_upsample_pass"_h].put(), L"GTAO_impl.hlsl", "upsample_pass_ps", defines);
+		}
+
+		// Create linear clamp sampler.
+		[[unlikely]] if (!g_managed_resources.samplers["linear_clamp"_h]) {
+			create_sampler_linear_clamp(device, g_managed_resources.samplers["linear_clamp"_h].put());
+		}
+
+		// Bindings.
+		////
+
+		device->OMSetRenderTargets(1, rtv, nullptr);
+		device->RSSetViewports(1, &viewport);
+		device->PSSetShader(g_managed_resources.pixel_shaders["gtao_upsample_pass"_h].get());
+		device->PSSetSamplers(0, 1, &g_managed_resources.samplers["linear_clamp"_h]);
+		device->PSSetShaderResources(1, 1, &g_managed_resources.shader_resource_views["gtao_denoise2_pass"_h]);
+
+		#if !(DEV && SHOW_AO)
+		device->OMSetBlendState(g_managed_resources.blends["gtao"_h].get(), nullptr, UINT_MAX);
+		#endif
+
+		////
+
+		device->Draw(3, 0);
+	}
 
 	//
 
@@ -1731,6 +1790,8 @@ static void on_init_swapchain(reshade::api::swapchain* swapchain, bool resize)
 	g_managed_resources.pixel_shaders["gtao_main_pass"_h].reset();
 	g_managed_resources.render_target_views["gtao_main_pass"_h].reset();
 	g_managed_resources.render_target_views["gtao_denoise1_pass"_h].reset();
+	g_managed_resources.render_target_views["gtao_denoise2_pass"_h].reset();
+	g_managed_resources.pixel_shaders["gtao_upsample_pass"_h].reset();
 
 	// SMAA.
 	g_smaa_rt_metrics.set(g_swapchain_width, g_swapchain_height);
@@ -1888,6 +1949,8 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 
 	if (ImGui::Checkbox("GTAO enable", &g_gtao_enable)) {
 		if (!g_gtao_enable) {
+			reset_com_array(g_rtv_gtao_working_depth_mips);
+			reset_com_array(g_srv_gtao_working_depth_mips);
 			g_managed_resources.pixel_shaders["gtao_prefilter_depths_mip0"_h].reset();
 			g_managed_resources.pixel_shaders["gtao_prefilter_depths"_h].reset();
 			g_managed_resources.shader_resource_views["gtao_working_depth"_h].reset();
@@ -1898,9 +1961,10 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 			g_managed_resources.render_target_views["gtao_denoise1_pass"_h].reset();
 			g_managed_resources.shader_resource_views["gtao_denoise1_pass"_h].reset();
 			g_managed_resources.pixel_shaders["gtao_denoise2_pass"_h].reset();
+			g_managed_resources.render_target_views["gtao_denoise2_pass"_h].reset();
+			g_managed_resources.shader_resource_views["gtao_denoise2_pass"_h].reset();
+			g_managed_resources.pixel_shaders["gtao_upsample_pass"_h].reset();
 			g_managed_resources.blends["gtao"_h].reset();
-			reset_com_array(g_rtv_gtao_working_depth_mips);
-			reset_com_array(g_srv_gtao_working_depth_mips);
 		}
 		reshade::set_config_value(nullptr, NAME, "GTAOEnable", g_gtao_enable);
 	}
@@ -1917,14 +1981,16 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 		reshade::set_config_value(nullptr, NAME, "GTAOQuality", g_gtao_quality);
 	}
 	if (ImGui::Checkbox("GTAO half resolution", &g_gtao_half_res)) {
+		reset_com_array(g_rtv_gtao_working_depth_mips);
+		reset_com_array(g_srv_gtao_working_depth_mips);
 		g_managed_resources.pixel_shaders["gtao_prefilter_depths_mip0"_h].reset();
 		g_managed_resources.pixel_shaders["gtao_prefilter_depths"_h].reset();
 		g_managed_resources.pixel_shaders["gtao_main_pass"_h].reset();
 		g_managed_resources.render_target_views["gtao_main_pass"_h].reset();
 		g_managed_resources.render_target_views["gtao_denoise1_pass"_h].reset();
 		g_managed_resources.pixel_shaders["gtao_denoise2_pass"_h].reset();
-		reset_com_array(g_rtv_gtao_working_depth_mips);
-		reset_com_array(g_srv_gtao_working_depth_mips);
+		g_managed_resources.render_target_views["gtao_denoise2_pass"_h].reset();
+		g_managed_resources.pixel_shaders["gtao_upsample_pass"_h].reset();
 		reshade::set_config_value(nullptr, NAME, "GTAOHalfRes", g_gtao_half_res);
 	}
 	ImGui::EndDisabled();

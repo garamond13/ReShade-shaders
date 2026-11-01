@@ -13,6 +13,14 @@
 #define VIEWPORT_PIXEL_SIZE float2(0.0, 0.0)
 #endif
 
+#ifndef SOURCE_SIZE
+#define SOURCE_SIZE float2(0.0, 0.0)
+#endif
+
+#ifndef SOURCE_PIXEL_SIZE
+#define SOURCE_PIXEL_SIZE float2(0.0, 0.0)
+#endif
+
 //
 
 // Quality presets
@@ -110,8 +118,11 @@
 
 //
 
+#ifndef FINAL_APPLY
+#define FINAL_APPLY 0
+#endif
+
 #define XE_GTAO_DEPTH_MIP_LEVELS 5.0
-#define XE_GTAO_OCCLUSION_TERM_SCALE 1.5
 
 // VB-GTAO only.
 #define SECTOR_COUNT 32u
@@ -499,7 +510,7 @@ void XeGTAO_MainPass(uint2 pixCoord, float2 localNoise, Texture2D<float> sourceV
 		visibility = pow(visibility, FINAL_VALUE_POWER);
 		visibility = max(0.03, visibility); // disallow total occlusion (which wouldn't make any sense anyhow since pixel is visible but also helps with packing bent normals)
 	}
-	outWorkingAOTermAndEdges.x = saturate(visibility / XE_GTAO_OCCLUSION_TERM_SCALE);
+	outWorkingAOTermAndEdges.x = visibility;
 }
 
 float4 XeGTAO_UnpackEdges(float _packedVal)
@@ -517,23 +528,19 @@ float4 XeGTAO_UnpackEdges(float _packedVal)
 void XeGTAO_AddSample(float ssaoValue, float edgeValue, inout float sum, inout float sumWeight)
 {
 	float weight = edgeValue;
-
 	sum += weight * ssaoValue;
 	sumWeight += weight;
 }
 
-void XeGTAO_Denoise(int2 pixCoordBase, Texture2D<float2> sourceAOTermAndEdges,
-#ifdef FINAL_APPLY
+void XeGTAO_Denoise(int2 pixCoordBase, Texture2D<float2> sourceAOTermAndEdges, Texture2D<float> sourceDepth,
+#if FINAL_APPLY && !HALF_RES
 out float4 o
 #else
 out float2 o
 #endif
 )
 {
-	#ifdef FINAL_APPLY
-		#if HALF_RES
-		pixCoordBase /= 2;
-		#endif
+	#if FINAL_APPLY
 	const float blurAmount = DENOISE_BLUR_BETA;
 	#else
 	const float blurAmount = DENOISE_BLUR_BETA / 5.0;
@@ -600,15 +607,48 @@ out float2 o
 
 	float aoTerm = sum / sumWeight;
 
-	#ifdef FINAL_APPLY
+	#if FINAL_APPLY
 		#if 0
 		o = float4(1.0, 0.0, 1.0, 1.0);
 		#else
-		o = float4(aoTerm.xxx * XE_GTAO_OCCLUSION_TERM_SCALE, 1.0);
+			#if HALF_RES
+			float depth = sourceDepth.Load(int3(pixCoordBase, 0));
+			o = float2(saturate(aoTerm).x, depth);
+			#else
+			o = float4(saturate(aoTerm).xxx, 1.0);
+			#endif
 		#endif
 	#else
 	o = float2(aoTerm, C.y);
 	#endif
+}
+
+// Linear filter with depth weighting.
+void Upsample(float2 UV, SamplerState AOSampler, Texture2D<float2> AOTermAndDepth, out float4 o)
+{
+	float2 sourceXY = UV * SOURCE_SIZE;
+	float2 baseXY = floor(sourceXY - 0.5) + 0.5;
+	float2 f = sourceXY - baseXY;
+
+	float2 baseUV = baseXY * SOURCE_PIXEL_SIZE;
+	float2 sampleA = AOTermAndDepth.SampleLevel(AOSampler, baseUV, 0.0);
+	float2 sampleB = AOTermAndDepth.SampleLevel(AOSampler, baseUV + float2(SOURCE_PIXEL_SIZE.x, 0.0), 0.0);
+	float2 sampleC = AOTermAndDepth.SampleLevel(AOSampler, baseUV + float2(0.0, SOURCE_PIXEL_SIZE.y), 0.0);
+	float2 sampleD = AOTermAndDepth.SampleLevel(AOSampler, baseUV + SOURCE_PIXEL_SIZE, 0.0);
+
+	// Linear weights.
+	float4 weights = float4((1.0 - f.y) * (1.0 - f.x), (1.0 - f.y) * f.x, f.y * (1.0 - f.x), f.y * f.x);
+
+	float maxDepth = max(max(sampleA.y, sampleB.y), max(sampleC.y, sampleD.y));
+	float minDepth = min(min(sampleA.y, sampleB.y), min(sampleC.y, sampleD.y));
+
+	if (maxDepth > minDepth * 1.02f) {
+		float depth = AOTermAndDepth.Load(int3(sourceXY, 0)).y;
+		float4 depthWeights = 1.0 / max(abs(float4(sampleA.y, sampleB.y, sampleC.y, sampleD.y) - depth), 1e-6);
+		weights *= depthWeights;
+	}
+
+	o = float4((sampleA.x * weights.x + sampleB.x * weights.y + sampleC.x * weights.z + sampleD.x * weights.w) / dot(weights, 1.0).xxx, 1.0);
 }
 
 // Implementation
@@ -683,7 +723,7 @@ void main_pass_ps(float4 pos : SV_Position, out float2 out_working_ao_term_and_e
 }
 
 void denoise_pass_ps(float4 pos : SV_Position,
-#ifdef FINAL_APPLY
+#if FINAL_APPLY && !HALF_RES
 out float4 o : SV_Target
 #else
 out float2 o : SV_Target
@@ -691,5 +731,10 @@ out float2 o : SV_Target
 )
 {
 	// tex1 = g_srcWorkingAOTerm and g_srcWorkingEdges, packed.
-	XeGTAO_Denoise(pos.xy, tex1, o);
+	XeGTAO_Denoise(pos.xy, tex1, tex0, o);
+}
+
+void upsample_pass_ps(float4 pos : SV_Position, float2 texcoord : TEXCOORD, out float4 o : SV_Target)
+{
+	Upsample(texcoord, smp, tex1, o);
 }
