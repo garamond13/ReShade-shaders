@@ -2,24 +2,6 @@
 #define __SMOOTH_SATURATE_HLSLI__
 
 // x - input
-// p - compression strength, should be in range (0, +inf)
-//
-// Returns input in range [0, 1).
-#define TEMPLATE_SMOOTH_SATURATE(T)            \
-T smooth_saturate(T x, float p)                \
-{                                              \
-	x = max(0.0, x);                           \
-	return x * pow(1.0 + pow(x, p), -1.0 / p); \
-}                                              \
-
-TEMPLATE_SMOOTH_SATURATE(float)
-TEMPLATE_SMOOTH_SATURATE(float2)
-TEMPLATE_SMOOTH_SATURATE(float3)
-TEMPLATE_SMOOTH_SATURATE(float4)
-
-#undef TEMPLATE_SMOOTH_SATURATE
-
-// x - input
 // k - peak
 // p - compression strength, should be in range (0, +inf)
 //
@@ -60,23 +42,8 @@ TEMPLATE_SMOOTH_SATURATE(float4)
 
 #undef TEMPLATE_SMOOTH_SATURATE
 
-// x - input
-// p - compression strength, should be in range (0, +inf)
-//
-// Returns input in range [0, +inf).
-#define TEMPLATE_INV_SMOOTH_SATURATE(T)        \
-T inv_smooth_saturate(T x, float p)            \
-{                                              \
-	x = clamp(x, 0.0, 1.0 - 1e-6);             \
-	return x * pow(1.0 - pow(x, p), -1.0 / p); \
-}                                              \
-
-TEMPLATE_INV_SMOOTH_SATURATE(float)
-TEMPLATE_INV_SMOOTH_SATURATE(float2)
-TEMPLATE_INV_SMOOTH_SATURATE(float3)
-TEMPLATE_INV_SMOOTH_SATURATE(float4)
-
-#undef TEMPLATE_INV_SMOOTH_SATURATE
+// Inverse functions.
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 // x - input
 // k - peak
