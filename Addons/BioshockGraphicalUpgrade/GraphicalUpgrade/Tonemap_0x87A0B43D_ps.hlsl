@@ -1,4 +1,4 @@
-#include "Include/Common.hlsli"
+#include "Include/SmoothSaturate.hlsli"
 
 cbuffer _Globals : register(b0)
 {
@@ -51,11 +51,8 @@ void main(
   // Original saturate.
   //r0.xyz = saturate(sceneBias * r0.xyz);
 
-  // Smooth saturate based tonemapping.
-  const float p = 1.4;
-  const float w = 14.0;
-  r0.xyz = smooth_saturate(sceneBias * r0.xyz, p) / smooth_saturate(w, p);
-  r0.xyz = min(r0.xyz, 1.0);
+  // Smooth saturate tonemapping.
+  r0.xyz = smooth_saturate(sceneBias * r0.xyz, 1.0, 12.0, 1.4);
 
   // Original delinearization, gamma 2.2.
   //r0.xyz = log2(r0.xyz);

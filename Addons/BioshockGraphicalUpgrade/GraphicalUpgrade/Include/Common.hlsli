@@ -32,20 +32,6 @@ float get_luma(float3 color)
 	return dot(color, float3(0.2126, 0.7152, 0.0722));
 }
 
-// `p` should be in range (0, +inf).
-float3 smooth_saturate(float3 x, float p)
-{
-	x = max(0.0, x);
-	return x * pow(1.0 + pow(x, p), -1.0 / p);
-}
-
-// `p` should be in range (0, +inf).
-float3 inv_smooth_saturate(float3 x, float p)
-{
-	x = clamp(x, 0.0, 1.0 - 1e-6);
-	return x * pow(1.0 - pow(x, p), -1.0 / p);
-}
-
 float3 sample_tetrahedral(float3 color, Texture3D lut, int lut_size)
 {
 	const float3 coord = saturate(color) * (float)(lut_size - 1);
