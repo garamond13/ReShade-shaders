@@ -15,9 +15,7 @@ T smooth_saturate(T x, float k, float p)                 \
 
 // Generate functions.
 TEMPLATE_SMOOTH_SATURATE(float)
-TEMPLATE_SMOOTH_SATURATE(float2)
 TEMPLATE_SMOOTH_SATURATE(float3)
-TEMPLATE_SMOOTH_SATURATE(float4)
 
 #undef TEMPLATE_SMOOTH_SATURATE
 
@@ -38,9 +36,7 @@ T smooth_saturate(T x, float k, float w, float p)                               
 
 // Generate functions.
 TEMPLATE_SMOOTH_SATURATE(float)
-TEMPLATE_SMOOTH_SATURATE(float2)
 TEMPLATE_SMOOTH_SATURATE(float3)
-TEMPLATE_SMOOTH_SATURATE(float4)
 
 #undef TEMPLATE_SMOOTH_SATURATE
 
@@ -65,9 +61,7 @@ T smooth_saturate(T x, float k, float w, float m, float p)                      
 
 // Generate functions.
 TEMPLATE_SMOOTH_SATURATE(float)
-TEMPLATE_SMOOTH_SATURATE(float2)
 TEMPLATE_SMOOTH_SATURATE(float3)
-TEMPLATE_SMOOTH_SATURATE(float4)
 
 #undef TEMPLATE_SMOOTH_SATURATE
 
@@ -88,9 +82,7 @@ T inv_smooth_saturate(T x, float k, float p)             \
 
 // Generate functions.
 TEMPLATE_INV_SMOOTH_SATURATE(float)
-TEMPLATE_INV_SMOOTH_SATURATE(float2)
 TEMPLATE_INV_SMOOTH_SATURATE(float3)
-TEMPLATE_INV_SMOOTH_SATURATE(float4)
 
 #undef TEMPLATE_INV_SMOOTH_SATURATE
 
@@ -111,9 +103,7 @@ T inv_smooth_saturate(T x, float k, float w, float p)                           
 
 // Generate functions.
 TEMPLATE_INV_SMOOTH_SATURATE(float)
-TEMPLATE_INV_SMOOTH_SATURATE(float2)
 TEMPLATE_INV_SMOOTH_SATURATE(float3)
-TEMPLATE_INV_SMOOTH_SATURATE(float4)
 
 #undef TEMPLATE_INV_SMOOTH_SATURATE
 
@@ -138,9 +128,7 @@ T inv_smooth_saturate(T x, float k, float w, float m, float p)                  
 
 // Generate functions.
 TEMPLATE_INV_SMOOTH_SATURATE(float)
-TEMPLATE_INV_SMOOTH_SATURATE(float2)
 TEMPLATE_INV_SMOOTH_SATURATE(float3)
-TEMPLATE_INV_SMOOTH_SATURATE(float4)
 
 #undef TEMPLATE_INV_SMOOTH_SATURATE
 
