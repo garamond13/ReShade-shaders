@@ -6,7 +6,7 @@
 // p - compression strength, should be in range (0, +inf)
 //
 // Returns input in range [0, peak).
-#define TEMPLATE_SMOOTH_SATURATE(T)                      \
+#define SMOOTH_SATURATE_TEMPLATE(T)                      \
 T smooth_saturate(T x, float k, float p)                 \
 {                                                        \
 	x = max(0.0, x);                                     \
@@ -14,10 +14,31 @@ T smooth_saturate(T x, float k, float p)                 \
 }                                                        \
 
 // Generate functions.
-TEMPLATE_SMOOTH_SATURATE(float)
-TEMPLATE_SMOOTH_SATURATE(float3)
+SMOOTH_SATURATE_TEMPLATE(float)
+SMOOTH_SATURATE_TEMPLATE(float3)
 
-#undef TEMPLATE_SMOOTH_SATURATE
+#undef SMOOTH_SATURATE_TEMPLATE
+
+// x - input
+// k - peak
+// m - mid/anchor point
+// p - compression strength, should be in range (1, +inf)
+//
+// Returns input in range [0, peak).
+#define SMOOTH_SATURATE_TEMPLATE(T)                                                                       \
+T smooth_saturate(T x, float k, float m, float p)                                                         \
+{                                                                                                         \
+	x = max(0.0, x);                                                                                      \
+	const T x_minus_m = x - m;                                                                            \
+	const float k_minus_m = k - m;                                                                        \
+	return x <= m ? x : m + k_minus_m * x_minus_m * pow(pow(k_minus_m, p) + pow(x_minus_m, p), -1.0 / p); \
+}                                                                                                         \
+
+// Generate functions.
+SMOOTH_SATURATE_TEMPLATE(float)
+SMOOTH_SATURATE_TEMPLATE(float3)
+
+#undef SMOOTH_SATURATE_TEMPLATE
 
 // x - input
 // k - peak
@@ -25,8 +46,8 @@ TEMPLATE_SMOOTH_SATURATE(float3)
 // p - compression strength, should be in range (0, +inf)
 //
 // Returns input in range [0, peak].
-#define TEMPLATE_SMOOTH_SATURATE(T)                                                            \
-T smooth_saturate(T x, float k, float w, float p)                                              \
+#define SMOOTH_SATURATE_TEMPLATE(T)                                                            \
+T clipped_smooth_saturate(T x, float k, float w, float p)                                      \
 {                                                                                              \
 	x = max(0.0, x);                                                                           \
 	const float k_to_p = pow(k, p);                                                            \
@@ -35,10 +56,10 @@ T smooth_saturate(T x, float k, float w, float p)                               
 }                                                                                              \
 
 // Generate functions.
-TEMPLATE_SMOOTH_SATURATE(float)
-TEMPLATE_SMOOTH_SATURATE(float3)
+SMOOTH_SATURATE_TEMPLATE(float)
+SMOOTH_SATURATE_TEMPLATE(float3)
 
-#undef TEMPLATE_SMOOTH_SATURATE
+#undef SMOOTH_SATURATE_TEMPLATE
 
 // x - input
 // k - peak
@@ -47,8 +68,8 @@ TEMPLATE_SMOOTH_SATURATE(float3)
 // p - compression strength, should be in range (1, +inf)
 //
 // Returns input in range [0, peak].
-#define TEMPLATE_SMOOTH_SATURATE(T)                                                                                                                                             \
-T smooth_saturate(T x, float k, float w, float m, float p)                                                                                                                      \
+#define SMOOTH_SATURATE_TEMPLATE(T)                                                                                                                                             \
+T clipped_smooth_saturate(T x, float k, float w, float m, float p)                                                                                                              \
 {                                                                                                                                                                               \
 	x = max(0.0, x);                                                                                                                                                            \
 	const T x_minus_m = x - m;                                                                                                                                                  \
@@ -60,10 +81,10 @@ T smooth_saturate(T x, float k, float w, float m, float p)                      
 }                                                                                                                                                                               \
 
 // Generate functions.
-TEMPLATE_SMOOTH_SATURATE(float)
-TEMPLATE_SMOOTH_SATURATE(float3)
+SMOOTH_SATURATE_TEMPLATE(float)
+SMOOTH_SATURATE_TEMPLATE(float3)
 
-#undef TEMPLATE_SMOOTH_SATURATE
+#undef SMOOTH_SATURATE_TEMPLATE
 
 // Inverse functions.
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -73,7 +94,7 @@ TEMPLATE_SMOOTH_SATURATE(float3)
 // p - compression strength, should be in range (0, +inf)
 //
 // Returns input in range [0, +inf).
-#define TEMPLATE_INV_SMOOTH_SATURATE(T)                  \
+#define SMOOTH_SATURATE_TEMPLATE(T)                      \
 T inv_smooth_saturate(T x, float k, float p)             \
 {                                                        \
 	x = clamp(x, 0.0, k - 1e-6);                         \
@@ -81,10 +102,31 @@ T inv_smooth_saturate(T x, float k, float p)             \
 }                                                        \
 
 // Generate functions.
-TEMPLATE_INV_SMOOTH_SATURATE(float)
-TEMPLATE_INV_SMOOTH_SATURATE(float3)
+SMOOTH_SATURATE_TEMPLATE(float)
+SMOOTH_SATURATE_TEMPLATE(float3)
 
-#undef TEMPLATE_INV_SMOOTH_SATURATE
+#undef SMOOTH_SATURATE_TEMPLATE
+
+// x - input
+// k - peak
+// m - mid/anchor point
+// p - compression strength, should be in range (1, +inf)
+//
+// Returns input in range [0, +inf).
+#define SMOOTH_SATURATE_TEMPLATE(T)                                                                       \
+T inv_smooth_saturate(T x, float k, float m, float p)                                                     \
+{                                                                                                         \
+	x = clamp(x, 0.0, k - 1e-6);                                                                          \
+	const T x_minus_m = x - m;                                                                            \
+	const float k_minus_m = k - m;                                                                        \
+	return x <= m ? x : m + k_minus_m * x_minus_m * pow(pow(k_minus_m, p) - pow(x_minus_m, p), -1.0 / p); \
+}                                                                                                         \
+
+// Generate functions.
+SMOOTH_SATURATE_TEMPLATE(float)
+SMOOTH_SATURATE_TEMPLATE(float3)
+
+#undef SMOOTH_SATURATE_TEMPLATE
 
 // x - input
 // k - peak
@@ -92,8 +134,8 @@ TEMPLATE_INV_SMOOTH_SATURATE(float3)
 // p - compression strength, should be in range (0, +inf)
 //
 // Returns input in range [0, white/clip point].
-#define TEMPLATE_INV_SMOOTH_SATURATE(T)                                                \
-T inv_smooth_saturate(T x, float k, float w, float p)                                  \
+#define SMOOTH_SATURATE_TEMPLATE(T)                                                    \
+T inv_clipped_smooth_saturate(T x, float k, float w, float p)                          \
 {                                                                                      \
 	x = clamp(x, 0.0, k);                                                              \
 	const float k_to_p = pow(k, p);                                                    \
@@ -102,10 +144,10 @@ T inv_smooth_saturate(T x, float k, float w, float p)                           
 }                                                                                      \
 
 // Generate functions.
-TEMPLATE_INV_SMOOTH_SATURATE(float)
-TEMPLATE_INV_SMOOTH_SATURATE(float3)
+SMOOTH_SATURATE_TEMPLATE(float)
+SMOOTH_SATURATE_TEMPLATE(float3)
 
-#undef TEMPLATE_INV_SMOOTH_SATURATE
+#undef SMOOTH_SATURATE_TEMPLATE
 
 // x - input
 // k - peak
@@ -114,8 +156,8 @@ TEMPLATE_INV_SMOOTH_SATURATE(float3)
 // p - compression strength, should be in range (1, +inf)
 //
 // Returns input in range [0, white/clip point].
-#define TEMPLATE_INV_SMOOTH_SATURATE(T)                                                                                                                                 \
-T inv_smooth_saturate(T x, float k, float w, float m, float p)                                                                                                          \
+#define SMOOTH_SATURATE_TEMPLATE(T)                                                                                                                                     \
+T inv_clipped_smooth_saturate(T x, float k, float w, float m, float p)                                                                                                  \
 {                                                                                                                                                                       \
 	x = clamp(x, 0.0, k);                                                                                                                                               \
 	const T x_minus_m = x - m;                                                                                                                                          \
@@ -127,9 +169,9 @@ T inv_smooth_saturate(T x, float k, float w, float m, float p)                  
 }                                                                                                                                                                       \
 
 // Generate functions.
-TEMPLATE_INV_SMOOTH_SATURATE(float)
-TEMPLATE_INV_SMOOTH_SATURATE(float3)
+SMOOTH_SATURATE_TEMPLATE(float)
+SMOOTH_SATURATE_TEMPLATE(float3)
 
-#undef TEMPLATE_INV_SMOOTH_SATURATE
+#undef SMOOTH_SATURATE_TEMPLATE
 
 #endif // __SMOOTH_SATURATE_HLSLI__

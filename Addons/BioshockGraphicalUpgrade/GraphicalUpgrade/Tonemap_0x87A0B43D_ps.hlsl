@@ -52,7 +52,7 @@ void main(
   //r0.xyz = saturate(sceneBias * r0.xyz);
 
   // Smooth saturate tonemapping.
-  r0.xyz = smooth_saturate(sceneBias * r0.xyz, 1.0, 12.0, 0.18, 1.18);
+  r0.xyz = clipped_smooth_saturate(sceneBias * r0.xyz, 1.0, 12.0, 0.18, 1.18);
 
   // Original delinearization, gamma 2.2.
   //r0.xyz = log2(r0.xyz);
