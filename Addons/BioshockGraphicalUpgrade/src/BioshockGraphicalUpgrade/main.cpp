@@ -7,7 +7,7 @@
 #include <Shlobj.h>
 
 extern "C" __declspec(dllexport) const char* NAME = "BioshockGraphicalUpgrade";
-extern "C" __declspec(dllexport) const char* DESCRIPTION = "v13.3.1";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "v14.0.0";
 extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/BioshockGraphicalUpgrade";
 
 // Shader hooks.
@@ -622,6 +622,45 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		// Bloom
 		//
 
+		// KarisAverage pass
+		////
+
+		// Create VS.
+		[[unlikely]] if (!g_managed_resources.vertex_shaders["fullscreen_triangle"_h]) {
+			create_vertex_shader(device, g_managed_resources.vertex_shaders["fullscreen_triangle"_h].put(), L"FullscreenTriangle_vs.hlsl");
+		}
+
+		// Create PS.
+		[[unlikely]] if (!g_managed_resources.pixel_shaders["bloom_karis_average"_h]) {
+			create_pixel_shader(device, g_managed_resources.pixel_shaders["bloom_karis_average"_h].put(), L"Bloom_impl.hlsl", "bloom_karis_average_ps");
+		}
+
+		// Create RTs and views.
+		[[unlikely]] if (!g_managed_resources.render_target_views["bloom_karis_average"_h]) {
+			D3D10_TEXTURE2D_DESC tex_desc = {};
+			tex_desc.Width = g_swapchain_width;
+			tex_desc.Height = g_swapchain_height;
+			tex_desc.MipLevels = 1;
+			tex_desc.ArraySize = 1;
+			tex_desc.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+			tex_desc.SampleDesc.Count = 1;
+			tex_desc.BindFlags = D3D10_BIND_SHADER_RESOURCE | D3D10_BIND_RENDER_TARGET;
+			Com_ptr<ID3D10Texture2D> tex;
+			ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
+			ensure(device->CreateRenderTargetView(tex.get(), nullptr, g_managed_resources.render_target_views["bloom_karis_average"_h].put()), >= 0);
+			ensure(device->CreateShaderResourceView(tex.get(), nullptr, g_managed_resources.shader_resource_views["bloom_karis_average"_h].put()), >= 0);
+		}
+
+		// Bindings.
+		device->OMSetRenderTargets(1, &g_managed_resources.render_target_views["bloom_karis_average"_h], nullptr);
+		device->VSSetShader(g_managed_resources.vertex_shaders["fullscreen_triangle"_h].get());
+		device->PSSetShader(g_managed_resources.pixel_shaders["bloom_karis_average"_h].get());
+		device->PSSetShaderResources(0, 1, &srv_scene);
+
+		device->Draw(3, 0);
+
+		//
+
 		const UINT y_mip0_width = g_swapchain_width >> 1;
 		const UINT y_mip0_height = g_swapchain_height >> 1;
 
@@ -681,19 +720,14 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		// Prefilter + downsample pass
 		////
 
-		// Create VS.
-		[[unlikely]] if (!g_managed_resources.vertex_shaders["fullscreen_triangle"_h]) {
-			create_vertex_shader(device, g_managed_resources.vertex_shaders["fullscreen_triangle"_h].put(), L"FullscreenTriangle_vs.hlsl");
-		}
-
 		// Create downsample PS.
 		[[unlikely]] if (!g_managed_resources.pixel_shaders["bloom_downsample"_h]) {
-			create_pixel_shader(device, g_managed_resources.pixel_shaders["bloom_downsample"_h].put(), L"Bloom_ps.hlsl", "bloom_downsample_ps");
+			create_pixel_shader(device, g_managed_resources.pixel_shaders["bloom_downsample"_h].put(), L"Bloom_impl.hlsl", "bloom_downsample_ps");
 		}
 
 		// Create prefilter PS.
 		[[unlikely]] if (!g_managed_resources.pixel_shaders["bloom_prefilter"_h]) {
-			create_pixel_shader(device, g_managed_resources.pixel_shaders["bloom_prefilter"_h].put(), L"Bloom_ps.hlsl", "bloom_prefilter_ps");
+			create_pixel_shader(device, g_managed_resources.pixel_shaders["bloom_prefilter"_h].put(), L"Bloom_impl.hlsl", "bloom_prefilter_ps");
 		}
 
 		// Create constant buffer.
@@ -714,11 +748,10 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 
 		// Bindings.
 		device->OMSetRenderTargets(1, &g_rtv_bloom_mips_x[0], nullptr);
-		device->VSSetShader(g_managed_resources.vertex_shaders["fullscreen_triangle"_h].get());
 		device->PSSetShader(g_managed_resources.pixel_shaders["bloom_downsample"_h].get());
 		const std::array bloom_cbs = { g_managed_resources.buffers["cb0_bloom_downsample_0xB51C436B"_h].get(), g_cb.get() };
 		device->PSSetConstantBuffers(GRAPHICAL_UPGRADE_CB_SLOT - bloom_cbs.size() + 1, bloom_cbs.size(), bloom_cbs.data());
-		device->PSSetShaderResources(0, 1, &srv_scene);
+		device->PSSetShaderResources(0, 1, &g_managed_resources.shader_resource_views["bloom_karis_average"_h]);
 		device->RSSetViewports(1, &viewport_x);
 
 		// Draw X pass.
@@ -796,7 +829,7 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 
 		// Create PS.
 		[[unlikely]] if (!g_managed_resources.pixel_shaders["bloom_upsample"_h]) {
-			create_pixel_shader(device, g_managed_resources.pixel_shaders["bloom_upsample"_h].put(), L"Bloom_ps.hlsl", "bloom_upsample_ps");
+			create_pixel_shader(device, g_managed_resources.pixel_shaders["bloom_upsample"_h].put(), L"Bloom_impl.hlsl", "bloom_upsample_ps");
 		}
 
 		// Create blend.
@@ -1809,6 +1842,7 @@ static void on_init_swapchain(reshade::api::swapchain* swapchain, bool resize)
 	g_managed_resources.render_target_views["smaa_neighborhood_blending"_h].reset();
 
 	// Bloom.
+	g_managed_resources.render_target_views["bloom_karis_average"_h].reset();
 	reset_com_array(g_rtv_bloom_mips_y);
 	reset_com_array(g_srv_bloom_mips_y);
 	reset_com_array(g_rtv_bloom_mips_x);

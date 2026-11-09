@@ -30,6 +30,33 @@ cbuffer _Globals : register(b12)
 SamplerState smp : register(s1); // Should be linear clamp.
 Texture2D tex : register(t0);
 
+float get_karis_weight(float3 color)
+{
+	const float luma = get_luma(color);
+	return 1.0 / (1.0 + luma);
+}
+
+float4 bloom_karis_average_ps(float4 pos : SV_Position) : SV_Target
+{
+	float4 sum = 0.0;
+
+	[unroll]
+	for(int y = -1; y <= 1; ++y) {
+		[unroll]
+		for(int x = -1; x <= 1; ++x) {
+			const float3 color = tex.Load(int3(pos.xy, 0), int2(x, y)).rgb;
+			sum += float4(color, 1.0f) * get_karis_weight(color);
+		}
+	}
+
+	return float4(sum.rgb / sum.a, 1.0f);
+}
+
+float get_gaussian_weight(float x)
+{
+	return exp(-x * x / (2.0 * sigma * sigma));
+}
+
 float3 threshold(float3 color)
 {
 	float4 r0, r1;
@@ -41,11 +68,6 @@ float3 threshold(float3 color)
 	r1.x = r1.x ? r1.y : r1.z;
 	r0.w = r1.x / r0.w;
 	return r0.www * r0.xyz;
-}
-
-float get_gaussian_weight(float x)
-{
-	return exp(-x * x / (2.0 * sigma * sigma));
 }
 
 // Prefilter should only be used as the second axis pass on the first MIP.
@@ -62,10 +84,14 @@ float4 bloom_prefilter_ps(float4 pos : SV_Position, float2 texcoord : TEXCOORD) 
 	// Calculate kernel radius.
 	const float radius = ceil(sigma * 3.0);
 
-	for (float i = 1.0 - radius; i <= radius; ++i) {
-		const float weight = get_gaussian_weight(i - f);
-		csum += tex.SampleLevel(smp, tc + i * inv_src_size * axis, 0.0).rgb * weight;
-		wsum += weight;
+	// Optimized, we are processing 2 samples per linear texture fetch.
+	for (float i = 1.0 - radius; i <= radius; i += 2.0) {
+		const float w1 = get_gaussian_weight(i - f);
+		const float w2 = get_gaussian_weight(i + 1.0 - f);
+		const float w12 = w1 + w2;
+		const float offset = (i * w1 + (i + 1.0) * w2) / w12;
+		csum += tex.SampleLevel(smp, tc + offset * inv_src_size * axis, 0.0).rgb * w12;
+		wsum += w12;
 	}
 
 	// Normalize.
@@ -90,10 +116,14 @@ float4 bloom_downsample_ps(float4 pos : SV_Position, float2 texcoord : TEXCOORD)
 	// Calculate kernel radius.
 	const float radius = ceil(sigma * 3.0);
 
-	for (float i = 1.0 - radius; i <= radius; ++i) {
-		const float weight = get_gaussian_weight(i - f);
-		csum += tex.SampleLevel(smp, tc + i * inv_src_size * axis, 0.0).rgb * weight;
-		wsum += weight;
+	// Optimized, we are processing 2 samples per linear texture fetch.
+	for (float i = 1.0 - radius; i <= radius; i += 2.0) {
+		const float w1 = get_gaussian_weight(i - f);
+		const float w2 = get_gaussian_weight(i + 1.0 - f);
+		const float w12 = w1 + w2;
+		const float offset = (i * w1 + (i + 1.0) * w2) / w12;
+		csum += tex.SampleLevel(smp, tc + offset * inv_src_size * axis, 0.0).rgb * w12;
+		wsum += w12;
 	}
 
 	// Normalize.
