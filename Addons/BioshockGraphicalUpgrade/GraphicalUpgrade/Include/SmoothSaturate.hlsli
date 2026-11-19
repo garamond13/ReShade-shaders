@@ -79,7 +79,7 @@ SMOOTH_SATURATE_TEMPLATE(float3)
 //
 // Returns input in range [0, w].
 #define SMOOTH_SATURATE_TEMPLATE(T)                                                                                                                                    \
-T inv_clipped_smooth_saturate(T x, float k, float m, float w, float p)                                                                                                 \
+T inv_smooth_saturate(T x, float k, float m, float w, float p)                                                                                                         \
 {                                                                                                                                                                      \
 	x = clamp(x, 0.0, k);                                                                                                                                              \
 	const T x_minus_m = x - m;                                                                                                                                         \

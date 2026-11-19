@@ -3,6 +3,7 @@
 // Source: https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK/blob/54fbaafdc34716811751bea5032700e78f5a0f33/sdk/include/FidelityFX/gpu/cas/ffx_cas.h
 
 #include "Include/Common.hlsli"
+#include "Include/Noise.hlsli"
 #include "Include/GraphicalUpgradeCB.hlsli.h"
 
 // Should be in linear color space.

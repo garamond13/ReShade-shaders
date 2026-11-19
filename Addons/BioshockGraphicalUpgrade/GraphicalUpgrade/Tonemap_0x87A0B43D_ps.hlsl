@@ -1,4 +1,6 @@
 #include "Include/SmoothSaturate.hlsli"
+#include "Include/Sampling.hlsli"
+#include "Include/Common.hlsli"
 
 cbuffer _Globals : register(b0)
 {
@@ -43,7 +45,12 @@ void main(
   uint4 bitmask, uiDest;
   float4 fDest;
 
-  r0 = s_bloom.Sample(s_bloom_s, w1.xy);
+  // Original linear bloom sampling.
+  //r0 = s_bloom.Sample(s_bloom_s, w1.xy);
+
+  // Bicubic bloom sampling.
+  r0 = sample_bicubic(s_bloom, s_bloom_s, w1.xy);
+
   r1 = s_framebuffer.Sample(s_framebuffer_s, v1.xy);
   r0.xyz = r0.xyz * bloomAlpha * BLOOM_INTENSITY + r1.xyz;
   o0.w = r1.w;

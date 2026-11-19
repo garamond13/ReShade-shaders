@@ -1,78 +1,34 @@
-#include "Include/Common.hlsli"
 #include "Include/GraphicalUpgradeCB.hlsli.h"
-
-cbuffer _Globals : register(b12)
-{
-	float4 fogColor : packoffset(c0);
-	float3 fogTransform : packoffset(c1);
-	float4x3 screenDataToCamera : packoffset(c2);
-	float globalScale : packoffset(c5);
-	float sceneDepthAlphaMask : packoffset(c5.y);
-	float globalOpacity : packoffset(c5.z);
-	float distortionBufferScale : packoffset(c5.w);
-	float2 wToZScaleAndBias : packoffset(c6);
-	float4 screenTransform[2] : packoffset(c7);
-	float4 textureToPixel : packoffset(c9);
-	float4 pixelToTexture : packoffset(c10);
-	float maxScale : packoffset(c11);
-	float bloomAlpha : packoffset(c11.y);
-	float sceneBias : packoffset(c11.z);
-	float exposure : packoffset(c11.w);
-	float deltaExposure : packoffset(c12);
-	float4 SampleOffsets[8] : packoffset(c13);
-	float4 SampleWeights[16] : packoffset(c21);
-	float4 PWLConstants : packoffset(c37);
-	float PWLThreshold : packoffset(c38);
-	float ShadowEdgeDetectThreshold : packoffset(c38.y);
-	float4 ColorFill : packoffset(c39);
-}
 
 SamplerState smp : register(s1); // Should be linear clamp.
 Texture2D tex : register(t0);
 
-float get_karis_weight(float3 color)
-{
-	const float luma = get_luma(color);
-	return 1.0 / (1.0 + luma);
-}
-
-float4 bloom_karis_average_ps(float4 pos : SV_Position) : SV_Target
-{
-	float4 sum = 0.0;
-
-	[unroll]
-	for(int y = -1; y <= 1; ++y) {
-		[unroll]
-		for(int x = -1; x <= 1; ++x) {
-			const float3 color = tex.Load(int3(pos.xy, 0), int2(x, y)).rgb;
-			sum += float4(color, 1.0f) * get_karis_weight(color);
-		}
-	}
-
-	return float4(sum.rgb / sum.a, 1.0f);
-}
+#ifndef THRESHOLD
+#define THRESHOLD 0
+#endif
 
 float get_gaussian_weight(float x)
 {
 	return exp(-x * x / (2.0 * sigma * sigma));
 }
 
-float3 threshold(float3 color)
+// t - soft threshold, should be in range (0, +inf)
+// h - knee height, should be in range (0, t)
+// p - knee sharpness, should be in range (1, +inf)
+//
+// f(x) = x - x / (1 + exp2(log2(h / (t - h)) + p * log2(|x| / t)))
+//
+// This would be equivalent to f(x) = x - x / (1 + h / (t - h) * (|x| / t)^p) implementation, but safe for large p.
+float3 threshold(float3 color, float t, float h, float p)
 {
-	float4 r0, r1;
-	r0.xyz = color;
-	r0.w = dot(r0.xyz, float3(0.270000011,0.670000017,0.0599999987));
-	r0.w = max(9.99999975e-006, r0.w);
-	r1.x = r0.w < PWLThreshold;
-	r1.yz = r0.ww * PWLConstants.xz + PWLConstants.yw;
-	r1.x = r1.x ? r1.y : r1.z;
-	r0.w = r1.x / r0.w;
-	return r0.www * r0.xyz;
+	color = max(0.0, color);
+	const float k = max(color.r, max(color.g, color.b));
+	const float u = log2(h / (t - h)) + p * log2(max(1e-6, k / t));
+	return color / (1.0 + exp2(-u)); // Optimized, color * scale(k) / k
 }
 
-// Prefilter should only be used as the second axis pass on the first MIP.
 // Samples one axis at a time.
-float4 bloom_prefilter_ps(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
+float4 downsample_ps(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 {
 	// Calculate fractional part and texel center.
 	const float f = dot(frac(texcoord * src_size - 0.5), axis);
@@ -97,78 +53,26 @@ float4 bloom_prefilter_ps(float4 pos : SV_Position, float2 texcoord : TEXCOORD) 
 	// Normalize.
 	csum /= wsum;
 
-	// Apply threshold.
-	float3 color = threshold(csum);
-
-	return float4(color, 1.0);
-}
-
-// Samples one axis at a time.
-float4 bloom_downsample_ps(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
-{
-	// Calculate fractional part and texel center.
-	const float f = dot(frac(texcoord * src_size - 0.5), axis);
-	const float2 tc = texcoord - f * inv_src_size * axis;
-
-	float3 csum = 0.0;
-	float wsum = 0.0;
-
-	// Calculate kernel radius.
-	const float radius = ceil(sigma * 3.0);
-
-	// Optimized, we are processing 2 samples per linear texture fetch.
-	for (float i = 1.0 - radius; i <= radius; i += 2.0) {
-		const float w1 = get_gaussian_weight(i - f);
-		const float w2 = get_gaussian_weight(i + 1.0 - f);
-		const float w12 = w1 + w2;
-		const float offset = (i * w1 + (i + 1.0) * w2) / w12;
-		csum += tex.SampleLevel(smp, tc + offset * inv_src_size * axis, 0.0).rgb * w12;
-		wsum += w12;
-	}
-
-	// Normalize.
-	csum /= wsum;
+	#if THRESHOLD
+	// PWLThreshold, the original bloom threshold value should be 1. 
+	csum = threshold(csum, 1.0, 0.05, 3.0);
+	#endif
 
 	return float4(csum, 1.0);
 }
 
-// Bicubic upsampling in 4 texture fetches.
-//
-// f(x) = (4 + 3 * |x|^3 – 6 * |x|^2) / 6 for 0 <= |x| <= 1
-// f(x) = (2 – |x|)^3 / 6 for 1 < |x| <= 2
-// f(x) = 0 otherwise
-//
-// Source: https://www.researchgate.net/publication/220494113_Efficient_GPU-Based_Texture_Interpolation_using_Uniform_B-Splines
-float4 bloom_upsample_ps(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
+// From https://www.iryoku.com/next-generation-post-processing-in-call-of-duty-advanced-warfare/
+float4 upsample_ps(float4 pos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 {
-	// transform the coordinate from [0,extent] to [-0.5, extent-0.5]
-	float2 coord_grid = texcoord * src_size - 0.5;
-	float2 index = floor(coord_grid);
-	float2 fraction = coord_grid - index;
-	float2 one_frac = 1.0 - fraction;
-	float2 one_frac2 = one_frac * one_frac;
-	float2 fraction2 = fraction * fraction;
-	float2 w0 = 1.0 / 6.0 * one_frac2 * one_frac;
-	float2 w1 = 2.0 / 3.0 - 0.5 * fraction2 * (2.0 - fraction);
-	float2 w2 = 2.0 / 3.0 - 0.5 * one_frac2 * (2.0 - one_frac);
-	float2 w3 = 1.0 / 6.0 * fraction2 * fraction;
-	float2 g0 = w0 + w1;
-	float2 g1 = w2 + w3;
+	const float3 a = tex.SampleLevel(smp, texcoord, 0.0, int2(-1, 1)).rgb;
+	const float3 b = tex.SampleLevel(smp, texcoord, 0.0, int2(0, 1)).rgb;
+	const float3 c = tex.SampleLevel(smp, texcoord, 0.0, int2(1, 1)).rgb;
+	const float3 d = tex.SampleLevel(smp, texcoord, 0.0, int2(-1, 0)).rgb;
+	const float3 e = tex.SampleLevel(smp, texcoord, 0.0).rgb;
+	const float3 f = tex.SampleLevel(smp, texcoord, 0.0, int2(1, 0)).rgb;
+	const float3 g = tex.SampleLevel(smp, texcoord, 0.0, int2(-1, -1)).rgb;
+	const float3 h = tex.SampleLevel(smp, texcoord, 0.0, int2(0, -1)).rgb;
+	const float3 i = tex.SampleLevel(smp, texcoord, 0.0, int2(1, -1)).rgb;
 
-	// h0 = w1/g0 - 1, move from [-0.5, extent-0.5] to [0, extent]
-	float2 h0 = ((w1 / g0) - 0.5 + index) * inv_src_size;
-	float2 h1 = ((w3 / g1) + 1.5 + index) * inv_src_size;
-
-	// fetch the four linear interpolations
-	float3 tex00 = tex.SampleLevel(smp, float2(h0.x, h0.y), 0.0).rgb;
-	float3 tex10 = tex.SampleLevel(smp, float2(h1.x, h0.y), 0.0).rgb;
-	float3 tex01 = tex.SampleLevel(smp, float2(h0.x, h1.y), 0.0).rgb;
-	float3 tex11 = tex.SampleLevel(smp, float2(h1.x, h1.y), 0.0).rgb;
-
-	// weigh along the y-direction
-	tex00 = lerp(tex01, tex00, g0.y);
-	tex10 = lerp(tex11, tex10, g0.y);
-
-	// weigh along the x-direction
-	return float4(lerp(tex10, tex00, g0.x), 1.0);
+	return float4(e * 0.25 + (b + d + f + h) * 0.125 + (a + c + g + i) * 0.0625, 1.0);
 }
