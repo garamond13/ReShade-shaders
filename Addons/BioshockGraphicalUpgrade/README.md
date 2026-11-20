@@ -4,14 +4,15 @@
 - XeGTAO or Visibility Bitmask - GTAO ambient occlusion.
 - SMAA anti aliasing.
 - Replaced bloom.
+- Greatly improved tonemapping.
 - 16x anisotropic filtering.
 - Sharpening filter (Modified AMD FFX CAS).
 - Temporal film grain (AMD FFX LFGA).
 - Accurate FPS limiter.
-- Greatly improved tonemapping.
-- Upgraded render targets (greatly reduces color banding).
+- Upgraded render targets (reduces color banding).
+- sRGB output (originally gamma 2.2).
 - 10bit color output.
-- Greatly reduced input lag.
+- Reduced input lag.
 - Exit game! button, for quick exit. (The game has issue that if exiting the game via game's main menu, the game may stuck working in background.)
 
 ## Usage
