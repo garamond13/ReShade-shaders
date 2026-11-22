@@ -12,6 +12,7 @@
 - Upgraded render targets (reduces color banding).
 - sRGB output (originally gamma 2.2).
 - 10bit color output.
+- Output dithering (reduces color banding).
 - Reduced input lag.
 - Exit game! button, for quick exit. (The game has issue that if exiting the game via game's main menu, the game may stuck working in background.)
 

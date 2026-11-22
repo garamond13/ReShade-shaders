@@ -30,9 +30,9 @@ Texture2D tex2 : register(t2);
 // SMAA Pre Pass.
 float4 smaa_pre_pass_ps(float4 pos : SV_Position) : SV_Target
 {
-	float4 color = tex0.Load(int3(pos.xy, 0));
-	color.rgb = linear_to_srgb(color.rgb);
-	return color;
+    float4 color = tex0.Load(int3(pos.xy, 0));
+    color.rgb = linear_to_srgb(color.rgb);
+    return color;
 }
 
 // SMAAEdgeDetection
@@ -40,15 +40,15 @@ float4 smaa_pre_pass_ps(float4 pos : SV_Position) : SV_Target
 
 void smaa_edge_detection_vs(uint vid : SV_VertexID, out float4 pos : SV_Position, out float2 texcoord : TEXCOORD0, out float4 offset[3] : TEXCOORD1)
 {
-	fullscreen_triangle(vid, pos, texcoord);
-	SMAAEdgeDetectionVS(texcoord, offset);
+    fullscreen_triangle(vid, pos, texcoord);
+    SMAAEdgeDetectionVS(texcoord, offset);
 }
 
 float2 smaa_edge_detection_ps(float4 pos : SV_Position, float2 texcoord : TEXCOORD0, float4 offset[3] : TEXCOORD1) : SV_Target
 {
-	// tex0 = colorTexGamma
-	// tex1 = predicationTex
-	return SMAALumaEdgeDetectionPS(texcoord, offset, tex0, tex1);
+    // tex0 = colorTexGamma
+    // tex1 = predicationTex
+    return SMAALumaEdgeDetectionPS(texcoord, offset, tex0, tex1);
 }
 
 //
@@ -58,16 +58,16 @@ float2 smaa_edge_detection_ps(float4 pos : SV_Position, float2 texcoord : TEXCOO
 
 void smaa_blending_weight_calculation_vs(uint vid : SV_VertexID, out float4 pos : SV_Position, out float2 texcoord : TEXCOORD0, out float2 pixcoord : TEXCOORD1, out float4 offset[3] : TEXCOORD2)
 {
-	fullscreen_triangle(vid, pos, texcoord);
-	SMAABlendingWeightCalculationVS(texcoord, pixcoord, offset);
+    fullscreen_triangle(vid, pos, texcoord);
+    SMAABlendingWeightCalculationVS(texcoord, pixcoord, offset);
 }
 
 float4 smaa_blending_weight_calculation_ps(float4 pos : SV_Position, float2 texcoord : TEXCOORD0, float2 pixcoord : TEXCOORD1, float4 offset[3] : TEXCOORD2) : SV_Target
 {
-	// tex0 = edgesTex
-	// tex1 = areaTex
-	// tex2 = searchTex
-	return SMAABlendingWeightCalculationPS(texcoord, pixcoord, offset, tex0, tex1, tex2, 0);
+    // tex0 = edgesTex
+    // tex1 = areaTex
+    // tex2 = searchTex
+    return SMAABlendingWeightCalculationPS(texcoord, pixcoord, offset, tex0, tex1, tex2, 0);
 }
 
 //
@@ -77,15 +77,15 @@ float4 smaa_blending_weight_calculation_ps(float4 pos : SV_Position, float2 texc
 
 void smaa_neighborhood_blending_vs(uint vid : SV_VertexID, out float4 pos : SV_Position, out float2 texcoord : TEXCOORD0, out float4 offset : TEXCOORD1)
 {
-	fullscreen_triangle(vid, pos, texcoord);
-	SMAANeighborhoodBlendingVS(texcoord, offset);
+    fullscreen_triangle(vid, pos, texcoord);
+    SMAANeighborhoodBlendingVS(texcoord, offset);
 }
 
 float4 smaa_neighborhood_blending_ps(float4 pos : SV_Position, float2 texcoord : TEXCOORD0, float4 offset : TEXCOORD1) : SV_Target
 {
-	// tex0 = colorTex
-	// tex1 = blendTex
-	return SMAANeighborhoodBlendingPS(texcoord, offset, tex0, tex1);
+    // tex0 = colorTex
+    // tex1 = blendTex
+    return SMAANeighborhoodBlendingPS(texcoord, offset, tex0, tex1);
 }
 
 //
