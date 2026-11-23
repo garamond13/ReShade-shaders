@@ -190,10 +190,9 @@ float3 dither(float3 color, uint3 seed, float bits)
 {
     const float bitstep = exp2(bits) - 1.0;
 
-    const uint3 noise1 = pcg3d(seed);
-    const uint3 noise2 = pcg3d(noise1);
-    const float3 fnoise1 = hash_to_01_exclusive(noise1);
-    const float3 fnoise2 = hash_to_01_exclusive(noise2);
+    const uint3 noise = pcg3d(seed);
+    const float3 fnoise1 = float3(noise >> 16u) / 65535.0;
+    const float3 fnoise2 = float3(noise & 0xFFFFu) / 65535.0;
     const float3 uni = fnoise1 - 0.5;
     const float3 tri = fnoise1 - fnoise2;
 
