@@ -63,22 +63,13 @@ uint3 pcg3d(uint3 v)
     return v;
 }
 
-// Input color should be in [0, 1] range.
-// Output color may excede [0, 1] range.
-//
-// Based on Triangular Dither by The Sandvich Maker.
-float3 dither(float3 color, uint3 seed, float bits)
+// Dithering with triangularly distributed noise.
+float3 dither(float3 color, uint3 seed, uint bits)
 {
     const float bitstep = exp2(bits) - 1.0;
-
     const uint3 noise = pcg3d(seed);
-    const float3 fnoise1 = float3(noise >> 16u) / 65535.0;
-    const float3 fnoise2 = float3(noise & 0xFFFFu) / 65535.0;
-    const float3 uni = fnoise1 - 0.5;
-    const float3 tri = fnoise1 - fnoise2;
-
-    const float3 s = saturate(min(color, 1.0 - color) * 2.0 * bitstep);
-    return color + lerp(uni, tri, s) / bitstep;
+    const float3 tri_noise = float3((noise & 0xFFFFu) + (noise >> 16u)) / 65535.0 - 1.0;
+    return color + tri_noise / bitstep;
 }
 
 float4 sample_trilinear_ps(float4 pos : SV_Position, float2 texcoord : TEXCOORD0) : SV_Target

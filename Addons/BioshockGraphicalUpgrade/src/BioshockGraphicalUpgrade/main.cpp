@@ -7,7 +7,7 @@
 #include <Shlobj.h>
 
 extern "C" __declspec(dllexport) const char* NAME = "BioshockGraphicalUpgrade";
-extern "C" __declspec(dllexport) const char* DESCRIPTION = "v16.0.1";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "v16.1.0";
 extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/BioshockGraphicalUpgrade";
 
 // Shader hooks.
@@ -69,7 +69,7 @@ static SMAA_rt_metrics g_smaa_rt_metrics;
 static float g_amd_ffx_cas_sharpness = 0.0f;
 
 // AMD FFX LFGA
-static float g_amd_ffx_lfga_amount = 0.3f;
+static float g_amd_ffx_lfga_amount = 0.0f;
 
 // FPS limiter.
 //
