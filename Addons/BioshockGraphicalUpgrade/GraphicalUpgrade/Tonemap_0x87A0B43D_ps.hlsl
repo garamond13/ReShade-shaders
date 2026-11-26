@@ -1,6 +1,9 @@
 #include "Include/SmoothSaturate.hlsli"
 #include "Include/Sampling.hlsli"
 #include "Include/Common.hlsli"
+#include "Include/AMD_FFX_CAS.hlsli"
+#include "Include/Noise.hlsli"
+#include "Include/GraphicalUpgradeCB.hlsli.h"
 
 cbuffer _Globals : register(b0)
 {
@@ -32,6 +35,14 @@ Texture2D s_bloom : register(t1);
 #define BLOOM_INTENSITY 1.0
 #endif
 
+#ifndef SHARPNESS
+#define SHARPNESS 0.0
+#endif
+
+#ifndef AMOUNT
+#define AMOUNT 0.0
+#endif
+
 // 3Dmigoto declarations
 #define cmp -
 
@@ -51,7 +62,14 @@ void main(
   // Bicubic bloom sampling.
   r0 = sample_bicubic(s_bloom, s_bloom_s, w1.xy);
 
-  r1 = s_framebuffer.Sample(s_framebuffer_s, v1.xy);
+  // Compiler should optimize out the branch.
+  if (SHARPNESS <= 0.0) {
+    r1 = s_framebuffer.Sample(s_framebuffer_s, v1.xy);
+  }
+  else {
+    r1 = amd_ffx_cas(s_framebuffer, v0.xy, SHARPNESS, true);
+  }
+
   r0.xyz = r0.xyz * bloomAlpha * BLOOM_INTENSITY + r1.xyz;
   o0.w = r1.w;
 
@@ -66,7 +84,9 @@ void main(
   //r0.xyz = float3(0.454545468,0.454545468,0.454545468) * r0.xyz;
   //o0.xyz = exp2(r0.xyz);
 
-  // Linear output.
+  r0.xyz = film_grain(r0.xyz, uint4(v0.xy, noise_index, 0u), AMOUNT);
+  r0.xyz = linear_to_srgb(r0.xyz);
+  r0.xyz = dither(r0.xyz, uint3(v0.xy, noise_index), 10);
   o0.xyz = r0.xyz;
 
   return;

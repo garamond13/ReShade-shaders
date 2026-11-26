@@ -1,24 +1,23 @@
+#ifndef __AMD_FFX_CAS_HLSLI__
+#define __AMD_FFX_CAS_HLSLI__
+
 // Modified AMD FFX CAS
 //
 // Adopted and optimized for shader model 4.1.
 // Rescaled the effect of sharpening, now sharpness = 0 means no sharpening and sharpness = 1 is same as before.
 // Instead of using only green channel it uses luma.
+// Optional HDR source.
 //
 // Source: https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK/blob/54fbaafdc34716811751bea5032700e78f5a0f33/sdk/include/FidelityFX/gpu/cas/ffx_cas.h
 
-#include "Include/Common.hlsli"
+#include "Include/Math.hlsli"
+#include "Include/SmoothSaturate.hlsli"
 
-// Should be in linear color space.
-Texture2D tex : register(t0);
-
-#ifndef SHARPNESS
-#define SHARPNESS 0.4
-#endif
-
-#define min3(x,y,z) min(x, min(y, z))
-#define max3(x,y,z) max(x, max(y, z))
-
-float4 main(float4 pos : SV_Position) : SV_Target
+// sharpness - should be in range [0, 1]
+// hdr - is source hdr
+// m - mid/anchor point, should be in range [0, 2)
+// p - compression strength, for m = 0 should be in range (0, +inf) and for m > 0 should be in range (1, +inf)
+float4 amd_ffx_cas(Texture2D<float4> tex, int2 pos, float sharpness, bool hdr = false, float m = 0.0, float p = 2.0)
 {
     // Load a collection of samples in a 3x3 neighorhood, where e is the current pixel.
     // a b c
@@ -30,7 +29,7 @@ float4 main(float4 pos : SV_Position) : SV_Target
     float3 sampleD = tex.Load(int3(pos.xy, 0), int2(-1, 0)).rgb;
     float4 sampleE = tex.Load(int3(pos.xy, 0));
     float3 sampleF = tex.Load(int3(pos.xy, 0), int2(1, 0)).rgb;
-    float3 sampleG = tex.Load(int3(pos.xy, 0), int2(-1, 1)).rgb; 
+    float3 sampleG = tex.Load(int3(pos.xy, 0), int2(-1, 1)).rgb;
     float3 sampleH = tex.Load(int3(pos.xy, 0), int2(0, 1)).rgb;
     float3 sampleI = tex.Load(int3(pos.xy, 0), int2(1, 1)).rgb;
 
@@ -57,9 +56,16 @@ float4 main(float4 pos : SV_Position) : SV_Target
     float maximumLuma2 = max3(max3(maximumLuma, lumaA, lumaC), lumaG, lumaI);
     maximumLuma += maximumLuma2;
 
+    // Smooth saturate soft min and max for HDR source.
+    // Since min and max are 2x bigger the peak is at 2.
+    if (hdr) {
+        minimumLuma = smooth_saturate(minimumLuma, 2.0, m, p);
+        maximumLuma = smooth_saturate(maximumLuma, 2.0, m, p);
+    }
+
     // Smooth minimum distance to signal limit divided by smooth max.
     float amplifyLuma = saturate(min(minimumLuma, 2.0 - maximumLuma) / maximumLuma);
-    
+
     // Shaping amount of sharpening.
     amplifyLuma = sqrt(amplifyLuma);
 
@@ -67,11 +73,17 @@ float4 main(float4 pos : SV_Position) : SV_Target
     //  0 w 0
     //  w 1 w
     //  0 w 0
-    float peak = -0.2 * sqrt(saturate(SHARPNESS));
+    float peak = -0.2 * sqrt(sharpness);
     float weight = amplifyLuma * peak;
 
     // Filter.
-    sampleE.rgb = saturate((sampleB * weight + sampleD * weight + sampleF * weight + sampleH * weight + sampleE.rgb) / (1.0 + 4.0 * weight));
+    sampleE.rgb = (sampleB * weight + sampleD * weight + sampleF * weight + sampleH * weight + sampleE.rgb) / (1.0 + 4.0 * weight);
+
+    if (!hdr) {
+        sampleE.rgb = saturate(sampleE.rgb);
+    }
 
     return float4(sampleE.rgb, sampleE.a);
 }
+
+#endif // __AMD_FFX_CAS_HLSLI__

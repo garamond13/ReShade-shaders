@@ -7,7 +7,7 @@
 #include <Shlobj.h>
 
 extern "C" __declspec(dllexport) const char* NAME = "BioshockGraphicalUpgrade";
-extern "C" __declspec(dllexport) const char* DESCRIPTION = "v16.1.0";
+extern "C" __declspec(dllexport) const char* DESCRIPTION = "v17.0.0";
 extern "C" __declspec(dllexport) const char* WEBSITE = "https://github.com/garamond13/ReShade-shaders/tree/main/Addons/BioshockGraphicalUpgrade";
 
 // Shader hooks.
@@ -1087,96 +1087,21 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 		// Create PS.
 		[[unlikely]] if (!g_managed_resources.pixel_shaders["tonemap_0x87A0B43D"_h]) {
 			const std::string bloom_intensity_str = std::to_string(g_bloom_intensity);
+			const std::string amd_ffx_cas_sharpness_str = std::to_string(g_amd_ffx_cas_sharpness);
+			const std::string amd_ffx_lfga_amount_str = std::to_string(g_amd_ffx_lfga_amount);
 			const D3D_SHADER_MACRO defines[] = {
 				{ "BLOOM_INTENSITY", bloom_intensity_str.c_str() },
+				{ "SHARPNESS", amd_ffx_cas_sharpness_str.c_str() },
+				{ "AMOUNT", amd_ffx_lfga_amount_str.c_str() },
 				{ nullptr, nullptr }
 			};
 			create_pixel_shader(device, g_managed_resources.pixel_shaders["tonemap_0x87A0B43D"_h].put(), L"Tonemap_0x87A0B43D_ps.hlsl", "main", defines);
 		}
 
-		// Create RTs and views.
-		[[unlikely]] if (!g_managed_resources.render_target_views["tonemap_0x87A0B43D"_h]) {
-			D3D10_TEXTURE2D_DESC tex_desc = {};
-			tex_desc.Width = g_swapchain_width;
-			tex_desc.Height = g_swapchain_height;
-			tex_desc.MipLevels = 1;
-			tex_desc.ArraySize = 1;
-			tex_desc.Format = DXGI_FORMAT_R16G16B16A16_UNORM;
-			tex_desc.SampleDesc.Count = 1;
-			tex_desc.BindFlags = D3D10_BIND_SHADER_RESOURCE | D3D10_BIND_RENDER_TARGET;
-			Com_ptr<ID3D10Texture2D> tex;
-			ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
-			ensure(device->CreateRenderTargetView(tex.get(), nullptr, g_managed_resources.render_target_views["tonemap_0x87A0B43D"_h].put()), >= 0);
-			ensure(device->CreateShaderResourceView(tex.get(), nullptr, g_managed_resources.shader_resource_views["tonemap_0x87A0B43D"_h].put()), >= 0);
-		}
-
-		// Bindings.
-		device->OMSetRenderTargets(1, &g_managed_resources.render_target_views["tonemap_0x87A0B43D"_h], nullptr);
-		device->VSSetShader(vs_original.get());
-		device->PSSetShader(g_managed_resources.pixel_shaders["tonemap_0x87A0B43D"_h].get());
-		const std::array srvs_tonemap_0x87A0B43D = { g_managed_resources.shader_resource_views["smaa_neighborhood_blending"_h].get(), g_srv_bloom_mips_y[0] };
-		device->PSSetShaderResources(0, srvs_tonemap_0x87A0B43D.size(), srvs_tonemap_0x87A0B43D.data());
-
-		cmd_list->draw(vertex_count, instance_count, first_vertex, first_instance);
-
-		//
-
-		// AMD FFX CAS pass
-		//
-
-		// Create PS.
-		[[unlikely]] if (!g_managed_resources.pixel_shaders["amd_ffx_cas"_h]) {
-			const std::string amd_ffx_cas_sharpness_str = std::to_string(g_amd_ffx_cas_sharpness);
-			const D3D_SHADER_MACRO defines[] = {
-				{ "SHARPNESS", amd_ffx_cas_sharpness_str.c_str() },
-				{ nullptr, nullptr }
-			};
-			create_pixel_shader(device, g_managed_resources.pixel_shaders["amd_ffx_cas"_h].put(), L"AMD_FFX_CAS_ps.hlsl", "main", defines);
-		}
-
-		// Create RT and views.
-		[[unlikely]] if (!g_managed_resources.render_target_views["amd_ffx_cas"_h]) {
-			D3D10_TEXTURE2D_DESC tex_desc = {};
-			tex_desc.Width = g_swapchain_width;
-			tex_desc.Height = g_swapchain_height;
-			tex_desc.MipLevels = 1;
-			tex_desc.ArraySize = 1;
-			tex_desc.Format = DXGI_FORMAT_R16G16B16A16_UNORM;
-			tex_desc.SampleDesc.Count = 1;
-			tex_desc.BindFlags = D3D10_BIND_SHADER_RESOURCE | D3D10_BIND_RENDER_TARGET;
-			Com_ptr<ID3D10Texture2D> tex;
-			ensure(device->CreateTexture2D(&tex_desc, nullptr, tex.put()), >= 0);
-			ensure(device->CreateRenderTargetView(tex.get(), nullptr, g_managed_resources.render_target_views["amd_ffx_cas"_h].put()), >= 0);
-			ensure(device->CreateShaderResourceView(tex.get(), nullptr, g_managed_resources.shader_resource_views["amd_ffx_cas"_h].put()), >= 0);
-		}
-
-		// Bindings.
-		device->OMSetRenderTargets(1, &g_managed_resources.render_target_views["amd_ffx_cas"_h], nullptr);
-		device->VSSetShader(g_managed_resources.vertex_shaders["fullscreen_triangle"_h].get());
-		device->PSSetShader(g_managed_resources.pixel_shaders["amd_ffx_cas"_h].get());
-		device->PSSetShaderResources(0, 1, &g_managed_resources.shader_resource_views["tonemap_0x87A0B43D"_h]);
-
-		device->Draw(3, 0);
-
-		//
-
-		// AMD FFX LFGA pass
-		//
-
-		// Create PS.
-		[[unlikely]] if (!g_managed_resources.pixel_shaders["amd_ffx_lfga"_h]) {
-			const std::string amd_ffx_lfga_amount_str = std::to_string(g_amd_ffx_lfga_amount);
-			const D3D_SHADER_MACRO defines[] = {
-				{ "AMOUNT", amd_ffx_lfga_amount_str.c_str() },
-				{ nullptr, nullptr }
-			};
-			create_pixel_shader(device, g_managed_resources.pixel_shaders["amd_ffx_lfga"_h].put(), L"AMD_FFX_LFGA_ps.hlsl", "main", defines);
-		}
-
 		// Update the constant buffer.
 		// We need to limit the temporal grain update rate, otherwise grain will flicker.
 		constexpr double update_rate = 64.0;
-		constexpr int pattern_lenght = 1024;
+		constexpr int pattern_lenght = 4096;
 		constexpr auto interval = std::chrono::duration_cast<std::chrono::high_resolution_clock::duration>(std::chrono::duration<double>(1.0 / update_rate));
 		static auto last_update = std::chrono::high_resolution_clock::now();
 		const auto now = std::chrono::high_resolution_clock::now();
@@ -1191,10 +1116,12 @@ static bool on_draw(reshade::api::command_list* cmd_list, uint32_t vertex_count,
 
 		// Bindings.
 		device->OMSetRenderTargets(1, &rtv_original, nullptr);
-		device->PSSetShader(g_managed_resources.pixel_shaders["amd_ffx_lfga"_h].get());
-		device->PSSetShaderResources(0, 1, &g_managed_resources.shader_resource_views["amd_ffx_cas"_h]);
+		device->VSSetShader(vs_original.get());
+		device->PSSetShader(g_managed_resources.pixel_shaders["tonemap_0x87A0B43D"_h].get());
+		const std::array srvs_tonemap_0x87A0B43D = { g_managed_resources.shader_resource_views["smaa_neighborhood_blending"_h].get(), g_srv_bloom_mips_y[0] };
+		device->PSSetShaderResources(0, srvs_tonemap_0x87A0B43D.size(), srvs_tonemap_0x87A0B43D.data());
 
-		device->Draw(3, 0);
+		cmd_list->draw(vertex_count, instance_count, first_vertex, first_instance);
 
 		//
 
@@ -1819,9 +1746,6 @@ static void on_init_swapchain(reshade::api::swapchain* swapchain, bool resize)
 	reset_com_array(g_rtv_bloom_mips_x);
 	reset_com_array(g_srv_bloom_mips_x);
 
-	g_managed_resources.render_target_views["tonemap_0x87A0B43D"_h].reset();
-	g_managed_resources.render_target_views["amd_ffx_cas"_h].reset();
-
 	//
 }
 
@@ -2008,13 +1932,13 @@ static void draw_settings_overlay(reshade::api::effect_runtime* runtime)
 	ImGui::Spacing();
 
 	if (ImGui::SliderFloat("Sharpness", &g_amd_ffx_cas_sharpness, 0.0f, 1.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp)) {
-		g_managed_resources.pixel_shaders["amd_ffx_cas"_h].reset();
+		g_managed_resources.pixel_shaders["tonemap_0x87A0B43D"_h].reset();
 		reshade::set_config_value(nullptr, NAME, "Sharpness", g_amd_ffx_cas_sharpness);
 	}
 	ImGui::Spacing();
 
 	if (ImGui::SliderFloat("Grain amount", &g_amd_ffx_lfga_amount, 0.0f, 1.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp)) {
-		g_managed_resources.pixel_shaders["amd_ffx_lfga"_h].reset();
+		g_managed_resources.pixel_shaders["tonemap_0x87A0B43D"_h].reset();
 		reshade::set_config_value(nullptr, NAME, "GrainAmount", g_amd_ffx_lfga_amount);
 	}
 	ImGui::Spacing();
